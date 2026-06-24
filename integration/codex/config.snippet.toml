@@ -1,0 +1,10 @@
+# Cairn MCP server registration for OpenAI Codex.
+# Append to ~/.codex/config.toml (user scope) or .codex/config.toml (project scope).
+# Replace /ABSOLUTE/PATH/TO/cairn after `npm run build`.
+# CAIRN_DB defaults to ~/.cairn/cairn.sqlite when unset, so no env is required.
+
+[mcp_servers.cairn]
+command = "node"
+args = ["/ABSOLUTE/PATH/TO/cairn/dist/server.js"]
+startup_timeout_sec = 30
+tool_timeout_sec = 60

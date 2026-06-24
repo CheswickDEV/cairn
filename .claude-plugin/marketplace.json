@@ -1,0 +1,17 @@
+{
+  "name": "cairn",
+  "owner": {
+    "name": "CheswickDEV"
+  },
+  "metadata": {
+    "description": "Cairn — AI Context Continuity Engine.",
+    "version": "1.4.0"
+  },
+  "plugins": [
+    {
+      "name": "cairn",
+      "source": "./",
+      "description": "Context-zone warnings, faithful 7-bucket handoffs, and a decision/evidence ledger across sessions and models. Bundles the MCP server, the skill, and the SessionStart/PreCompact hooks."
+    }
+  ]
+}

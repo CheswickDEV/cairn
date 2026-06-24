@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "cairn": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/ABSOLUTE/PATH/TO/cairn/dist/server.js"],
+      "env": {
+        "CAIRN_DB": "${HOME}/.cairn/cairn.sqlite"
+      }
+    }
+  }
+}

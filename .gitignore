@@ -1,0 +1,15 @@
+node_modules/
+dist/
+*.sqlite
+*.sqlite-journal
+.env
+# generated calibration artifacts (reproducible via `npm run calibrate`)
+calibration/results/
+# local Claude Code permissions (not part of the product)
+.claude/settings.local.json
+# machine-specific local activation (absolute paths) — install via integration/ templates instead
+.claude/settings.json
+.mcp.json
+
+# Local design reference, not an asset
+Arch.png

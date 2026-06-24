@@ -1,0 +1,72 @@
+{
+  "probe_context": "probe-context.md",
+  "version": "2026-06",
+  "note": "Curated scoring key. must_survive = facts/decisions/evidence that MUST appear (correctly) in a faithful brief. must_not_appear = hallucination traps. verbatim items are checked by exact string match; everything else by peer-review rubric (see calibration-spec.md). Each item references the source turn(s) for evidence binding.",
+
+  "scoring": {
+    "verbatim_check": "exact_string_match",
+    "weights": { "recall": 0.4, "hallucination": 0.3, "supersession": 0.15, "verbatim": 0.15 },
+    "rubric_note": "recall + hallucination weighted highest (the expensive errors). verbatim is hard pass/fail per item via string match, not reviewer judgment."
+  },
+
+  "must_survive": [
+    { "id": "c_eu", "kind": "constraint", "source_ref": "T01", "text": "Belegdaten müssen DSGVO-konform in der EU bleiben; keine US-Cloud-Verarbeitung (auch nicht für OCR).", "primacy": true, "note": "Early binding constraint; must also be reflected as the REASON AcmeOCR was rejected (cross-ref T07)." },
+    { "id": "c_budget", "kind": "constraint", "source_ref": "T01,T10b", "text": "Infra-Budget-Deckel 400 €/Monat.", "contradiction_resolution": "400 (T10b) overrides the 500 floated in T10." },
+    { "id": "c_sla", "kind": "constraint", "source_ref": "T01", "text": "Latenz-SLA p95 < 1.8 s pro Beleg." },
+
+    { "id": "d_db_0", "kind": "decision", "status": "superseded", "superseded_by": "d_db_1", "source_ref": "T02", "text": "SQLite als DB (initialer Prototyp-Ansatz)." },
+    { "id": "d_db_1", "kind": "decision", "status": "accepted", "supersedes": "d_db_0", "source_ref": "T05", "text": "PostgreSQL als DB.", "rationale": "SQLite locked bei gleichzeitigen Writes mehrerer Worker." },
+
+    { "id": "d_ocr_acme", "kind": "decision", "status": "superseded", "superseded_by": "d_ocr_doctr", "source_ref": "T06,T07", "text": "AcmeOCR (Cloud) — vorgeschlagen, dann verworfen.", "rationale": "Verarbeitet nur in us-east-1, verletzt c_eu." },
+    { "id": "d_ocr_paddle", "kind": "decision", "status": "discarded", "source_ref": "T08", "text": "PaddleOCR — getestet, verworfen.", "rationale": "Fehlerhaftes deutsches Umlaut-Handling (ä/ö/ü -> a/o/u)." },
+    { "id": "d_ocr_doctr", "kind": "decision", "status": "accepted", "supersedes": "d_ocr_acme", "source_ref": "T08", "text": "OCR-Engine = docTR (self-hosted, korrekte Umlaute)." },
+
+    { "id": "d_queue", "kind": "decision", "status": "accepted", "source_ref": "T11", "text": "Redis als Job-Queue / Broker." },
+    { "id": "d_k8s", "kind": "decision", "status": "discarded", "source_ref": "T12", "text": "Kubernetes — verworfen (Overkill für 2 Worker, sprengt Budget)." },
+    { "id": "d_deploy", "kind": "decision", "status": "accepted", "source_ref": "T12", "text": "Deployment per Docker Compose auf Hetzner-VPS (Falkenstein, EU)." },
+
+    { "id": "v_env", "kind": "verbatim", "exact": true, "source_ref": "T13", "text": "OCR_ENGINE=doctr\nDB_DSN=postgres://beleg:****@localhost:5432/beleg_prod\nREDIS_URL=redis://localhost:6379/0\nMAX_BATCH=32\nCONFIDENCE_THRESHOLD=0.82\nS3_ENDPOINT=https://eu-fsn.belegstore.example.de\nTZ=UTC" },
+    { "id": "v_error", "kind": "verbatim", "exact": true, "source_ref": "T09", "text": "RuntimeError: ONNXRuntimeError: [E:onnxruntime:Default] CUDA_PATH is not set, falling back to CPUExecutionProvider" },
+    { "id": "v_workaround", "kind": "verbatim", "exact": true, "source_ref": "T09", "text": "export ORT_DISABLE_CUDA=1" },
+    { "id": "v_func", "kind": "verbatim", "exact": true, "source_ref": "T14", "text": "def keep_field(field, threshold=0.82):\n    # unter threshold -> Feld wird als \"unsicher\" geflaggt, nicht verworfen\n    return field.confidence >= threshold" },
+    { "id": "v_commit", "kind": "verbatim", "exact": true, "source_ref": "T16", "text": "a3f9c21" },
+    { "id": "v_url", "kind": "verbatim", "exact": true, "source_ref": "T13", "text": "https://eu-fsn.belegstore.example.de" },
+
+    { "id": "n_throughput", "kind": "number", "source_ref": "T16", "text": "Durchsatz ≈ 240 Belege/Stunde." },
+    { "id": "n_p95", "kind": "number", "source_ref": "T16", "text": "p95-Latenz aktuell 1,6 s (unter SLA 1.8 s)." },
+    { "id": "n_cost", "kind": "number", "source_ref": "T18", "text": "Laufende Kosten ≈ 290 €/Monat (unter 400er-Deckel)." },
+    { "id": "n_batch", "kind": "number", "source_ref": "T13", "text": "MAX_BATCH = 32." },
+    { "id": "n_threshold", "kind": "number", "source_ref": "T13,T14", "text": "CONFIDENCE_THRESHOLD = 0.82 (aktuell)." },
+
+    { "id": "cc_tz", "kind": "critical_context", "source_ref": "T17", "buried": true, "text": "VPS-Zeitzone MUSS UTC sein; vorher Europe/Berlin verursachte 1–2 h Timestamp-Versatz und kaputte Sortierung. Nicht zurückdrehen." },
+    { "id": "cc_cpu", "kind": "critical_context", "source_ref": "T09", "text": "Läuft bewusst auf CPU (VPS ohne GPU); CUDA-Fehler ist benign, mit ORT_DISABLE_CUDA=1 unterdrückt." },
+    { "id": "cc_umlaut", "kind": "critical_context", "source_ref": "T08", "buried": true, "text": "docTR wurde wegen korrekter deutscher Umlaute gewählt; PaddleOCR scheiterte genau daran." },
+
+    { "id": "o_threshold", "kind": "open_decision", "source_ref": "T19", "text": "DECIDE: CONFIDENCE_THRESHOLD 0.82 beibehalten vs. auf 0.78 senken (mehr Recall, höheres Fehlrisiko)." },
+    { "id": "o_worker", "kind": "open_decision", "source_ref": "T20", "text": "DECIDE: zweiter Worker bei steigendem Volumen — offen, hängt an Lastmessung nächste Woche." },
+
+    { "id": "r_next", "kind": "recency", "source_ref": "T21", "text": "Nächster Schritt (zuletzt angefragt): Threshold testweise auf 0.78 senken, einen Tag Produktivlast fahren, p95 erneut messen, Ergebnis posten — als Basis für die Entscheidung o_threshold." }
+  ],
+
+  "must_not_appear": [
+    { "id": "h_acme_used", "text": "AcmeOCR als gewählte/genutzte OCR-Engine.", "why": "Wurde in T07 wegen c_eu verworfen." },
+    { "id": "h_paddle_used", "text": "PaddleOCR als aktuelle Engine.", "why": "In T08 wegen Umlaut-Bug verworfen." },
+    { "id": "h_mysql", "text": "MySQL oder eine andere DB als PostgreSQL.", "why": "Nie erwähnt; nur SQLite (verworfen) -> Postgres." },
+    { "id": "h_budget_500", "text": "Budget-Deckel von 500 €/Monat.", "why": "In T10b explizit auf 400 korrigiert." },
+    { "id": "h_k8s_used", "text": "Kubernetes als Deployment.", "why": "In T12 verworfen." },
+    { "id": "h_version", "text": "Eine konkrete docTR-/PaddleOCR-Versionsnummer.", "why": "Nie genannt; eine erfundene Version ist Halluzination." },
+    { "id": "h_gpu", "text": "GPU-Nutzung / CUDA aktiv.", "why": "Läuft bewusst CPU-only (T09)." },
+    { "id": "h_threshold_changed", "text": "Threshold ist bereits auf 0.78 geändert.", "why": "Nur vorgeschlagen/offen (T19/T21), nicht entschieden." },
+    { "id": "h_tz_berlin", "text": "Aktuelle Zeitzone Europe/Berlin.", "why": "Muss UTC sein (T17)." }
+  ],
+
+  "bucket_expectations": {
+    "completed": ["d_db_1", "d_ocr_doctr", "d_queue", "d_deploy", "v_commit", "n_throughput", "n_p95"],
+    "current_state": ["v_env", "n_throughput", "n_p95", "n_cost", "d_deploy"],
+    "in_progress": ["o_threshold"],
+    "next_steps": ["r_next", "o_threshold", "o_worker"],
+    "constraints": ["c_eu", "c_budget", "c_sla"],
+    "critical_context": ["cc_tz", "cc_cpu", "cc_umlaut", "v_error", "v_workaround"],
+    "discarded_attempts": ["d_db_0", "d_ocr_acme", "d_ocr_paddle", "d_k8s"]
+  }
+}

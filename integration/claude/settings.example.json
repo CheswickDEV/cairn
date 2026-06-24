@@ -1,0 +1,29 @@
+{
+  "statusLine": {
+    "type": "command",
+    "command": "node /ABSOLUTE/PATH/TO/cairn/dist/bin/cairn-statusline.js"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node --disable-warning=ExperimentalWarning /ABSOLUTE/PATH/TO/cairn/dist/bin/cairn-session-start.js"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node --disable-warning=ExperimentalWarning /ABSOLUTE/PATH/TO/cairn/dist/bin/cairn-precompact.js"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "name": "cairn",
+  "version": "1.4.0",
+  "description": "AI Context Continuity Engine",
+  "author": "CheswickDEV",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "keywords": [
+    "mcp",
+    "context",
+    "ai",
+    "compaction",
+    "handoff",
+    "context-window"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "cairn": "dist/server.js",
+    "cairn-statusline": "dist/bin/cairn-statusline.js",
+    "cairn-session-start": "dist/bin/cairn-session-start.js",
+    "cairn-precompact": "dist/bin/cairn-precompact.js",
+    "cairn-codex-status": "dist/bin/cairn-codex-status.js",
+    "cairn-codex-watch": "dist/bin/cairn-codex-watch.js",
+    "cairn-calibrate": "dist/calibration/cli.js"
+  },
+  "files": [
+    "dist",
+    "integration",
+    "skills",
+    "hooks",
+    ".claude-plugin",
+    "docs",
+    "AGENTS.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "npm run build",
+    "start": "node dist/server.js",
+    "install:hosts": "node dist/server.js install",
+    "dev": "tsx src/server.ts",
+    "calibrate": "tsx src/calibration/cli.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.13.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.9"
+  }
+}
