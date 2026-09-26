@@ -12,7 +12,7 @@ overview verbatim:
 
 | Say… | What happens |
 |------|--------------|
-| **Cairn resume** | Re-inject the ledger (`decision_log view=current`) and continue from it as the source of truth — without re-reading the repo. |
+| **Cairn resume** | Re-inject the ledger (`decision_log view=current`) and continue from its NEXT STEPS — without re-reading the repo. |
 | **Cairn Handoff** | Author a 7-bucket brief from the conversation and persist it via `handoff` (local, no egress). |
 | **Cairn Help** | Show this table. |
 
