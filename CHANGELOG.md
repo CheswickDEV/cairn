@@ -7,6 +7,20 @@
 
 ---
 
+## Unreleased — Transcript-path hardening, dependency audit, server version
+
+- **Security (N1):** `isAllowedTranscriptPath` trusted everything under `~/.claude`, so a spoofed PreCompact
+  payload could make the hook read `~/.claude/.credentials.json` or `settings.json` into the store, despite the
+  comment claiming otherwise. It now accepts only `.jsonl` files strictly under `~/.claude/projects/`, checked
+  after resolving `../` and symlinks (`realpath`). New test covers credentials, settings, non-jsonl and a
+  symlinked `.jsonl` pointing at a secret.
+- **Dependencies:** `npm audit fix` (lockfile only, no `--force`): 9 → 0 advisories (ip-address, qs, …). None were
+  reachable in stdio operation, but the audit is now clean.
+- **Server version:** the MCP handshake reported a stale hard-coded `1.1.4`; `VERSION` is now read from
+  `package.json`.
+
+---
+
 ## Unreleased — Resume: ledger is data, not instructions
 
 Hardens the resume path against stale or injected ledger content without giving up the

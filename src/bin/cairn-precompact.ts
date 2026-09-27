@@ -25,7 +25,7 @@ try {
 
 let transcriptTail: string | undefined;
 if (typeof input.transcript_path === "string" && isAllowedTranscriptPath(input.transcript_path, join(homedir(), ".claude"))) {
-  // Only read transcripts under the trusted Claude root (audit finding 6) - a spoofed hook
+  // Only read `.jsonl` transcripts under ~/.claude/projects (audit findings 6 + N1) - a spoofed hook
   // payload cannot slurp arbitrary files (~/.claude/.credentials.json, /etc/passwd) into the store.
   try {
     transcriptTail = readFileSync(input.transcript_path, "utf8").slice(-8_000);

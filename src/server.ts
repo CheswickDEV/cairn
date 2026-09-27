@@ -8,7 +8,7 @@
  * MCP protocol; nothing else may write there.
  */
 
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -23,7 +23,8 @@ import { registerContextStatus } from "./tools/context_status.js";
 import { registerHandoff } from "./tools/handoff.js";
 import { registerDecisionLog } from "./tools/decision_log.js";
 
-const VERSION = "1.1.4";
+// Single source of truth: package.json (src/ and dist/ both sit one level below the repo root).
+const VERSION: string = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
 
 async function main(): Promise<void> {
   // Subcommands: `cairn install` / `cairn uninstall` wire Cairn into the host CLIs and exit.

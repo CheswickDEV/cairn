@@ -9,16 +9,33 @@
  * which fires AFTER compaction (not summarized). Pure; the bin does stdin + transcript read + store.
  */
 
+import { realpathSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import type { StoreApi } from "../store/types.js";
 import { t, type Lang } from "../i18n/index.js";
 
-/** Security guard (audit finding 6): a transcript is only readable if its resolved path is the
- *  trusted Claude root or strictly under it - blocks `../`-traversal and absolute paths elsewhere. */
-export function isAllowedTranscriptPath(path: string, claudeRoot: string): boolean {
-  const p = resolve(path);
-  const root = resolve(claudeRoot);
-  return p === root || p.startsWith(root + sep);
+/** Resolve symlinks when the path exists; otherwise keep the lexically resolved path. */
+function realpathOrSelf(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
+}
+
+/** Security guard (audit findings 6 + N1): a transcript is only readable if it is a `.jsonl` file
+ *  strictly under `<claudeRoot>/projects/` after resolving `../` and symlinks. The whole Claude root is
+ *  NOT trusted: it also holds `.credentials.json`, `settings.json` and other files that must never be
+ *  slurped into the store by a spoofed hook payload. */
+export function isAllowedTranscriptPath(
+  path: string,
+  claudeRoot: string,
+  realpath: (p: string) => string = realpathOrSelf,
+): boolean {
+  if (!path.toLowerCase().endsWith(".jsonl")) return false;
+  const p = realpath(resolve(path));
+  const projects = realpath(resolve(claudeRoot, "projects"));
+  return p.toLowerCase().endsWith(".jsonl") && p.startsWith(projects + sep);
 }
 
 export interface PreCompactInput {

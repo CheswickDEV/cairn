@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { describe, it, expect, vi } from "vitest";
 import { computeStatus, renderStatusline } from "./statusline.js";
 import { buildSessionStartContext } from "./session-start.js";
@@ -100,10 +101,24 @@ describe("pre-compact safety net", () => {
   it("isAllowedTranscriptPath blocks traversal/absolute paths outside the Claude root (finding 6)", () => {
     const root = "/home/u/.claude";
     expect(isAllowedTranscriptPath("/home/u/.claude/projects/x/s.jsonl", root)).toBe(true);
-    expect(isAllowedTranscriptPath("/home/u/.claude", root)).toBe(true);
     expect(isAllowedTranscriptPath("/etc/passwd", root)).toBe(false);
     expect(isAllowedTranscriptPath("/home/u/.claude/../.codex/auth.json", root)).toBe(false);
-    expect(isAllowedTranscriptPath("/home/u/.claude-evil/x", root)).toBe(false); // prefix-but-not-subdir
+    expect(isAllowedTranscriptPath("/home/u/.claude-evil/projects/x/s.jsonl", root)).toBe(false); // prefix-but-not-subdir
+  });
+
+  it("isAllowedTranscriptPath only trusts .jsonl under <root>/projects, after resolving symlinks (N1)", () => {
+    const root = "/home/u/.claude";
+    // Secrets and config under the Claude root itself are no longer readable.
+    expect(isAllowedTranscriptPath("/home/u/.claude", root)).toBe(false);
+    expect(isAllowedTranscriptPath("/home/u/.claude/.credentials.json", root)).toBe(false);
+    expect(isAllowedTranscriptPath("/home/u/.claude/settings.json", root)).toBe(false);
+    expect(isAllowedTranscriptPath("/home/u/.claude/projects/x/notes.md", root)).toBe(false);
+    expect(isAllowedTranscriptPath("/home/u/.claude/projects/../.credentials.jsonl", root)).toBe(false);
+    // A .jsonl inside projects/ that is a symlink to a secret is rejected by its real target.
+    const fakeRealpath = (p: string) =>
+      p.endsWith("evil.jsonl") ? resolve("/home/u/.claude/.credentials.json") : p;
+    expect(isAllowedTranscriptPath("/home/u/.claude/projects/x/evil.jsonl", root, fakeRealpath)).toBe(false);
+    expect(isAllowedTranscriptPath("/home/u/.claude/projects/x/s.jsonl", root, fakeRealpath)).toBe(true);
   });
 });
 
