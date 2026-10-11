@@ -1,0 +1,139 @@
+import { describe, it, expect, vi } from "vitest";
+import type { ExecFn } from "../core/bridge.js";
+import { productBridge, PRODUCT_BRIDGE_EFFORT } from "../core/bridge.js";
+import { callAnthropic, callOpenAICompatible, type FetchFn } from "../core/providers.js";
+import type { CairnConfig } from "../core/config.js";
+import { runHandoff, compactionEffort } from "../tools/handoff.js";
+import { SqliteStore } from "../store/sqlite-store.js";
+import { makeAccountCompactor } from "./account-compactor.js";
+import { makeModelReviewer } from "./model-reviewer.js";
+import { DEFAULT_EFFORTS, EFFORT_ORDER, assertMinEffort, assertExactEffort, buildVariants } from "./variants.js";
+import { loadGroundTruth } from "./fixtures.js";
+
+/* ADR-0012: no calibration or bridge call below `high`; reviewers at exactly `high`. */
+
+const GT = loadGroundTruth();
+const claudeOk = () => vi.fn<ExecFn>(async () => ({ stdout: JSON.stringify({ result: '1) DECISIONS {"recall":1,"hallucination":1,"supersession":1}' }), stderr: "", code: 0 }));
+const codexOk = () =>
+  vi.fn<ExecFn>(async () => ({
+    stdout: JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: '1) DECISIONS {"recall":1,"hallucination":1,"supersession":1}' } }),
+    stderr: "",
+    code: 0,
+  }));
+
+describe("effort tiers", () => {
+  it("DEFAULT_EFFORTS is `high` only, for both ecosystems", () => {
+    expect(DEFAULT_EFFORTS).toEqual({ anthropic: ["high"], openai: ["high"] });
+    expect(buildVariants().every((v) => v.effort === "high")).toBe(true);
+  });
+
+  it("orders the tiers none … max", () => {
+    expect(EFFORT_ORDER).toEqual(["none", "minimal", "low", "medium", "high", "xhigh", "max"]);
+  });
+
+  it("assertMinEffort accepts high and above; rejects lower, empty, unknown and mis-cased values", () => {
+    for (const e of ["high", "xhigh", "max"]) expect(assertMinEffort(e, "high")).toBe(e);
+    for (const e of ["none", "minimal", "low", "medium"]) expect(() => assertMinEffort(e, "high")).toThrow(/below the 'high' minimum/);
+    for (const e of ["", "High", "HIGH", "ultra", "ultracode", " high"]) expect(() => assertMinEffort(e, "high")).toThrow(/not one of/);
+  });
+
+  it("assertExactEffort accepts only the exact tier", () => {
+    expect(assertExactEffort("high", "high")).toBe("high");
+    for (const e of ["medium", "xhigh", "max", "High", ""]) expect(() => assertExactEffort(e, "high")).toThrow(/exactly 'high'/);
+  });
+
+  it("buildVariants refuses an effort below high", () => {
+    expect(() => buildVariants({ efforts: { anthropic: ["medium"] } })).toThrow(/below the 'high' minimum/);
+  });
+});
+
+describe("account compactor: effort floor before any CLI call", () => {
+  it.each(["claude-opus-5-5", "claude-opus-5-5@medium", "claude-opus-5-5@High", "gpt-6.1-sol@low", "gpt-6-luna@"])(
+    "%s throws and never calls the CLI",
+    async (modelId) => {
+      const exec = claudeOk();
+      const c = makeAccountCompactor({ execFn: exec, minBriefTokens: 0 });
+      await expect(c({ modelId, maskedProbe: "PROBE", prompt: "SYS" })).rejects.toThrow(/effort/);
+      expect(exec).not.toHaveBeenCalled();
+    },
+  );
+
+  it("claude-* @high → `claude --effort high`", async () => {
+    const exec = claudeOk();
+    await makeAccountCompactor({ execFn: exec, minBriefTokens: 0 })({ modelId: "claude-haiku-5-5@high", maskedProbe: "P", prompt: "S" });
+    const [cmd, args] = exec.mock.calls[0];
+    expect(cmd).toBe("claude");
+    expect(args[args.indexOf("--model") + 1]).toBe("claude-haiku-5-5");
+    expect(args[args.indexOf("--effort") + 1]).toBe("high");
+  });
+
+  it("gpt-6-* @high → `codex exec -c model_reasoning_effort=high`", async () => {
+    const exec = codexOk();
+    await makeAccountCompactor({ execFn: exec, minBriefTokens: 0 })({ modelId: "gpt-6-astra@high", maskedProbe: "P", prompt: "S" });
+    const [cmd, args] = exec.mock.calls[0];
+    expect(cmd).toBe("codex");
+    expect(args[args.indexOf("--model") + 1]).toBe("gpt-6-astra");
+    expect(args[args.indexOf("-c") + 1]).toBe("model_reasoning_effort=high");
+  });
+});
+
+describe("model reviewer: exactly `high`, checked at creation", () => {
+  it.each(["medium", "xhigh", "High", ""])("effort %j throws when the reviewer is created", (effort) => {
+    expect(() => makeModelReviewer({ effort, execFn: claudeOk() })).toThrow(/exactly 'high'/);
+  });
+
+  it("default and explicit `high` run the reviewer CLI at high (claude and codex)", async () => {
+    const claude = claudeOk();
+    await makeModelReviewer({ execFn: claude })({ authorModelId: "gpt-6-luna@high", reviewerModelId: "claude-sonnet-5-5", brief: "B", groundTruth: GT });
+    expect(claude.mock.calls[0][1]).toEqual(expect.arrayContaining(["--effort", "high"]));
+    const codex = codexOk();
+    await makeModelReviewer({ execFn: codex, effort: "high" })({ authorModelId: "claude-opus-5-5@high", reviewerModelId: "gpt-6.1-sol", brief: "B", groundTruth: GT });
+    expect(codex.mock.calls[0][1]).toContain("model_reasoning_effort=high");
+  });
+});
+
+describe("product paths", () => {
+  it("the product bridge (CAIRN_BRIDGE) always passes effort high", async () => {
+    expect(PRODUCT_BRIDGE_EFFORT).toBe("high");
+    const claude = claudeOk();
+    await productBridge("claude", "en", claude)({ prompt: "x", maxTokens: 100, model: "claude-opus-5-5" });
+    expect(claude.mock.calls[0][1]).toEqual(expect.arrayContaining(["--effort", "high"]));
+    const codex = codexOk();
+    await productBridge("codex", "en", codex)({ prompt: "x", maxTokens: 100, model: "gpt-6.1-sol" });
+    expect(codex.mock.calls[0][1]).toContain("model_reasoning_effort=high");
+  });
+
+  it("API adapters send the documented effort fields only when set", async () => {
+    const ep = { provider: "anthropic" as const, baseUrl: "https://api.example.test" };
+    const body = (f: ReturnType<typeof vi.fn>) => JSON.parse((f.mock.calls[0][1] as RequestInit).body as string);
+    const anth = vi.fn(async () => ({ json: async () => ({ content: [{ type: "text", text: "x" }], stop_reason: "end_turn" }) }));
+    await callAnthropic(ep, { prompt: "p", maxTokens: 10, model: "claude-opus-5-5", effort: "high" }, anth as unknown as FetchFn, {});
+    expect(body(anth).output_config).toEqual({ effort: "high" });
+    const oai = vi.fn(async () => ({ json: async () => ({ choices: [{ message: { content: "x" }, finish_reason: "stop" }] }) }));
+    await callOpenAICompatible({ ...ep, provider: "openai" }, { prompt: "p", maxTokens: 10, model: "gpt-6.1-sol", effort: "high" }, oai as unknown as FetchFn, {});
+    expect(body(oai).reasoning_effort).toBe("high");
+    const plain = vi.fn(async () => ({ json: async () => ({ content: [], stop_reason: "end_turn" }) }));
+    await callAnthropic(ep, { prompt: "p", maxTokens: 10, model: "m" }, plain as unknown as FetchFn, {});
+    expect(body(plain)).not.toHaveProperty("output_config");
+  });
+
+  it("handoff sets effort high for pool models only (legacy/unknown keep the provider default)", async () => {
+    for (const id of ["claude-fable-5-1", "claude-opus-5-5[1m]", "claude-sonnet-5-5", "claude-haiku-5-5", "gpt-6-astra", "gpt-6.1-sol", "gpt-6-luna"]) {
+      expect(compactionEffort(id)).toBe("high");
+    }
+    for (const id of ["claude-opus-4-8", "claude-haiku-4-5-20251001", "gpt-5.5", "gpt-6-sol", "mystery", undefined]) {
+      expect(compactionEffort(id)).toBeUndefined();
+    }
+    const config: CairnConfig = {
+      enabledModes: ["account", "api"],
+      endpoints: { main: { provider: "anthropic", baseUrl: "https://api.example.test" } },
+      storePath: ":memory:",
+    };
+    const fetchFn = vi.fn(async () => ({ json: async () => ({ content: [{ type: "text", text: "1) DECISIONS x" }], stop_reason: "end_turn" }) }));
+    await runHandoff(
+      { brief: "", source: "src", host: { modelId: "claude-opus-5-5" }, sourceZone: "green", mode: "api" },
+      { store: new SqliteStore({ path: ":memory:" }), config, fetchFn: fetchFn as unknown as FetchFn },
+    );
+    expect(JSON.parse((fetchFn.mock.calls[0] as unknown as [string, RequestInit])[1].body as string).output_config).toEqual({ effort: "high" });
+  });
+});
