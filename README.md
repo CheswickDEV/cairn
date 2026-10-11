@@ -324,7 +324,7 @@ used as is.
 
 These decorations resolve to the base entry: `[1m]`, `@effort`, provider and region prefixes (`anthropic.`,
 `us.`/`eu.`/`global.`/`us-gov.anthropic.`, `openai/`), dated snapshots, and suffixes after a `-`, `.` or `:`
-separator such as `-codex`.
+separator such as `-codex`. The longest known id wins, so `gpt-5.5-pro` stays GPT-5.5 Pro.
 
 Claude Opus 5.5 is not calibrated yet; `npm run calibrate -- --real` measures it on your account.
 

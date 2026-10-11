@@ -332,6 +332,7 @@ export interface HostSignal {
 }
 
 export function detectEcosystem(h: HostSignal): Ecosystem {
+  // src normalises the id first (normalizeModelId), so Bedrock ids like `anthropic.claude-opus-5-5` count as Claude.
   const id = (h.modelId ?? "").toLowerCase();
   const prov = (h.provider ?? "").toLowerCase();
   if (prov === "ollama" || prov === "lmstudio" || id.startsWith("ollama")) return "local";

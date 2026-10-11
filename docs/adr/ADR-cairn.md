@@ -373,5 +373,5 @@ the newest model (`opus` = Opus 5.5 on the Anthropic API), so an alias would cal
 model's name, and would let a model peer-review itself under a different label. Claude Code
 maps a full id to the provider's id on Bedrock, Google Cloud and Mantle where the provider supports
 that version. A pinned id that cannot run
-(e.g. a Foundry deployment not named after the model) fails, and the variant is skipped and logged
+(e.g. a Foundry deployment neither named after the model nor mapped by `modelOverrides`) fails, and the variant is skipped and logged
 rather than mislabeled.
