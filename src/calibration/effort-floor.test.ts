@@ -175,8 +175,8 @@ describe("the requested model must be the one that answered (no silent fallback)
     expect(() => assertRanModel(noUsage("claude-opus-5-5", "claude-opus-4-8"), "claude-opus-5-5", "x")).toThrow(/model fallback/);
     // fallbackModel chain without usage: the requested model is missing
     expect(() => assertRanModel(noUsage("claude-sonnet-5-5"), "claude-opus-5-5", "x")).toThrow(/model fallback/);
-    // nothing listed (an API error, caught by assertNotError) is no fallback evidence
-    expect(() => assertRanModel(noUsage(), "claude-opus-5-5", "x")).not.toThrow();
+    // an empty modelUsage: the requested model is missing too (an API error is caught earlier by assertNotError)
+    expect(() => assertRanModel(noUsage(), "claude-opus-5-5", "x")).toThrow(/model fallback/);
   });
 
   it("verbose JSON (an array of events) is read from its `result` event", async () => {
@@ -214,6 +214,13 @@ describe("the requested model must be the one that answered (no silent fallback)
       code: 1,
     }));
     await expect(runBridge({ cli: "codex", system: "S", user: "U", execFn: retriedThenExit1 })).rejects.toThrow(/\(code 1\): request handling failed/);
+    // a turn.failed message stays the reason even if a turn.completed follows
+    const failedThenCompleted = vi.fn<ExecFn>(async () => ({
+      stdout: [JSON.stringify({ type: "turn.failed", error: { message: "quota exceeded" } }), JSON.stringify({ type: "turn.completed", usage: {} })].join("\n"),
+      stderr: "",
+      code: 0,
+    }));
+    await expect(runBridge({ cli: "codex", system: "S", user: "U", execFn: failedThenCompleted })).rejects.toThrow(/quota exceeded/);
     const c = makeAccountCompactor({ execFn: codexError });
     await expect(c({ modelId: "gpt-6-astra@high", maskedProbe: "P", prompt: "S" })).rejects.toThrow(/codex bridge failed/);
     // an answer text with a non-zero exit is an error result

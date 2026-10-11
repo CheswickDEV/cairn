@@ -129,6 +129,7 @@ export function codexRunFailed(stdout: string): boolean {
  *  failure reason, which codex writes to stdout only. A retried error that a `turn.completed` followed
  *  is no reason. */
 export function codexErrorMessage(stdout: string): string {
+  let failedMessage = ""; // turn.failed is final
   let message = "";
   for (const line of stdout.split("\n")) {
     let ev: { type?: unknown; message?: unknown; error?: { message?: unknown } };
@@ -138,10 +139,10 @@ export function codexErrorMessage(stdout: string): string {
       continue;
     }
     if (ev?.type === "error" && typeof ev.message === "string") message = ev.message;
-    else if (ev?.type === "turn.failed" && typeof ev.error?.message === "string") message = ev.error.message;
+    else if (ev?.type === "turn.failed" && typeof ev.error?.message === "string") failedMessage = ev.error.message;
     else if (ev?.type === "turn.completed") message = "";
   }
-  return message;
+  return failedMessage || message;
 }
 
 /** A Codex safeguard reroute: `codex exec --json` reports it as an error item

@@ -23,8 +23,9 @@ independent reviews). See ADR-0012.
   verbatim but stores the model's brief (existing behavior, now on the default path). Before, the calibrated pick on
   Claude hosts was Haiku 4.5.
 - **Effort floor `high`** `[CODE-IMPACTING]`: calibration runs every model at exactly `high` (was
-  `medium`…`max`); reviewers run at exactly `high`. Checked in `buildVariants`, the account compactor (skip
-  without a call), reviewer creation and the CLI pre-flight. Before, an id without a valid effort reached
+  `medium`…`max`); reviewers run at exactly `high`. The CLI configuration and pre-flight require exactly
+  `high`, reviewer creation too; `buildVariants` and the account compactor (skip without a call) enforce
+  the floor. Before, an id without a valid effort reached
   the CLI without `--effort` and ran the default (`medium` for Opus 5.5).
   - The claude bridge also pins the effort as `CLAUDE_CODE_EFFORT_LEVEL`, in the child's environment and
     via `--settings`: Claude Code ranks that variable above `--effort`, and a settings `env` block above the
@@ -54,7 +55,7 @@ independent reviews). See ADR-0012.
     handoff in bridge mode ignores `finishReason` and stores a claude error text, a failed Codex run's
     partial answer, or an empty Codex answer as the brief (all pre-existing). A Codex error message is no
     longer taken as the answer: a failed Codex run without an answer fails the bridge call, with Codex's
-    error message as the reason.
+    error message (or stderr) as the reason.
 - **Full reviewer matrix**: every brief is reviewed by all six other pool models, never by its own model
   (was: the 2–3 strongest foreign models). `CAIRN_CALIB_REVIEWER_POOL` entries are normalised to base ids;
   `CAIRN_CALIB_REVIEWERS` must be a positive integer (a non-number used to mean zero reviewers).

@@ -94,8 +94,9 @@ function isSameModel(reported: string, requested: string): boolean {
  * `answeringModels`): any other model with output means a fallback - a `fallbackModel` chain or the
  * automatic switch after a refusal - and the brief or review must not be credited to the requested id.
  * When no model reports output (e.g. a gateway that sends no usage), the listed models are judged
- * instead: another model listed, or the requested one missing, is a fallback too. Error results are
- * caught by `assertNotError`. No usage reported at all (codex) → nothing to check.
+ * instead: another model listed, or the requested one missing (also an empty `modelUsage`), is a
+ * fallback too. Error results are caught by `assertNotError`. No usage reported at all (codex) →
+ * nothing to check.
  */
 export function assertRanModel(
   r: { modelsUsed?: string[]; modelsReported?: string[] },
@@ -107,7 +108,7 @@ export function assertRanModel(
   const answered = r.modelsUsed ?? [];
   const judged = answered.length > 0 ? answered : reported;
   const foreign = judged.filter((m) => !isSameModel(m, requested));
-  const missing = answered.length === 0 && reported.length > 0 && !reported.some((m) => isSameModel(m, requested));
+  const missing = answered.length === 0 && !reported.some((m) => isSameModel(m, requested));
   if (foreign.length > 0 || missing) {
     throw new Error(`${label}: answered by ${judged.join(", ")}, not only '${requested}' (model fallback?)`);
   }
