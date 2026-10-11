@@ -37,6 +37,12 @@ describe("context_status tool", () => {
     const r = buildContextStatus({ host: { modelId: "mystery-model" }, usedTokens: 0 });
     expect(r.modelId).toBe("generic:unknown");
   });
+
+  it("an unknown model takes the caller's surface cap as its window", () => {
+    const r = buildContextStatus({ host: { modelId: "mystery-model" }, usedTokens: 200_000, surfaceCap: 400_000 });
+    expect(r.window).toBe(400_000);
+    expect(r.usedPct).toBe(0.5);
+  });
 });
 
 /* -------------------------------- handoff -------------------------------- */

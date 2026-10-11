@@ -397,10 +397,12 @@ export const FIDELITY_FLOOR = 0.85;
 /* Context zones (ADR-0003)                                            */
 /* ------------------------------------------------------------------ */
 
-/** Effective working window = the smallest of model max, surface cap, and any user override. */
+/** Effective working window = the smallest of model max, surface cap, and any user override. For an
+ *  unknown model the generic 128k is a placeholder, not a model max, so a host-reported window wins. */
 export function activeWindow(p: ModelProfile, opts: { surfaceCap?: number; userOverride?: number } = {}): number {
+  const modelMax = p.id === GENERIC_FALLBACK.id && opts.surfaceCap != null ? Infinity : p.context.window;
   return Math.min(
-    p.context.window,
+    modelMax,
     opts.surfaceCap ?? Infinity,
     opts.userOverride ?? Infinity,
   );

@@ -112,6 +112,18 @@ describe("statusline — Claude Code's documented context_window fields", () => 
     expect(s.zone).toBe("red");
   });
 
+  it("a model without a profile uses the host window, so usage never exceeds 100 % (regression)", () => {
+    // e.g. Claude Opus 5 (legacy): 300k of a 1M host window must read 30 %, not 300k/128k = 234 %.
+    const line = renderStatusline({
+      model: { id: "claude-opus-5", display_name: "Opus 5" },
+      context_window: { context_window_size: 1_000_000, total_input_tokens: 300_000, used_percentage: 30 },
+    });
+    expect(line).toBe("🟢 30% ctx · Opus 5");
+    const s = computeStatus({ model: { id: "claude-opus-5" }, context_window: { context_window_size: 1_000_000, total_input_tokens: 300_000 } });
+    expect(s.modelId).toBe("generic:unknown");
+    expect(s.window).toBe(1_000_000);
+  });
+
   it.each([
     ["claude-fable-5-1", 1_000_000],
     ["claude-opus-5-5", 1_000_000],

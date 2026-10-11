@@ -154,6 +154,10 @@ describe("renderCodexStatusLine — current OpenAI models (2026-10)", () => {
     },
   );
 
+  it("a model without a profile (e.g. gpt-5.6-sol) also computes against the rollout window", () => {
+    expect(renderCodexStatusLine({ modelId: "gpt-5.6-sol", window: 258_400, usedTokens: 64_600 })).toBe("🟢 25% ctx · gpt-5.6-sol");
+  });
+
   it("a 1.05M rollout window is used in full (GPT-6 models document 1,050,000)", () => {
     expect(renderCodexStatusLine({ modelId: "gpt-6.1-sol", window: 1_050_000, usedTokens: 525_000 })).toBe(
       "🟡 50% ctx · gpt-6.1-sol · ⚠ context filling",

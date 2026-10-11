@@ -140,6 +140,15 @@ describe("resolveProfile — Claude Opus 5.5 ids", () => {
     expect(resolveProfile("claude-haiku-4-5").id).toBe("claude-haiku-4-5-20251001");
   });
 
+  it("older generations no longer borrow a newer profile through the date-suffix match", () => {
+    // Opus 4 / Sonnet 4 have a 200k window (Anthropic context-windows docs), so the old 1M borrow was
+    // wrong; with no profile of their own they now take the conservative generic fallback.
+    const ids = ["claude-opus-4", "claude-opus-4@20250514", "claude-sonnet-4", "claude-sonnet-4@20250514", "claude-haiku-4"];
+    for (const id of [...ids, "claude-opus", "claude-sonnet", "claude-haiku", "claude-fable"]) {
+      expect(resolveProfile(id).id).toBe("generic:unknown");
+    }
+  });
+
   it("keeps Opus 4.8 distinct from Opus 5.5", () => {
     expect(resolveProfile("claude-opus-4-8").id).toBe("claude-opus-4-8");
     expect(resolveProfile("claude-opus-4-8[1m]").id).toBe("claude-opus-4-8");
@@ -220,6 +229,14 @@ describe("activeWindow", () => {
   it("is capped by the surface (Foundry 200k, observed Codex 258400)", () => {
     expect(activeWindow(opus, { surfaceCap: 200_000 })).toBe(200_000);
     expect(activeWindow(gpt55, { surfaceCap: 258_400 })).toBe(258_400);
+  });
+
+  it("an unknown model's 128k placeholder yields to a host-reported window", () => {
+    expect(activeWindow(GENERIC_FALLBACK)).toBe(128_000);
+    expect(activeWindow(GENERIC_FALLBACK, { surfaceCap: 1_000_000 })).toBe(1_000_000);
+    expect(activeWindow(GENERIC_FALLBACK, { surfaceCap: 64_000 })).toBe(64_000);
+    expect(activeWindow(GENERIC_FALLBACK, { surfaceCap: 1_000_000, userOverride: 150_000 })).toBe(150_000);
+    expect(activeWindow(GENERIC_FALLBACK, { userOverride: 150_000 })).toBe(128_000);
   });
 
   it("takes the smallest of model max, surface cap and user override", () => {
