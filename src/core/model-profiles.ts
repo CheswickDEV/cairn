@@ -10,8 +10,9 @@
  *   - `context_status` tool  -> uses activeWindow() + zoneBoundaries() + classifyZone()
  *   - `handoff` tool         -> uses selectSummarizer() to pick the model (or verbatim)
  *
- * Pricing/context values are sourced (June 2026). Quality zones for Opus 4.8 / GPT-5.5 are PROVISIONAL
- * house values (no vendor %); replace with benchmarks when available.
+ * Pricing/context values are sourced (June 2026; Claude Opus 5.5 and the context-only entries for the
+ * other current vendor models: October 2026). Quality zones are PROVISIONAL house values (no vendor %);
+ * replace with benchmarks when available.
  * `fidelityScore` / `verbosityCoeff` are NOT vendor-derivable -> calibrate via golden-set (ADR-0005).
  *
  * NOTE (ADR-0006): default runtime is ACCOUNT mode - the host agent (Claude Code / Codex) runs the
@@ -55,7 +56,7 @@ const Price = z.object({
 });
 
 const ContextSpec = z.object({
-  window: z.number().int(),                       // native max input window
+  window: z.number().int(),                       // native context window, as the vendor documents it
   maxOutput: z.number().int(),
   stdThreshold: z.number().int().nullable(),       // null = flat (no long-ctx surcharge)
   surcharge: Surcharge.nullable(),                 // applies above stdThreshold
@@ -103,6 +104,24 @@ const VENDOR = (label: string, url: string, date: string) => ({ label, url, date
 
 export const PROFILES: ModelProfile[] = [
   // ---- Anthropic ----
+  {
+    id: "claude-opus-5-5",
+    displayName: "Claude Opus 5.5",
+    ecosystem: "anthropic",
+    status: "active",
+    isPro: false,
+    price: { inputPerMTok: 4, outputPerMTok: 20, cacheReadPerMTok: 0.2, batchInputPerMTok: 2, batchOutputPerMTok: 10 },
+    context: { window: 1_000_000, maxOutput: 128_000, stdThreshold: null, surcharge: null }, // flat across 1M
+    qualityZone: { greenPct: 0.40, yellowPct: 0.70, provisional: true }, // inherits 1M house values
+    summarizer: { fidelityScore: null, verbosityCoeff: 1.0, provisionalFidelity: 0.92, calibrated: false },
+    sources: [
+      VENDOR("Anthropic Claude Opus 5.5 model page", "https://platform.claude.com/docs/en/models/opus-5-5/overview", "2026-10"),
+      VENDOR("Anthropic pricing docs", "https://platform.claude.com/docs/en/about-claude/pricing", "2026-10"),
+    ],
+    notes: "Released 2026-09-22. Flat pricing across the full 1M; cache reads 0.05x base input. Default effort 'medium' " +
+      "(Opus 5 and earlier: 'high'); adaptive thinking is always on. Uncalibrated: provisionalFidelity is the Opus seed " +
+      "prior (0.92, as Opus 4.8 before its run) until `npm run calibrate -- --real` measures it.",
+  },
   {
     id: "claude-opus-4-8",
     displayName: "Claude Opus 4.8",
@@ -163,10 +182,13 @@ export const PROFILES: ModelProfile[] = [
     status: "active",
     isPro: false,
     price: { inputPerMTok: 5, outputPerMTok: 30, cacheReadPerMTok: 0.5, batchInputPerMTok: 2.5, batchOutputPerMTok: 15 },
-    context: { window: 1_000_000, maxOutput: 128_000, stdThreshold: 272_000, surcharge: { inputMult: 2, outputMult: 1.5 } },
+    context: { window: 1_050_000, maxOutput: 128_000, stdThreshold: 272_000, surcharge: { inputMult: 2, outputMult: 1.5 } },
     qualityZone: { greenPct: 0.40, yellowPct: 0.70, provisional: true },
     summarizer: { fidelityScore: 0.971, verbosityCoeff: 1.1, provisionalFidelity: 0.90, calibrated: true, calibrationDate: "2026-06-22", confidence: 0.98, effort: "xhigh" },
-    sources: [VENDOR("OpenAI model docs", "https://developers.openai.com/api/docs/models/gpt-5.5", "2026-06")],
+    sources: [
+      VENDOR("OpenAI model docs", "https://developers.openai.com/api/docs/models/gpt-5.5", "2026-06"),
+      VENDOR("OpenAI model docs (1,050,000 context window)", "https://developers.openai.com/api/docs/models/gpt-5.5", "2026-10"),
+    ],
     notes: "Reasoning effort (none/low/medium/high/xhigh) does NOT change per-token price — token-volume lever only. Codex surface windows are plan/client dependent; current rollout telemetry observed 258400, so pass the host-reported surfaceCap.",
   },
   {
@@ -176,10 +198,13 @@ export const PROFILES: ModelProfile[] = [
     status: "active",
     isPro: true,
     price: { inputPerMTok: 30, outputPerMTok: 180 },
-    context: { window: 1_000_000, maxOutput: 128_000, stdThreshold: 272_000, surcharge: { inputMult: 2, outputMult: 1.5 } },
+    context: { window: 1_050_000, maxOutput: 128_000, stdThreshold: 272_000, surcharge: { inputMult: 2, outputMult: 1.5 } },
     qualityZone: { greenPct: 0.40, yellowPct: 0.70, provisional: true },
     summarizer: { fidelityScore: null, verbosityCoeff: 1.0, provisionalFidelity: 0.91, calibrated: false },
-    sources: [VENDOR("OpenAI / model-drop reporting", "https://developers.openai.com/api/docs/models/gpt-5.5", "2026-06")],
+    sources: [
+      VENDOR("OpenAI / model-drop reporting", "https://developers.openai.com/api/docs/models/gpt-5.5", "2026-06"),
+      VENDOR("OpenAI model docs (1,050,000 context window)", "https://developers.openai.com/api/docs/models/gpt-5.5-pro", "2026-10"),
+    ],
     notes: "Separate model id, 6x the standard rate. Covers consumer 'pro standard'/'pro erweitert'. Tiebreaker should avoid unless fidelity gap is real.",
   },
   {
@@ -241,6 +266,54 @@ export const GENERIC_FALLBACK: ModelProfile = ModelProfile.parse({
 // Validate all seed data against the schema at load time.
 PROFILES.forEach((p) => ModelProfile.parse(p));
 
+/* ------------------------------------------------------------------ */
+/* Context-only entries - current vendor models without a full profile */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Current vendor models (official model overviews, October 2026) that have no full profile yet. Only
+ * the context window and max output are sourced; pricing (incl. long-context surcharges), quality
+ * zones and summarizer fidelity are not profiled. These entries are NEVER summarizer or calibration
+ * candidates - selection and calibration read PROFILES only. They exist so `resolveProfile` gives the
+ * statusline/context_status the right window instead of the 128k generic fallback. Promote an entry
+ * to PROFILES (with sourced pricing) when its model gets full support.
+ */
+interface ContextOnlyModel {
+  id: string;
+  displayName: string;
+  ecosystem: "anthropic" | "openai";
+  window: number;
+  maxOutput: number;
+  url: string;
+}
+
+const CONTEXT_ONLY_MODELS: ContextOnlyModel[] = [
+  // Anthropic current lineup (Claude Opus 5.5 has a full profile): 1M context, 128k max output each.
+  { id: "claude-fable-5-1", displayName: "Claude Fable 5.1", ecosystem: "anthropic", window: 1_000_000, maxOutput: 128_000, url: "https://platform.claude.com/docs/en/models/fable-5-1/overview" },
+  { id: "claude-sonnet-5-5", displayName: "Claude Sonnet 5.5", ecosystem: "anthropic", window: 1_000_000, maxOutput: 128_000, url: "https://platform.claude.com/docs/en/models/sonnet-5-5/overview" },
+  { id: "claude-haiku-5-5", displayName: "Claude Haiku 5.5", ecosystem: "anthropic", window: 1_000_000, maxOutput: 128_000, url: "https://platform.claude.com/docs/en/models/haiku-5-5/overview" },
+  // OpenAI models overview's flagship ("featured" in its .md export) models, plus gpt-6-sol (Codex's
+  // replacement for the retiring gpt-5.5):
+  // 1,050,000 context window (max input 922,000), 128,000 max output each.
+  { id: "gpt-6-astra", displayName: "GPT-6 Astra", ecosystem: "openai", window: 1_050_000, maxOutput: 128_000, url: "https://developers.openai.com/api/docs/models/gpt-6-astra" },
+  { id: "gpt-6.1-sol", displayName: "GPT-6.1 Sol", ecosystem: "openai", window: 1_050_000, maxOutput: 128_000, url: "https://developers.openai.com/api/docs/models/gpt-6.1-sol" },
+  { id: "gpt-6-luna", displayName: "GPT-6 Luna", ecosystem: "openai", window: 1_050_000, maxOutput: 128_000, url: "https://developers.openai.com/api/docs/models/gpt-6-luna" },
+  { id: "gpt-6-sol", displayName: "GPT-6 Sol", ecosystem: "openai", window: 1_050_000, maxOutput: 128_000, url: "https://developers.openai.com/api/docs/models/gpt-6-sol" },
+];
+
+export const CONTEXT_ONLY_PROFILES: ModelProfile[] = CONTEXT_ONLY_MODELS.map((m) =>
+  ModelProfile.parse({
+    ...GENERIC_FALLBACK,
+    id: m.id,
+    displayName: m.displayName,
+    ecosystem: m.ecosystem,
+    context: { window: m.window, maxOutput: m.maxOutput, stdThreshold: null, surcharge: null },
+    qualityZone: { greenPct: 0.40, yellowPct: 0.70, provisional: true }, // same house values as the vendor profiles
+    sources: [VENDOR(`${m.displayName} model docs`, m.url, "2026-10")],
+    notes: "Context-only entry: window and max output are sourced; pricing and summarizer fidelity are not profiled.",
+  }),
+);
+
 /**
  * Normalise a host-reported model id: strip real-world decorations that break exact matching -
  * a trailing `[1m]`/`(…)` (Claude Code's 1M-context suffix), an `@effort` variant, and a
@@ -267,6 +340,10 @@ function isBoundary(next: string): boolean {
   return next === "" || next === "-" || next === ":" || next === ".";
 }
 
+/** A vendor snapshot date suffix: Anthropic `20251001` or ISO `2026-04-23`. A bare version digit
+ *  is NOT one, so `claude-opus-5` (Opus 5) never collapses into `claude-opus-5-5` (Opus 5.5). */
+const DATE_SUFFIX = /^(?:\d{8}|\d{4}-\d{2}-\d{2})$/;
+
 /**
  * Resolve a host-reported model id to a profile, tolerant of id decorations exact matching misses -
  * so the statusline/context_status don't silently fall back to `generic:unknown` (wrong window +
@@ -274,24 +351,27 @@ function isBoundary(next: string): boolean {
  * Bedrock/Vertex prefixes, date-suffixed profile ids the host omits (`claude-haiku-4-5` →
  * `claude-haiku-4-5-20251001`), and deprecated-model aliases. Strategy: exact → normalised-exact →
  * longest separator-bounded profile-prefix → date-suffix reverse match → alias → GENERIC_FALLBACK.
+ * The context-only entries take part in every step; a full profile with the same id wins.
  */
 export function resolveProfile(id: string | undefined, profiles: ModelProfile[] = PROFILES): ModelProfile {
   if (!id) return GENERIC_FALLBACK;
-  const exact = profiles.find((p) => p.id === id);
+  // One pool, so the longest id wins across both sets (claude-fable-5-1 beats the claude-fable-5 prefix).
+  const pool = [...profiles, ...CONTEXT_ONLY_PROFILES.filter((c) => !profiles.some((p) => p.id === c.id))];
+  const exact = pool.find((p) => p.id === id);
   if (exact) return exact;
   const norm = normalizeModelId(id);
   if (!norm) return GENERIC_FALLBACK;
-  const normExact = profiles.find((p) => p.id.toLowerCase() === norm);
+  const normExact = pool.find((p) => p.id.toLowerCase() === norm);
   if (normExact) return normExact;
   // forward: profile id is a separator-bounded prefix of the model id (gpt-5.5-codex → gpt-5.5)
-  const byPrefix = profiles
+  const byPrefix = pool
     .filter((p) => norm.startsWith(p.id.toLowerCase()) && isBoundary(norm.charAt(p.id.length)))
     .sort((a, b) => b.id.length - a.id.length)[0];
   if (byPrefix) return byPrefix;
-  // reverse: profile carries a DATE suffix the host omits (date-like only, so `-pro`/`-codex` never collapse)
-  const byDate = profiles.find((p) => {
+  // reverse: profile carries a DATE suffix the host omits (date only, so `-pro`/`-codex`/`-5` never collapse)
+  const byDate = pool.find((p) => {
     const pid = p.id.toLowerCase();
-    return pid.startsWith(norm + "-") && /^\d[\d-]*$/.test(pid.slice(norm.length + 1));
+    return pid.startsWith(norm + "-") && DATE_SUFFIX.test(pid.slice(norm.length + 1));
   });
   if (byDate) return byDate;
   // alias: deprecated id → migration target (separator-bounded prefix, e.g. gpt-5.3-codex → gpt-5.4)
@@ -299,7 +379,7 @@ export function resolveProfile(id: string | undefined, profiles: ModelProfile[] 
     .filter((k) => norm.startsWith(k) && isBoundary(norm.charAt(k.length)))
     .sort((a, b) => b.length - a.length)[0];
   if (aliasKey) {
-    const target = profiles.find((p) => p.id === PROFILE_ALIASES[aliasKey]);
+    const target = pool.find((p) => p.id === PROFILE_ALIASES[aliasKey]);
     if (target) return target;
   }
   return GENERIC_FALLBACK;

@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
 import {
   PROFILES,
+  CONTEXT_ONLY_PROFILES,
   GENERIC_FALLBACK,
   ModelProfile,
   activeWindow,
@@ -67,6 +68,143 @@ describe("resolveProfile (tolerant model-id matching, ADR-0003)", () => {
   });
   it("normalizeModelId lower-cases and strips decorations", () => {
     expect(normalizeModelId("Claude-Opus-4-8[1m]")).toBe("claude-opus-4-8");
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Claude Opus 5.5 + the other current vendor models (2026-10)        */
+/* ------------------------------------------------------------------ */
+
+const opus55 = profile("claude-opus-5-5");
+
+describe("Claude Opus 5.5 profile (sourced 2026-10)", () => {
+  it("carries the documented window, max output and prices; flat across 1M", () => {
+    expect(opus55.displayName).toBe("Claude Opus 5.5");
+    expect(opus55.ecosystem).toBe("anthropic");
+    expect(opus55.status).toBe("active");
+    expect(opus55.context).toEqual({ window: 1_000_000, maxOutput: 128_000, stdThreshold: null, surcharge: null });
+    expect(opus55.price).toEqual({
+      inputPerMTok: 4,
+      outputPerMTok: 20,
+      cacheReadPerMTok: 0.2,
+      batchInputPerMTok: 2,
+      batchOutputPerMTok: 10,
+    });
+  });
+
+  it("is uncalibrated: provisional fidelity only, no measured score", () => {
+    expect(opus55.summarizer.calibrated).toBe(false);
+    expect(opus55.summarizer.fidelityScore).toBeNull();
+    expect(opus55.summarizer.provisionalFidelity).toBe(0.92);
+  });
+
+  it("costs $4/$20 per MTok with no long-context surcharge (batch: half)", () => {
+    const opus55P = PROVISIONAL.find((p) => p.id === "claude-opus-5-5")!;
+    // 0.18M*$4 + 0.006M*$20 = 0.72 + 0.12 = 0.84 ; batch 0.18M*$2 + 0.006M*$10 = 0.36 + 0.06 = 0.42
+    expect(effectiveCost(opus55P, { inputTokens: 180_000, expectedBriefTokens: 6_000 })).toBeCloseTo(0.84, 6);
+    expect(effectiveCost(opus55P, { inputTokens: 180_000, expectedBriefTokens: 6_000, useBatch: true })).toBeCloseTo(0.42, 6);
+    // 900k input is billed at the same rate: 0.9M*$4 + 0.006M*$20 = 3.6 + 0.12 = 3.72
+    expect(effectiveCost(opus55P, { inputTokens: 900_000, expectedBriefTokens: 6_000 })).toBeCloseTo(3.72, 6);
+  });
+
+  it("zones sit at 40/70 % of its 1M window", () => {
+    expect(zoneBoundaries(opus55, activeWindow(opus55))).toEqual({
+      window: 1_000_000,
+      greenUntil: 400_000,
+      yellowUntil: 700_000,
+      redUntil: 1_000_000,
+    });
+  });
+
+  it("is detected as Anthropic", () => {
+    expect(detectEcosystem({ modelId: "claude-opus-5-5" })).toBe("anthropic");
+  });
+});
+
+describe("resolveProfile — Claude Opus 5.5 ids", () => {
+  it.each([
+    "claude-opus-5-5",
+    "claude-opus-5-5[1m]",
+    "Claude-Opus-5-5",
+    "claude-opus-5-5@medium",
+    "anthropic.claude-opus-5-5", // Amazon Bedrock
+    "us.anthropic.claude-opus-5-5", // Bedrock regional inference profile
+  ])("%s → claude-opus-5-5", (id) => {
+    expect(resolveProfile(id).id).toBe("claude-opus-5-5");
+  });
+
+  it("a bare version step is not a date suffix: Opus 5 / Sonnet 5 don't collapse into the 5.5 entries", () => {
+    expect(resolveProfile("claude-opus-5").id).not.toBe("claude-opus-5-5");
+    expect(resolveProfile("claude-sonnet-5").id).not.toBe("claude-sonnet-5-5");
+    // a real snapshot date still resolves (Anthropic yyyymmdd)
+    expect(resolveProfile("claude-haiku-4-5").id).toBe("claude-haiku-4-5-20251001");
+  });
+
+  it("keeps Opus 4.8 distinct from Opus 5.5", () => {
+    expect(resolveProfile("claude-opus-4-8").id).toBe("claude-opus-4-8");
+    expect(resolveProfile("claude-opus-4-8[1m]").id).toBe("claude-opus-4-8");
+  });
+});
+
+describe("resolveProfile — every current Anthropic and OpenAI model gets its documented window", () => {
+  // Anthropic models overview (current lineup) and OpenAI models overview (flagship/featured models) plus
+  // gpt-6-sol, Codex's replacement for gpt-5.5.
+  it.each([
+    ["claude-fable-5-1", 1_000_000],
+    ["claude-opus-5-5", 1_000_000],
+    ["claude-sonnet-5-5", 1_000_000],
+    ["claude-haiku-5-5", 1_000_000],
+    ["gpt-6-astra", 1_050_000],
+    ["gpt-6.1-sol", 1_050_000],
+    ["gpt-6-luna", 1_050_000],
+    ["gpt-6-sol", 1_050_000],
+  ])("%s → own entry, window %i, max output 128k", (id, window) => {
+    const p = resolveProfile(id);
+    expect(p.id).toBe(id);
+    expect(p.context.window).toBe(window);
+    expect(p.context.maxOutput).toBe(128_000);
+    expect(activeWindow(p)).toBe(window);
+  });
+
+  it("uses the vendor-profile zone fractions, not the conservative generic ones", () => {
+    for (const p of CONTEXT_ONLY_PROFILES) expect(p.qualityZone).toEqual({ greenPct: 0.4, yellowPct: 0.7, provisional: true });
+  });
+
+  it("tolerates host decorations on the new ids", () => {
+    expect(resolveProfile("anthropic.claude-sonnet-5-5").id).toBe("claude-sonnet-5-5");
+    expect(resolveProfile("claude-haiku-5-5[1m]").id).toBe("claude-haiku-5-5");
+    expect(resolveProfile("openai/gpt-6.1-sol").id).toBe("gpt-6.1-sol");
+    expect(resolveProfile("gpt-6-luna@high").id).toBe("gpt-6-luna");
+  });
+
+  it("the longest id wins across profiles and context-only entries (Fable 5.1 ≠ Fable 5)", () => {
+    expect(resolveProfile("claude-fable-5-1").id).toBe("claude-fable-5-1");
+    expect(resolveProfile("claude-fable-5").id).toBe("claude-fable-5");
+  });
+
+  it("a full profile with the same id shadows the context-only entry", () => {
+    const full: ModelProfile = { ...gpt55, id: "gpt-6-astra", displayName: "GPT-6 Astra (full)" };
+    expect(resolveProfile("gpt-6-astra", [...PROFILES, full]).displayName).toBe("GPT-6 Astra (full)");
+  });
+
+  it("corrects the GPT-5.5 / GPT-5.5 Pro window to the documented 1,050,000", () => {
+    expect(resolveProfile("gpt-5.5").context.window).toBe(1_050_000);
+    expect(resolveProfile("gpt-5.5-pro").context.window).toBe(1_050_000);
+  });
+
+  it("context-only entries are never summarizer candidates (selection reads PROFILES only)", async () => {
+    const ids = new Set(PROFILES.map((p) => p.id));
+    for (const p of CONTEXT_ONLY_PROFILES) expect(ids.has(p.id)).toBe(false);
+    const r = await selectSummarizer({
+      host: { modelId: "gpt-6-astra" },
+      sourceZone: "green",
+      cost: { inputTokens: 180_000, expectedBriefTokens: 6_000 },
+      fidelityFloor: 0,
+    });
+    expect(r.kind).toBe("model");
+    if (r.kind !== "model") throw new Error("expected a model pick");
+    expect(ids.has(r.model.id)).toBe(true);
+    expect(r.model.ecosystem).toBe("openai");
   });
 });
 
@@ -197,7 +335,8 @@ describe("selectSummarizer", () => {
     });
     expect(r.kind).toBe("model");
     if (r.kind !== "model") throw new Error("expected a model pick");
-    expect(r.model.id).toBe("claude-opus-4-8");
+    // Opus 5.5 shares Opus 4.8's provisional prior (0.92) and is cheaper → ADR-0002 cost tiebreak.
+    expect(r.model.id).toBe("claude-opus-5-5");
   });
 
   it("red-escalation picks the cheaper sibling (gpt-5.5), NOT the 6x Pro (ADR-0002)", async () => {

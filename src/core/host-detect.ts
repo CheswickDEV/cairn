@@ -42,7 +42,7 @@ const LOGIN_EVIDENCE: Record<HostCli, (home: string) => string[]> = {
 };
 
 const ALT_MODEL: Record<HostCli, string> = {
-  claude: "Claude Opus 4.8",
+  claude: "Claude Opus 5.5",
   codex: "GPT-5.5",
 };
 

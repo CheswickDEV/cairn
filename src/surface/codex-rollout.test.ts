@@ -145,6 +145,22 @@ describe("renderCodexStatusLine — render mapping (surface-relative, ADR-0003)"
   });
 });
 
+describe("renderCodexStatusLine — current OpenAI models (2026-10)", () => {
+  it.each(["gpt-6-astra", "gpt-6.1-sol", "gpt-6-luna", "gpt-6-sol"])(
+    "%s computes against the rollout window, not the 128k generic fallback",
+    (modelId) => {
+      // 64600 / 258400 = 25 % → green. Against the old 128k fallback this read 50 % / yellow.
+      expect(renderCodexStatusLine({ modelId, window: 258_400, usedTokens: 64_600 })).toBe(`🟢 25% ctx · ${modelId}`);
+    },
+  );
+
+  it("a 1.05M rollout window is used in full (GPT-6 models document 1,050,000)", () => {
+    expect(renderCodexStatusLine({ modelId: "gpt-6.1-sol", window: 1_050_000, usedTokens: 525_000 })).toBe(
+      "🟡 50% ctx · gpt-6.1-sol · ⚠ context filling",
+    );
+  });
+});
+
 describe("codexSessionsDir — env overrides", () => {
   it("prefers CAIRN_CODEX_SESSIONS, then CODEX_HOME/sessions", () => {
     expect(codexSessionsDir({ CAIRN_CODEX_SESSIONS: "/x/sess" })).toBe("/x/sess");

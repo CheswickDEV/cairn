@@ -44,6 +44,12 @@ describe("detectHostStatus", () => {
     expect(r.recommendation).toContain("GPT-5.5");
   });
 
+  it("recommends Claude Opus 5.5 when the claude CLI is missing", () => {
+    const r = detectHostStatus(probe({ commands: ["codex"], files: [join("/home/u", ".codex", "auth.json")] }), "en", {});
+    expect(r.recommendation).toContain("claude not found");
+    expect(r.recommendation).toContain("Claude Opus 5.5");
+  });
+
   it("flags an installed-but-not-logged-in CLI as best-effort, not 'unknown'", () => {
     const r = detectHostStatus(probe({ commands: ["claude", "codex"], files: [] }), "en", {});
     expect(r.clis.every((c) => c.installed)).toBe(true);
