@@ -89,11 +89,18 @@ describe("CLAUDE_CODE_EFFORT_LEVEL cannot override the requested effort", () => 
     for (const exec of [compactor, reviewer, bridge]) expect(exec.mock.calls[0][2].env).toEqual({ CLAUDE_CODE_EFFORT_LEVEL: "high" });
   });
 
+  it("bridge calls run without user/plugin hooks (a prompt hook would add a second answering model)", async () => {
+    const exec = claudeOk();
+    await productBridge("claude", "en", exec)({ prompt: "x", maxTokens: 100, model: "claude-opus-5-5" });
+    const args = exec.mock.calls[0][1];
+    expect(JSON.parse(args[args.indexOf("--settings") + 1]).disableAllHooks).toBe(true);
+  });
+
   it("pins it via --settings as well (a settings `env` block outranks the shell) and loads user settings only", async () => {
     const exec = claudeOk();
     await runBridge({ cli: "claude", system: "S", user: "U", model: "claude-opus-5-5", effort: "high", execFn: exec });
     const args = exec.mock.calls[0][1];
-    expect(JSON.parse(args[args.indexOf("--settings") + 1])).toEqual({ env: { CLAUDE_CODE_EFFORT_LEVEL: "high" } });
+    expect(JSON.parse(args[args.indexOf("--settings") + 1])).toEqual({ disableAllHooks: true, env: { CLAUDE_CODE_EFFORT_LEVEL: "high" } });
     // project/local settings from the shared tmpdir cwd (hooks, env, caps) are never loaded
     expect(args[args.indexOf("--setting-sources") + 1]).toBe("user");
   });
@@ -102,7 +109,7 @@ describe("CLAUDE_CODE_EFFORT_LEVEL cannot override the requested effort", () => 
     const exec = claudeOk();
     await runBridge({ cli: "claude", system: "S", user: "U", effort: "foo", execFn: exec });
     const [, args, opts] = exec.mock.calls[0];
-    expect(args).not.toContain("--settings");
+    expect(JSON.parse(args[args.indexOf("--settings") + 1])).toEqual({ disableAllHooks: true }); // no env pin
     expect(opts.env).toBeUndefined();
     const codex = codexOk();
     await runBridge({ cli: "codex", system: "S", user: "U", effort: "high", execFn: codex });
@@ -154,7 +161,8 @@ describe("the requested model must be the one that answered (no silent fallback)
     expect(() => assertRanModel(["claude-fable-5-1"], "claude-fable-5", "x")).toThrow(/model fallback/);
     // the requested model plus a fallback that also produced output: still rejected
     expect(() => assertRanModel(["claude-opus-5-5", "claude-opus-4-8"], "claude-opus-5-5", "x")).toThrow(/model fallback/);
-    expect(() => assertRanModel([], "claude-opus-5-5", "x")).toThrow(/no model/);
+    // no output from any model (e.g. a gateway without usage) is no evidence of a fallback
+    expect(() => assertRanModel([], "claude-opus-5-5", "x")).not.toThrow();
     expect(() => assertRanModel(undefined, "claude-opus-5-5", "x")).not.toThrow();
   });
 
@@ -171,6 +179,21 @@ describe("the requested model must be the one that answered (no silent fallback)
     await expect(c({ modelId: "claude-opus-5-5@high", maskedProbe: "P", prompt: "S" })).rejects.toThrow(/answered by claude-opus-5/);
     const r = makeModelReviewer({ execFn: exec });
     await expect(r({ authorModelId: "gpt-6-luna@high", reviewerModelId: "claude-opus-5-5", brief: "B", groundTruth: GT })).rejects.toThrow(/model fallback/);
+  });
+
+  it("an error result (is_error, e.g. a refusal mid-stream without fallback) is skipped even when long", async () => {
+    const errorText = "API Error: the model's safeguards flagged this request. " + "x".repeat(600);
+    const exec = vi.fn<ExecFn>(async () => ({
+      stdout: JSON.stringify({ result: errorText, subtype: "success", is_error: true, modelUsage: { "claude-sonnet-5-5": { outputTokens: 12, thinkingTokens: 0 } } }),
+      stderr: "",
+      code: 1,
+    }));
+    const r = await runBridge({ cli: "claude", system: "S", user: "U", model: "claude-sonnet-5-5", effort: "high", execFn: exec });
+    expect(r.finishReason).toBe("error"); // is_error wins over subtype "success"
+    const c = makeAccountCompactor({ execFn: exec }); // default 120-token gate would let this text through
+    await expect(c({ modelId: "claude-sonnet-5-5@high", maskedProbe: "P", prompt: "S" })).rejects.toThrow(/error result/);
+    const rev = makeModelReviewer({ execFn: exec });
+    await expect(rev({ authorModelId: "gpt-6-luna@high", reviewerModelId: "claude-sonnet-5-5", brief: "B", groundTruth: GT })).rejects.toThrow(/error result/);
   });
 
   it("a compaction answered by a fallback model is skipped, not credited to the requested id", async () => {

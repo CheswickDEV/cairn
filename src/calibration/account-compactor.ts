@@ -8,7 +8,7 @@
 import { bridgeCompact, type ExecFn } from "../core/bridge.js";
 import { PROFILES } from "../core/model-profiles.js";
 import { estimateTokens, type Compactor } from "./runner.js";
-import { parseVariant, cliFor, cliModelName, assertMinEffort, assertRanModel, CALIB_EFFORT, type CalibEcosystem } from "./variants.js";
+import { parseVariant, cliFor, cliModelName, assertMinEffort, assertRanModel, assertNotError, CALIB_EFFORT, type CalibEcosystem } from "./variants.js";
 
 export interface AccountCompactorOptions {
   execFn?: ExecFn;
@@ -41,6 +41,7 @@ export function makeAccountCompactor(opts: AccountCompactorOptions = {}): Compac
       execFn: opts.execFn,
       timeoutMs: opts.timeoutMs,
     });
+    assertNotError(result.finishReason, `variant '${modelId}'`);
     assertRanModel(result.modelsUsed, baseModelId, `variant '${modelId}'`);
     const outputTokens = estimateTokens(result.text);
     // Accurate label when the probe exceeded the model's window (ADR-0003) vs a generic short stub.

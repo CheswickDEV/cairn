@@ -88,8 +88,9 @@ const CLAUDE_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
 /**
  * The models that produced output in a claude run, from `modelUsage` (`{ "<model>": { outputTokens,
  * thinkingTokens, … } }`). A fallback - a configured `fallbackModel` chain, or the automatic switch after a
- * refusal - can answer instead of the requested model, which then shows up with zero output. An entry
- * without token counts counts as having answered. `undefined` when the CLI reports no usage.
+ * refusal - can answer instead of the requested model, which then shows up with no output, with partial
+ * output (refusal mid-stream) or not at all. An entry without token counts counts as having answered.
+ * `undefined` when the CLI reports no usage.
  */
 export function answeringModels(modelUsage: unknown): string[] | undefined {
   if (!modelUsage || typeof modelUsage !== "object") return undefined;
@@ -188,7 +189,10 @@ export async function runBridge(input: RunBridgeInput): Promise<ModelCallResult>
     // the shell, so an inherited or configured `medium` would silently win. Pin a documented level in the
     // child's environment AND via `--settings` (outranks user settings; managed settings still win).
     const pinned = effort && CLAUDE_EFFORTS.has(effort) ? effort : undefined;
-    if (pinned) args.push("--settings", JSON.stringify({ env: { CLAUDE_CODE_EFFORT_LEVEL: pinned } }));
+    // No user/plugin hooks in a pure compaction/review call: a prompt or agent hook runs its own model,
+    // which `modelUsage` would then report as a second answering model (managed hooks still run).
+    const settings = { disableAllHooks: true, ...(pinned ? { env: { CLAUDE_CODE_EFFORT_LEVEL: pinned } } : {}) };
+    args.push("--settings", JSON.stringify(settings));
     // The neutral cwd is the shared tmpdir: never load project/local settings (hooks, env, effort caps) from it.
     args.push("--setting-sources", "user");
     const env = pinned ? { CLAUDE_CODE_EFFORT_LEVEL: pinned } : undefined;
@@ -197,7 +201,9 @@ export async function runBridge(input: RunBridgeInput): Promise<ModelCallResult>
     try {
       const json = JSON.parse(stdout) as Record<string, unknown>;
       const text = typeof json.result === "string" ? json.result : "";
-      const finishReason = typeof json.subtype === "string" ? json.subtype : json.is_error ? "error" : "stop";
+      // `is_error` wins over `subtype`: an API error or a refusal mid-stream comes back as `subtype: "success"`
+      // with the error message as `result`.
+      const finishReason = json.is_error === true ? "error" : typeof json.subtype === "string" ? json.subtype : "stop";
       const modelsUsed = answeringModels(json.modelUsage);
       return { text, truncated: false, finishReason, ...(modelsUsed ? { modelsUsed } : {}) };
     } catch {

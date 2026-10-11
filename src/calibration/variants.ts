@@ -74,6 +74,12 @@ export function assertExactEffort(effort: string, required: Effort, label = "eff
   return required;
 }
 
+/** Throw when the CLI reported an error result (claude `is_error`, e.g. an API error or a refusal
+ *  mid-stream): its `result` is the error message, not a brief or a review. */
+export function assertNotError(finishReason: string, label: string): void {
+  if (finishReason === "error") throw new Error(`${label}: the CLI returned an error result, not an answer`);
+}
+
 /** What may follow a model id and still name the same model: a snapshot date and/or a provider version
  *  (`-v1:0`). A version step (`claude-opus-5` → `claude-opus-5-5`) is a different model. */
 const SAME_MODEL_SUFFIX = /^(?:-(?:\d{8}|\d{4}-\d{2}-\d{2}))?(?:-v\d+(?::\d+)?)?$/;
@@ -84,16 +90,18 @@ function isSameModel(reported: string, requested: string): boolean {
 }
 
 /**
- * Throw unless the requested model - and only it - produced the output (claude reports the answering
- * models via `modelUsage`; see `answeringModels`). A fallback - a configured `fallbackModel` chain or
- * the automatic switch after a refusal - would otherwise credit another model's brief or review to the
- * requested id. Not reported (codex) → nothing to check.
+ * Throw when a model other than the requested one produced output (claude reports the answering models
+ * via `modelUsage`; see `answeringModels`). A fallback - a configured `fallbackModel` chain or the
+ * automatic switch after a refusal - would otherwise credit another model's brief or review to the
+ * requested id. No output reported at all (e.g. a gateway without usage) is no evidence of a fallback;
+ * error results and empty output are caught by `assertNotError` and the brief-length gate. Not reported
+ * (codex) → nothing to check.
  */
 export function assertRanModel(modelsUsed: string[] | undefined, requested: string, label: string): void {
   if (!modelsUsed) return;
   const foreign = modelsUsed.filter((m) => !isSameModel(m, requested));
-  if (modelsUsed.length === 0 || foreign.length > 0) {
-    throw new Error(`${label}: answered by ${modelsUsed.join(", ") || "no model"}, not only '${requested}' (model fallback?)`);
+  if (foreign.length > 0) {
+    throw new Error(`${label}: answered by ${modelsUsed.join(", ")}, not only '${requested}' (model fallback?)`);
   }
 }
 

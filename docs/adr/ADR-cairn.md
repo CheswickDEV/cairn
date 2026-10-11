@@ -426,14 +426,20 @@ In Claude Code, `CLAUDE_CODE_EFFORT_LEVEL` outranks `--effort`, and an `env` blo
 outranks the shell. So for a documented level the claude bridge pins the requested effort three ways:
 `--effort`, the child's environment, and `--settings '{"env":{"CLAUDE_CODE_EFFORT_LEVEL":…}}'`, which
 outranks user settings. It also passes `--setting-sources user`: its cwd is the shared tmpdir, and
-project or local settings found there (hooks, `env`, effort caps) are never the user's. Codex gives `-c`
+project or local settings found there (hooks, `env`, effort caps) are never the user's. The same
+`--settings` turns off user and plugin hooks (`disableAllHooks`; managed hooks still run): a compaction or
+review needs none, and a prompt or agent hook would run its own model inside the call. Codex gives `-c`
 overrides the highest precedence, and the bridge ignores the user config. A calibration call also checks
 which model answered: claude reports per-model output in `modelUsage`. A configured `fallbackModel` chain
-or the automatic switch after a refusal lets another model answer, and the requested one then shows zero
-output. Unless the requested model alone produced output, the brief or review is skipped, not credited
-to the requested id. `modelUsage` names the model Claude Code requested, so a redirect behind it
-(`modelOverrides`, a gateway behind `ANTHROPIC_BASE_URL`) stays invisible to this check. The product
-bridge does not check the model.
+or the automatic switch after a refusal lets another model answer; the requested one then shows no
+output, partial output (a refusal mid-stream) or is missing. Unless the requested model alone produced
+output, the brief or review is skipped, not credited to the requested id; so is a run where any other
+model produced output, such as an auxiliary model. An error result (claude `is_error`, e.g. an API error
+or a refusal mid-stream without a fallback) is skipped too: its text is the error message. `modelUsage`
+keys are the Anthropic model ids Claude Code resolved, not what it sent upstream, so a redirect
+(`modelOverrides`, a gateway behind `ANTHROPIC_BASE_URL`) stays invisible to this check. Codex reports
+no model in `codex exec --json`, so a Codex run (e.g. one a safeguard rerouted) is not checked. The
+product bridge does not check the model.
 
 In the product, bridge mode always passes `--effort high` / `model_reasoning_effort=high`. API mode
 sends Anthropic's `output_config.effort` or OpenAI's `reasoning_effort` (Chat Completions) as `high` for
@@ -452,7 +458,7 @@ managed settings or caps and cannot see the applied level, so check for a cap be
 run. The API adapters do not stream, so a very long generation at `high` can hit fetch's ~300 s header
 timeout and fail the handoff. The OpenAI adapter still sends the deprecated `max_tokens`, which OpenAI
 documents as incompatible with o-series models (`max_completion_tokens` replaces it). A claude error
-result (`is_error`) is returned as text, and outside calibration (which drops short output) a handoff
+result (`is_error`) is returned as text (`finishReason: "error"`); calibration skips it, but a handoff
 stores it as the brief. Both predate this ADR and are open points.
 
 **Reviewers.** All seven pool models review, at exactly `high`, and each brief is scored by the six
