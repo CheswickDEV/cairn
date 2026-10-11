@@ -9,12 +9,14 @@ See ADR-0011.
 - **Claude Opus 5.5 (`claude-opus-5-5`)**: new full profile. 1M context, 128K max output, $4/$20 per MTok,
   cache reads $0.20, Batch $2/$10, flat pricing across 1M. It is uncalibrated and ranks on the Opus seed
   prior 0.92, so the calibrated selection is unchanged. Resolves `claude-opus-5-5[1m]`, `@effort`, Bedrock
-  `anthropic.`/`us.anthropic.`/`global.anthropic.` prefixes and mixed case. Bedrock's `global.` region prefix
-  was not stripped before.
+  `anthropic.`/`us.anthropic.`/`global.anthropic.`/`us-gov.anthropic.` prefixes and mixed case. The
+  `global.` and `us-gov.` (GovCloud) region prefixes were not stripped before. Ecosystem detection
+  normalises the id the same way, so a Bedrock host id like `anthropic.claude-opus-5-5` counts as Claude.
+  Before, such ids fell back to `generic` and the handoff selection to verbatim.
 - **Right context window for every current Anthropic/OpenAI model**. Here, "current" means Anthropic's
   current lineup (models overview), the "Flagship models" section of OpenAI's API models overview, and
-  GPT-6 Sol. OpenAI's Codex docs name GPT-6 Sol as the GPT-5.5 replacement on paid plans; on Free/Go
-  plans the replacement is GPT-6 Luna.
+  GPT-6 Sol. OpenAI's Codex docs name GPT-6 Sol as the GPT-5.5 replacement on Plus, Pro, Business,
+  Enterprise and Edu plans; on Free and Go plans the replacement is GPT-6 Luna.
   - New context-only entries (documented window and max output only): Claude Fable 5.1, Sonnet 5.5 and
     Haiku 5.5 (1M), and GPT-6 Astra, GPT-6.1 Sol, GPT-6 Luna and GPT-6 Sol (1,050,000).
   - Before, these models fell back to the 128K generic profile, and Fable 5.1 matched the Fable 5 profile
@@ -45,14 +47,15 @@ See ADR-0011.
   - On the Anthropic API, Claude Code resolves `opus`/`sonnet`/`haiku` to the 5.5 models; some other
     providers map them to earlier versions. With the alias, 4.x variants would have run 5.5 models, and
     Opus 5.5 could have peer-reviewed itself.
-  - On Bedrock and Foundry, `--model` takes an inference-profile ARN or a deployment name. A pinned id
-    fails there, and the variant is skipped and logged. Before, a variant there ran whatever model the
-    alias resolved to, under the wrong label.
+  - On Bedrock, Google Cloud and Mantle, Claude Code (v2.1.200+) maps a full Anthropic model id to the
+    provider's id. On Foundry, a full id works when the deployment is named after the model id or a
+    `modelOverrides` entry maps it. A pinned id that cannot run fails, and the variant is skipped and
+    logged instead of running under the wrong label.
   - Opus 5.5 joins the default variants, the high-fill probe (medium/high/xhigh/max), the reviewer pool
     and `BRIDGE_WINDOWS` (1M, estimated, not yet bridge-measured).
   - No calibration was run.
 - `host_status` recommends Claude Opus 5.5 as the Claude alternative.
-- **Tests**: 223 → 278, all green. Two existing assertions changed with the behavior above:
+- **Tests**: 223 → 280, all green. Two existing assertions changed with the behavior above:
   - the compactor now expects `--model claude-opus-4-8` (was `opus`);
   - the provisional green-pick selects Opus 5.5: same prior as Opus 4.8 but cheaper, so the ADR-0002
     tiebreak picks it.

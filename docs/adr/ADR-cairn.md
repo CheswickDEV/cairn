@@ -350,10 +350,10 @@ Accepted. Extends ADR-0003/0004/0005; zone fractions, selection and the fidelity
 Claude Opus 5.5 gets a full profile (window, max output and prices from Anthropic's docs) and
 joins selection and calibration. Until a live calibration run measures it, it is uncalibrated
 and ranks on the Opus seed prior (0.92), so it never displaces a calibrated pick on a guess.
-Every other current model gets a context-only entry: documented window and max output, nothing
-else. Current means three groups: Anthropic's current lineup (models overview); the "Flagship models"
-section of OpenAI's API models overview; and GPT-6 Sol, which Codex names as the GPT-5.5 replacement
-on paid plans. `resolveProfile` uses these entries, so
+Every other current model gets a context-only entry. Only its window and max output are sourced; its
+zones are the shared provisional house values. Current means three groups: Anthropic's current lineup
+(models overview); the "Flagship models" section of OpenAI's API models overview; and GPT-6 Sol, which
+Codex names as the GPT-5.5 replacement on Plus, Pro, Business, Enterprise and Edu plans. `resolveProfile` uses these entries, so
 the statusline and `context_status` show the real window instead of the 128K generic fallback.
 Selection and calibration never use them because they have no sourced price and no fidelity.
 An entry becomes a full profile when its model gets full support.
@@ -369,6 +369,7 @@ one it stays 128K. Zero, negative and non-finite window values count as absent.
 
 Calibration passes the full model id to `claude --model`. Claude Code's family aliases move to
 the newest model (`opus` = Opus 5.5 on the Anthropic API), so an alias would calibrate one model under another
-model's name, and would let a model peer-review itself under a different label. Where `--model`
-expects an ARN or deployment name (Bedrock, Foundry), a pinned id fails, and the variant is skipped
-and logged rather than mislabeled.
+model's name, and would let a model peer-review itself under a different label. Claude Code
+maps a full id to the provider's id on Bedrock, Google Cloud and Mantle. A pinned id that cannot run
+(e.g. a Foundry deployment not named after the model) fails, and the variant is skipped and logged
+rather than mislabeled.

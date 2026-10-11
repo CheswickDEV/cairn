@@ -322,9 +322,9 @@ used as is.
 | Other profiles | Claude Fable 5 (profile status `suspended`: never selected) · Ollama (local fallback) |
 | Generic fallback (host-reported window, else 128K; zones at 50/70 %) | Any id that matches none of the above |
 
-An id that extends a known id resolves to that entry. Examples: `[1m]`, `@effort`, provider and region
-prefixes (`anthropic.`, `us.`/`global.anthropic.`, `openai/`), dated snapshots, and Codex slugs such as
-`-codex`.
+These decorations resolve to the base entry: `[1m]`, `@effort`, provider and region prefixes (`anthropic.`,
+`us.`/`eu.`/`global.`/`us-gov.anthropic.`, `openai/`), dated snapshots, and suffixes after a `-`, `.` or `:`
+separator such as `-codex`.
 
 Claude Opus 5.5 is not calibrated yet; `npm run calibrate -- --real` measures it on your account.
 
