@@ -41,13 +41,13 @@ export function makeAccountCompactor(opts: AccountCompactorOptions = {}): Compac
       execFn: opts.execFn,
       timeoutMs: opts.timeoutMs,
     });
-    assertNotError(result.finishReason, `variant '${modelId}'`);
-    assertRanModel(result.modelsUsed, baseModelId, `variant '${modelId}'`);
-    const outputTokens = estimateTokens(result.text);
     // Accurate label when the probe exceeded the model's window (ADR-0003) vs a generic short stub.
     if (/prompt is too long|too long|context (window|length)|exceeds.*(context|window|token)/i.test(result.text)) {
       throw new Error(`context exceeds window — '${modelId}' rejected the probe: ${result.text.slice(0, 90)}`);
     }
+    assertNotError(result.finishReason, `variant '${modelId}'`);
+    assertRanModel(result, baseModelId, `variant '${modelId}'`);
+    const outputTokens = estimateTokens(result.text);
     // Sanity gate: a real 7-bucket brief is hundreds of tokens. A tiny output means the model was
     // unavailable/refused (e.g. a codex "model not available" stub) - skip it so it pollutes
     // neither the candidate scores nor the reviewer pool.

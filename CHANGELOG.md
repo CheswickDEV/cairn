@@ -30,11 +30,12 @@ independent reviews). See ADR-0012.
     via `--settings`: Claude Code ranks that variable above `--effort`, and a settings `env` block above the
     shell, so an inherited or configured `medium` used to win. It loads user settings only
     (`--setting-sources user`), never project or local settings from its tmpdir cwd, and runs without
-    user or plugin hooks (`disableAllHooks`).
+    user or plugin hooks (`disableAllHooks`; managed hooks and hooks of managed-forced plugins still run).
   - Calibration skips a brief or review unless the requested model alone produced output (claude
-    `modelUsage`), e.g. after a `fallbackModel` swap or the automatic switch after a refusal, instead of
-    crediting it to the requested id. It also skips a claude error result (`is_error`, e.g. a refusal
-    mid-stream), whose text is the error message. A redirect behind the requested id (`modelOverrides`, a
+    `modelUsage`; without any reported output the listed models decide), e.g. after a `fallbackModel` swap
+    or the automatic switch after a refusal, instead of crediting it to the requested id. It also skips
+    error results, whose text is the error message: claude `is_error` (e.g. a refusal mid-stream, also in
+    `verbose` array output) and a Codex `error`/`turn.failed` event or non-zero exit. A redirect behind the requested id (`modelOverrides`, a
     gateway) stays invisible to this check, Codex runs are not checked (no model in its JSON output), and
     the product bridge does not check the model.
   - Bridge mode (`CAIRN_BRIDGE`) now always passes `--effort high` / `model_reasoning_effort=high`.

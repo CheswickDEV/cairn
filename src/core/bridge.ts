@@ -103,6 +103,19 @@ export function answeringModels(modelUsage: unknown): string[] | undefined {
   return out;
 }
 
+/** Did a `codex exec --json` run fail? Codex documents `{"type":"error"}` and `turn.failed` events; their
+ *  message would otherwise come back as the answer text. */
+export function codexRunFailed(stdout: string): boolean {
+  return stdout.split("\n").some((line) => {
+    try {
+      const ev = JSON.parse(line.trim()) as { type?: unknown };
+      return ev?.type === "error" || ev?.type === "turn.failed";
+    } catch {
+      return false;
+    }
+  });
+}
+
 /** Safety net: if the CLI still editorialized, trim everything before the first bucket. */
 export function stripPreamble(text: string): string {
   const m = text.match(/(?:^|\n)\s*(1\)\s*DECISIONS|DECISIONS\b)/i);
@@ -199,13 +212,20 @@ export async function runBridge(input: RunBridgeInput): Promise<ModelCallResult>
     const { stdout, stderr, code } = await exec("claude", args, { stdin: user, timeoutMs, cwd, env });
     if (code !== 0 && !stdout.trim()) throw new Error(`claude bridge failed (code ${code}): ${stderr.slice(0, 300)}`);
     try {
-      const json = JSON.parse(stdout) as Record<string, unknown>;
+      // With `verbose` on (a user setting), `--output-format json` prints an array of events; the last
+      // `result` event carries what the object form holds.
+      const parsed = JSON.parse(stdout) as unknown;
+      const json = (
+        Array.isArray(parsed) ? [...parsed].reverse().find((e) => e?.type === "result") ?? {} : parsed
+      ) as Record<string, unknown>;
       const text = typeof json.result === "string" ? json.result : "";
       // `is_error` wins over `subtype`: an API error or a refusal mid-stream comes back as `subtype: "success"`
       // with the error message as `result`.
       const finishReason = json.is_error === true ? "error" : typeof json.subtype === "string" ? json.subtype : "stop";
       const modelsUsed = answeringModels(json.modelUsage);
-      return { text, truncated: false, finishReason, ...(modelsUsed ? { modelsUsed } : {}) };
+      const modelsReported =
+        json.modelUsage && typeof json.modelUsage === "object" ? Object.keys(json.modelUsage as Record<string, unknown>) : undefined;
+      return { text, truncated: false, finishReason, ...(modelsReported ? { modelsUsed, modelsReported } : {}) };
     } catch {
       return { text: stdout.trim(), truncated: false, finishReason: "stop" };
     }
@@ -229,7 +249,7 @@ export async function runBridge(input: RunBridgeInput): Promise<ModelCallResult>
   const { stdout, stderr, code } = await exec("codex", args, { stdin: `${system}\n\n${user}`, timeoutMs, cwd });
   const text = parseCodexJsonl(stdout);
   if (!text && code !== 0) throw new Error(`codex bridge failed (code ${code}): ${stderr.slice(0, 300)}`);
-  return { text, truncated: false, finishReason: "stop" };
+  return { text, truncated: false, finishReason: code !== 0 || codexRunFailed(stdout) ? "error" : "stop" };
 }
 
 /** Effort of the product's bridge mode (ADR-0012): every bridged compaction runs at `high`, never the CLI

@@ -427,19 +427,25 @@ outranks the shell. So for a documented level the claude bridge pins the request
 `--effort`, the child's environment, and `--settings '{"env":{"CLAUDE_CODE_EFFORT_LEVEL":…}}'`, which
 outranks user settings. It also passes `--setting-sources user`: its cwd is the shared tmpdir, and
 project or local settings found there (hooks, `env`, effort caps) are never the user's. The same
-`--settings` turns off user and plugin hooks (`disableAllHooks`; managed hooks still run): a compaction or
-review needs none, and a prompt or agent hook would run its own model inside the call. Codex gives `-c`
+`--settings` turns off user and plugin hooks (`disableAllHooks`): a compaction or review needs none, and
+a prompt or agent hook with its own model would run that model inside the call. Managed hooks, hooks of
+plugins that managed `enabledPlugins` forces, and a managed `disableAllHooks: false` still apply; if such
+a hook runs its own model, the model check below skips every claude calibration run (none is
+mis-credited). Codex gives `-c`
 overrides the highest precedence, and the bridge ignores the user config. A calibration call also checks
 which model answered: claude reports per-model output in `modelUsage`. A configured `fallbackModel` chain
 or the automatic switch after a refusal lets another model answer; the requested one then shows no
 output, partial output (a refusal mid-stream) or is missing. Unless the requested model alone produced
 output, the brief or review is skipped, not credited to the requested id; so is a run where any other
-model produced output, such as an auxiliary model. An error result (claude `is_error`, e.g. an API error
-or a refusal mid-stream without a fallback) is skipped too: its text is the error message. `modelUsage`
-keys are the Anthropic model ids Claude Code resolved, not what it sent upstream, so a redirect
-(`modelOverrides`, a gateway behind `ANTHROPIC_BASE_URL`) stays invisible to this check. Codex reports
-no model in `codex exec --json`, so a Codex run (e.g. one a safeguard rerouted) is not checked. The
-product bridge does not check the model.
+model produced output, such as an auxiliary model. When no model reports output (a gateway that sends no
+usage), the listed models decide: another model listed, or the requested one missing, is a fallback too.
+An error result is skipped as well, since its text is the error message: claude `is_error` (an API
+error, or a refusal mid-stream without a fallback; also in the array form `verbose` output takes), and
+for Codex an `error` or `turn.failed` event or a non-zero exit. `modelUsage` keys are the Anthropic
+model ids Claude Code resolved, not what it sent upstream, so a redirect (`modelOverrides`, a gateway
+behind `ANTHROPIC_BASE_URL`) stays invisible to this check. Codex reports no model in `codex exec
+--json`, so a Codex run that a safeguard rerouted is not detected. The product bridge does not check the
+model.
 
 In the product, bridge mode always passes `--effort high` / `model_reasoning_effort=high`. API mode
 sends Anthropic's `output_config.effort` or OpenAI's `reasoning_effort` (Chat Completions) as `high` for

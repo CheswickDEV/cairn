@@ -90,18 +90,26 @@ function isSameModel(reported: string, requested: string): boolean {
 }
 
 /**
- * Throw when a model other than the requested one produced output (claude reports the answering models
- * via `modelUsage`; see `answeringModels`). A fallback - a configured `fallbackModel` chain or the
- * automatic switch after a refusal - would otherwise credit another model's brief or review to the
- * requested id. No output reported at all (e.g. a gateway without usage) is no evidence of a fallback;
- * error results and empty output are caught by `assertNotError` and the brief-length gate. Not reported
- * (codex) → nothing to check.
+ * Throw unless the requested model alone answered, judged from claude's `modelUsage` (see
+ * `answeringModels`): any other model with output means a fallback - a `fallbackModel` chain or the
+ * automatic switch after a refusal - and the brief or review must not be credited to the requested id.
+ * When no model reports output (e.g. a gateway that sends no usage), the listed models are judged
+ * instead: another model listed, or the requested one missing, is a fallback too. Error results are
+ * caught by `assertNotError`. No usage reported at all (codex) → nothing to check.
  */
-export function assertRanModel(modelsUsed: string[] | undefined, requested: string, label: string): void {
-  if (!modelsUsed) return;
-  const foreign = modelsUsed.filter((m) => !isSameModel(m, requested));
-  if (foreign.length > 0) {
-    throw new Error(`${label}: answered by ${modelsUsed.join(", ")}, not only '${requested}' (model fallback?)`);
+export function assertRanModel(
+  r: { modelsUsed?: string[]; modelsReported?: string[] },
+  requested: string,
+  label: string,
+): void {
+  const reported = r.modelsReported;
+  if (!reported) return;
+  const answered = r.modelsUsed ?? [];
+  const judged = answered.length > 0 ? answered : reported;
+  const foreign = judged.filter((m) => !isSameModel(m, requested));
+  const missing = answered.length === 0 && reported.length > 0 && !reported.some((m) => isSameModel(m, requested));
+  if (foreign.length > 0 || missing) {
+    throw new Error(`${label}: answered by ${judged.join(", ")}, not only '${requested}' (model fallback?)`);
   }
 }
 

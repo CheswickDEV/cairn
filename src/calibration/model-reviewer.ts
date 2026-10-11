@@ -99,7 +99,7 @@ export function makeModelReviewer(opts: ModelReviewerOptions = {}): Reviewer {
       timeoutMs: opts.timeoutMs,
     });
     assertNotError(r.finishReason, `reviewer '${baseModelId}'`);
-    assertRanModel(r.modelsUsed, baseModelId, `reviewer '${baseModelId}'`);
+    assertRanModel(r, baseModelId, `reviewer '${baseModelId}'`);
     // A reviewer with no parseable score (e.g. an unavailable model's stub or a refusal) must be
     // SKIPPED, not counted as a 0 - otherwise broken reviewers inflate the spread of every brief.
     const score = parseReviewerScore(r.text);

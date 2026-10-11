@@ -151,19 +151,58 @@ describe("the requested model must be the one that answered (no silent fallback)
   });
 
   it("assertRanModel accepts only the requested model (date / provider-version forms), never another one", () => {
+    const answered = (...ids: string[]) => ({ modelsUsed: ids, modelsReported: ids });
     for (const ran of ["claude-opus-5-5", "claude-opus-5-5[1m]", "us.anthropic.claude-opus-5-5-v1:0", "claude-opus-5-5-20260922"]) {
-      expect(() => assertRanModel([ran], "claude-opus-5-5", "x")).not.toThrow();
+      expect(() => assertRanModel(answered(ran), "claude-opus-5-5", "x")).not.toThrow();
     }
-    expect(() => assertRanModel(["claude-haiku-4-5"], "claude-opus-5-5", "x")).toThrow(/model fallback/);
-    expect(() => assertRanModel(["claude-opus-5"], "claude-opus-5-5", "x")).toThrow(/model fallback/);
+    expect(() => assertRanModel(answered("claude-haiku-4-5"), "claude-opus-5-5", "x")).toThrow(/model fallback/);
+    expect(() => assertRanModel(answered("claude-opus-5"), "claude-opus-5-5", "x")).toThrow(/model fallback/);
     // a version step is another model, also in the other direction
-    expect(() => assertRanModel(["claude-opus-5-5"], "claude-opus-5", "x")).toThrow(/model fallback/);
-    expect(() => assertRanModel(["claude-fable-5-1"], "claude-fable-5", "x")).toThrow(/model fallback/);
+    expect(() => assertRanModel(answered("claude-opus-5-5"), "claude-opus-5", "x")).toThrow(/model fallback/);
+    expect(() => assertRanModel(answered("claude-fable-5-1"), "claude-fable-5", "x")).toThrow(/model fallback/);
     // the requested model plus a fallback that also produced output: still rejected
-    expect(() => assertRanModel(["claude-opus-5-5", "claude-opus-4-8"], "claude-opus-5-5", "x")).toThrow(/model fallback/);
-    // no output from any model (e.g. a gateway without usage) is no evidence of a fallback
-    expect(() => assertRanModel([], "claude-opus-5-5", "x")).not.toThrow();
-    expect(() => assertRanModel(undefined, "claude-opus-5-5", "x")).not.toThrow();
+    expect(() => assertRanModel(answered("claude-opus-5-5", "claude-opus-4-8"), "claude-opus-5-5", "x")).toThrow(/model fallback/);
+    // a listed model without output (e.g. after a refusal) does not count when the requested one answered
+    expect(() => assertRanModel({ modelsUsed: ["claude-opus-5-5"], modelsReported: ["claude-opus-5-5", "claude-haiku-5-5"] }, "claude-opus-5-5", "x")).not.toThrow();
+    // no usage reported (codex) → nothing to check
+    expect(() => assertRanModel({}, "claude-opus-5-5", "x")).not.toThrow();
+  });
+
+  it("no output reported at all (a gateway without usage): the listed models decide", () => {
+    const noUsage = (...ids: string[]) => ({ modelsUsed: [], modelsReported: ids });
+    expect(() => assertRanModel(noUsage("claude-opus-5-5"), "claude-opus-5-5", "x")).not.toThrow();
+    // refusal switch without usage: the fallback model is listed
+    expect(() => assertRanModel(noUsage("claude-opus-5-5", "claude-opus-4-8"), "claude-opus-5-5", "x")).toThrow(/model fallback/);
+    // fallbackModel chain without usage: the requested model is missing
+    expect(() => assertRanModel(noUsage("claude-sonnet-5-5"), "claude-opus-5-5", "x")).toThrow(/model fallback/);
+    // nothing listed (an API error, caught by assertNotError) is no fallback evidence
+    expect(() => assertRanModel(noUsage(), "claude-opus-5-5", "x")).not.toThrow();
+  });
+
+  it("verbose JSON (an array of events) is read from its `result` event", async () => {
+    const events = [
+      { type: "system", subtype: "init" },
+      { type: "result", subtype: "success", is_error: true, result: "API Error: overloaded", modelUsage: { "claude-opus-5-5": { outputTokens: 0 } } },
+    ];
+    const exec = vi.fn<ExecFn>(async () => ({ stdout: JSON.stringify(events), stderr: "", code: 1 }));
+    const r = await runBridge({ cli: "claude", system: "S", user: "U", model: "claude-opus-5-5", effort: "high", execFn: exec });
+    expect(r).toMatchObject({ text: "API Error: overloaded", finishReason: "error", modelsReported: ["claude-opus-5-5"], modelsUsed: [] });
+  });
+
+  it("a codex error event or non-zero exit is an error result, not an answer", async () => {
+    const errorText = "unexpected status 400 Bad Request: " + "x".repeat(600);
+    const codexError = vi.fn<ExecFn>(async () => ({
+      stdout: [JSON.stringify({ type: "thread.started" }), JSON.stringify({ type: "error", message: errorText })].join("\n"),
+      stderr: "",
+      code: 1,
+    }));
+    const r = await runBridge({ cli: "codex", system: "S", user: "U", model: "gpt-6-astra", effort: "high", execFn: codexError });
+    expect(r.finishReason).toBe("error");
+    const c = makeAccountCompactor({ execFn: codexError });
+    await expect(c({ modelId: "gpt-6-astra@high", maskedProbe: "P", prompt: "S" })).rejects.toThrow(/error result/);
+    const failedTurn = vi.fn<ExecFn>(async () => ({ stdout: JSON.stringify({ type: "turn.failed", error: { message: "boom" } }), stderr: "", code: 0 }));
+    expect((await runBridge({ cli: "codex", system: "S", user: "U", execFn: failedTurn })).finishReason).toBe("error");
+    expect((await runBridge({ cli: "codex", system: "S", user: "U", execFn: codexOk() })).finishReason).toBe("stop");
   });
 
   it("a refusal fallback (requested model with zero output) is skipped for compaction and review", async () => {
