@@ -52,6 +52,7 @@ export const defaultExec: ExecFn = (cmd, args, opts) =>
     const child = spawn(cmd, args, { stdio: ["pipe", "pipe", "pipe"], cwd: opts.cwd, env });
     let stdout = "";
     let stderr = "";
+    let stdinError: string | undefined;
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
       reject(new Error(`${cmd} timed out after ${opts.timeoutMs}ms`));
@@ -64,13 +65,20 @@ export const defaultExec: ExecFn = (cmd, args, opts) =>
     });
     child.on("close", (code) => {
       clearTimeout(timer);
+      // A CLI that did not take the whole prompt answered something else: never a success, even with exit 0.
+      if (stdinError) {
+        resolve({ stdout, stderr: `${stderr}\n[cairn] prompt not fully written to ${cmd}: ${stdinError}`, code: code || 1 });
+        return;
+      }
       resolve({ stdout, stderr, code: code ?? -1 });
     });
     if (opts.stdin != null) {
-      // A CLI that exits before reading stdin (e.g. a startup failure) fails the write with EPIPE. Unhandled,
-      // that error would crash the whole process and a calibration run would lose its artifact; the exit
-      // code and stderr already report the failure.
-      child.stdin.on("error", () => {});
+      // A CLI that exits before reading all of stdin (e.g. a startup failure) fails the write with EPIPE once the
+      // prompt exceeds the pipe buffer. Unhandled, that error would crash the whole process and a calibration
+      // run would lose its artifact; it is recorded instead and makes the call fail (see "close").
+      child.stdin.on("error", (e: NodeJS.ErrnoException) => {
+        stdinError = e.code ?? e.message;
+      });
       child.stdin.write(opts.stdin);
       child.stdin.end();
     }

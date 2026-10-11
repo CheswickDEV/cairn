@@ -13,12 +13,25 @@ import {
 const req = { prompt: "compact this source", maxTokens: 1024, model: "claude-opus-4-8" };
 
 describe("defaultExec", () => {
+  const BIG = "x".repeat(8 * 1024 * 1024); // far beyond any pipe buffer
+
   it("a CLI that exits without reading stdin is a normal failed result, not a crash (EPIPE)", async () => {
-    const r = await defaultExec(process.execPath, ["-e", "process.exit(3)"], {
-      stdin: "x".repeat(8 * 1024 * 1024),
-      timeoutMs: 20_000,
-    });
+    const r = await defaultExec(process.execPath, ["-e", "process.exit(3)"], { stdin: BIG, timeoutMs: 20_000 });
     expect(r.code).toBe(3);
+  });
+
+  it("a CLI that read only part of the prompt fails even with exit 0 (no answer to a truncated prompt)", async () => {
+    const readOnce = "process.stdin.once('data', () => { process.stdout.write('answer'); process.exit(0); })";
+    const r = await defaultExec(process.execPath, ["-e", readOnce], { stdin: BIG, timeoutMs: 20_000 });
+    expect(r.stdout).toBe("answer");
+    expect(r.code).not.toBe(0);
+    expect(r.stderr).toMatch(/prompt not fully written/);
+  });
+
+  it("a CLI that reads the whole prompt keeps its exit code and output", async () => {
+    const echoLen = "let n = 0; process.stdin.on('data', (d) => (n += d.length)).on('end', () => process.stdout.write(String(n)))";
+    const r = await defaultExec(process.execPath, ["-e", echoLen], { stdin: BIG, timeoutMs: 20_000 });
+    expect(r).toEqual({ stdout: String(BIG.length), stderr: "", code: 0 });
   });
 });
 

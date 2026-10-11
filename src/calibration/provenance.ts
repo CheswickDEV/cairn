@@ -14,7 +14,8 @@ export const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..
 
 export interface RunProvenance {
   /** HEAD of the git checkout holding this code; null unless the package root is the top level of a
-   *  checkout (an installed package, an archive or a missing `git` give null). */
+   *  checkout with a commit (an installed package, a subfolder of another repo, an archive, an unborn
+   *  HEAD or a missing `git` give null). */
   commit: string | null;
   /** Tracked files differ from `commit`; untracked and gitignored files (e.g. a stale `dist/`) do not
    *  count. null when unknown. */
@@ -28,13 +29,22 @@ export interface RunProvenance {
 /** Runs a local command and returns its trimmed stdout; throws on failure. Injectable for tests. */
 export type RunCommand = (cmd: string, args: string[]) => string;
 
-// SIGKILL: a `--version` that ignores SIGTERM must not outlast the timeout.
+/** The environment without the variables that point git at another repository: an exported `GIT_DIR`
+ *  (as in a git hook) would otherwise win over `git -C`. */
+export function gitNeutralEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const out = { ...env };
+  for (const k of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY"]) delete out[k];
+  return out;
+}
+
+// SIGKILL: no command here (git or a `--version`) may outlast the timeout by ignoring SIGTERM.
 const defaultRun: RunCommand = (cmd, args) =>
   execFileSync(cmd, args, {
     encoding: "utf8",
     timeout: 15_000,
     killSignal: "SIGKILL",
     stdio: ["ignore", "pipe", "ignore"],
+    env: gitNeutralEnv(),
   }).trim();
 
 /** Only a real run asks the CLIs for their version (ADR-0012). */

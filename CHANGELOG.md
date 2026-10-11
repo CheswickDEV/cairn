@@ -90,9 +90,10 @@ independent reviews). See ADR-0012.
   - Artifacts also keep each brief and the must-survive ids the deterministic check missed. A
     `provenance` block records the commit of the code's own checkout, the dirty flag and the Node
     version; real runs add the `claude` and `codex` versions.
-  - A CLI that exits before reading its prompt no longer crashes the caller. Before, an unhandled stdin
-    `EPIPE` ended the process, so a calibration run lost its artifact (existing behavior, also in the
-    product bridge).
+  - A CLI that exits before reading its whole prompt no longer crashes the caller. Before, an unhandled
+    stdin `EPIPE` ended the process whenever the prompt exceeded the pipe buffer, so a calibration run
+    lost its artifact; this was existing behavior, also in the product bridge. Such a call now fails,
+    even with exit 0, because its answer would be to a truncated prompt.
 - **Bridge windows**: Claude Fable 5.1, Sonnet 5.5 and Haiku 5.5 at 1M (Claude Code default); GPT-6 via
   Codex at 258,400. Measured on 2026-10-11 in stage 4b': Codex's usable 95 % of the catalog's 272,000
   in codex 0.162.1.

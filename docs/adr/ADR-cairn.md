@@ -551,15 +551,18 @@ overwritten (a taken name gets `-2`, `-3`, …). They keep each scored brief and
 must-survive items the deterministic check missed (`missingMustSurvive`, the same matching as
 `computeRecall`). A paid run can then be checked again without rerunning it. A `provenance` block
 records:
-- the commit of this code's own checkout, asked in the package root rather than the cwd (null for an
-  installed package);
+- the commit of this code's own checkout, asked in the package root rather than the cwd, with git's
+  repository variables (`GIT_DIR` …) removed (null for an installed package, a subfolder of another
+  repo or an unborn HEAD);
 - whether tracked files differ from it (a gitignored `dist/` does not count);
 - the Node version;
 - for a real run only, the first non-empty line of `claude --version` and `codex --version`. A dry
   run starts neither CLI.
 
-Writing the prompt to a CLI that has already exited no longer crashes the run: `defaultExec` handles
-the stdin `EPIPE`, so the call fails like any other, and the run keeps its artifact.
+A CLI that exits before reading its whole prompt no longer crashes the run. Writing such a prompt fails
+with `EPIPE` once the prompt exceeds the pipe buffer, as the 1.6 MB high-fill probe always does.
+`defaultExec` records that failure and fails the call, even if the CLI exited with 0, because an answer
+to a truncated prompt is no answer. The run keeps its artifact.
 
 `--dry-run` resolves the live configuration on the fixture
 compactor and heuristic reviewer and prints the call count: 49 for the single probe (7 briefs + 42
