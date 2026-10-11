@@ -1,5 +1,38 @@
 # CHANGELOG
 
+## Unreleased — Claude Opus 5.5 and current-model context windows (2026-10-11)
+
+Sources: Anthropic models overview, model pages and pricing; OpenAI API models overview and model pages;
+OpenAI Codex models page; Claude Code statusline and model-configuration docs (all read 2026-10-11).
+See ADR-0011.
+
+- **Claude Opus 5.5 (`claude-opus-5-5`)**: new full profile. 1M context, 128K max output, $4/$20 per MTok,
+  cache reads $0.20, Batch $2/$10, flat pricing across 1M. It is uncalibrated and ranks on the Opus seed
+  prior 0.92, so the calibrated selection is unchanged. Resolves `claude-opus-5-5[1m]`, `@effort`, Bedrock
+  `anthropic.`/`us.anthropic.` prefixes and mixed case.
+- **Right context window for every current Anthropic/OpenAI model**: context-only entries (documented
+  window and max output only) for Claude Fable 5.1, Sonnet 5.5, Haiku 5.5 (1M) and GPT-6 Astra,
+  GPT-6.1 Sol, GPT-6 Luna, GPT-6 Sol (1,050,000). Before, they fell back to the 128K generic profile;
+  Fable 5.1 matched the suspended Fable 5 profile. Codex showed e.g. 50 % instead of 25 % for a GPT-6
+  session at 258,400. These entries are never summarizer or calibration candidates.
+- **GPT-5.5 / GPT-5.5 Pro window corrected** from 1,000,000 to the documented 1,050,000.
+- **Id resolution fix**: the omitted-date-suffix match now accepts only real snapshot dates
+  (`20251001`, `2026-04-23`). Before, `claude-opus-5` (Opus 5) would have resolved to Opus 5.5 once
+  that profile existed.
+- **Claude Code statusline** reads the documented `context_window.context_window_size` as the host window
+  and `total_input_tokens` / `current_usage` as usage. Before, it read `total_tokens` / `input_tokens`,
+  which Claude Code does not send, so the host window was ignored. The legacy shape is still accepted;
+  the Codex adapter uses it.
+- **Calibration** `[CODE-IMPACTING]`: `claude --model` now gets the full pinned model id instead of the
+  family alias. `opus`/`sonnet`/`haiku` now resolve to the 5.5 models, so 4.x variants would have run
+  5.5 models and Opus 5.5 could have peer-reviewed itself. Opus 5.5 is in the default variants, the
+  high-fill probe (medium/high/xhigh/max), the reviewer pool and `BRIDGE_WINDOWS` (1M estimate,
+  not yet bridge-measured). No calibration was run.
+- `host_status` recommends Claude Opus 5.5 as the Claude alternative.
+- **Tests**: 223 → 270, all green. Two existing assertions changed with the behavior above: the
+  compactor now expects `--model claude-opus-4-8` (was `opus`), and the provisional green-pick selects
+  Opus 5.5 (same prior as Opus 4.8, cheaper → ADR-0002 tiebreak).
+
 ## Unreleased — explicit user invocation only (2026-09-30)
 
 - Remove automatic task/session/threshold/compaction triggers from skills, AGENTS and MCP guidance.

@@ -309,6 +309,21 @@ docs/adr/         binding architecture decisions
 
 ---
 
+## 🧮 Model Coverage
+
+Cairn reads each model's context window from its profile and caps it with the window the host
+reports (`min(model_max, surface_cap)`).
+
+| Coverage | Models |
+|---|---|
+| Full profile: window, prices, summarizer selection, calibration | Claude Opus 5.5 · Claude Opus 4.8 · Claude Sonnet 4.6 · Claude Haiku 4.5 · GPT-5.5 · GPT-5.5 Pro · GPT-5.4 · GPT-5.4 Pro |
+| Context-only entry: documented window and max output | Claude Fable 5.1 · Claude Sonnet 5.5 · Claude Haiku 5.5 (1M) · GPT-6 Astra · GPT-6.1 Sol · GPT-6 Luna · GPT-6 Sol (1,050,000) |
+| Generic fallback (128K, conservative zones) | Any other model id |
+
+Claude Opus 5.5 is not calibrated yet; `npm run calibrate -- --real` measures it on your account.
+
+---
+
 ## ✅ Status v1.4.0
 
 - MCP core with four tools + SQLite decision/evidence ledger

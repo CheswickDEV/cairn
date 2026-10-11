@@ -10,7 +10,8 @@
  *   - `context_status` tool  -> uses activeWindow() + zoneBoundaries() + classifyZone()
  *   - `handoff` tool         -> uses selectSummarizer() to pick the model (or verbatim)
  *
- * Pricing/context values are sourced (June 2026). Quality zones for Opus 4.8 / GPT-5.5 are PROVISIONAL
+ * Pricing/context values are sourced (June 2026; Claude Opus 5.5 and the GPT-5.5 windows: October 2026).
+ * Quality zones for Opus 4.8 / GPT-5.5 are PROVISIONAL
  * house values (no vendor %); replace with benchmarks when available.
  * `fidelityScore` / `verbosityCoeff` are NOT vendor-derivable -> calibrate via golden-set (ADR-0005).
  *
@@ -99,6 +100,19 @@ const VENDOR = (label: string, url: string, date: string) => ({ label, url, date
 export const PROFILES: ModelProfile[] = [
   // ---- Anthropic ----
   {
+    id: "claude-opus-5-5",
+    displayName: "Claude Opus 5.5",
+    ecosystem: "anthropic",
+    status: "active",
+    isPro: false,
+    price: { inputPerMTok: 4, outputPerMTok: 20, cacheReadPerMTok: 0.2, batchInputPerMTok: 2, batchOutputPerMTok: 10 },
+    context: { window: 1_000_000, maxOutput: 128_000, stdThreshold: null, surcharge: null }, // flat across 1M
+    qualityZone: { greenPct: 0.40, yellowPct: 0.70, provisional: true },
+    summarizer: { fidelityScore: null, verbosityCoeff: 1.0, provisionalFidelity: 0.92, calibrated: false },
+    sources: [VENDOR("Anthropic Claude Opus 5.5 model page", "https://platform.claude.com/docs/en/models/opus-5-5/overview", "2026-10")],
+    notes: "Released 2026-09-22. Flat pricing across 1M; default effort 'medium'; adaptive thinking always on.",
+  },
+  {
     id: "claude-opus-4-8",
     displayName: "Claude Opus 4.8",
     ecosystem: "anthropic",
@@ -158,7 +172,7 @@ export const PROFILES: ModelProfile[] = [
     status: "active",
     isPro: false,
     price: { inputPerMTok: 5, outputPerMTok: 30, cacheReadPerMTok: 0.5, batchInputPerMTok: 2.5, batchOutputPerMTok: 15 },
-    context: { window: 1_000_000, maxOutput: 128_000, stdThreshold: 272_000, surcharge: { inputMult: 2, outputMult: 1.5 } },
+    context: { window: 1_050_000, maxOutput: 128_000, stdThreshold: 272_000, surcharge: { inputMult: 2, outputMult: 1.5 } },
     qualityZone: { greenPct: 0.40, yellowPct: 0.70, provisional: true },
     summarizer: { fidelityScore: null, verbosityCoeff: 1.0, provisionalFidelity: 0.90, calibrated: false },
     sources: [VENDOR("OpenAI model docs", "https://developers.openai.com/api/docs/models/gpt-5.5", "2026-06")],
@@ -171,7 +185,7 @@ export const PROFILES: ModelProfile[] = [
     status: "active",
     isPro: true,
     price: { inputPerMTok: 30, outputPerMTok: 180 },
-    context: { window: 1_000_000, maxOutput: 128_000, stdThreshold: 272_000, surcharge: { inputMult: 2, outputMult: 1.5 } },
+    context: { window: 1_050_000, maxOutput: 128_000, stdThreshold: 272_000, surcharge: { inputMult: 2, outputMult: 1.5 } },
     qualityZone: { greenPct: 0.40, yellowPct: 0.70, provisional: true },
     summarizer: { fidelityScore: null, verbosityCoeff: 1.0, provisionalFidelity: 0.91, calibrated: false },
     sources: [VENDOR("OpenAI / model-drop reporting", "https://developers.openai.com/api/docs/models/gpt-5.5", "2026-06")],
