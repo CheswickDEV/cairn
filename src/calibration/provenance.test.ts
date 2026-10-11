@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -85,21 +85,24 @@ describe("run provenance (ADR-0012)", () => {
   })();
 
   it.skipIf(!hasGit)("with the real git, an exported GIT_DIR of another repo does not change the recorded commit", () => {
+    // Hermetic: no user/system git config (signing, hooks), so only this test's repos matter.
+    const env = { ...gitNeutralEnv(), GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
     const git = (cwd: string, ...a: string[]) =>
       execFileSync("git", ["-c", "user.email=t@example.invalid", "-c", "user.name=t", ...a], {
         cwd,
         encoding: "utf8",
-        env: gitNeutralEnv(),
+        env,
       }).trim();
-    const mkRepo = () => {
+    const mkRepo = (message: string) => {
       const dir = mkdtempSync(join(tmpdir(), "cairn-prov-"));
       git(dir, "init", "-q");
-      git(dir, "commit", "-q", "--allow-empty", "-m", "x");
+      git(dir, "commit", "-q", "--no-verify", "--allow-empty", "-m", message);
       return dir;
     };
-    const ours = mkRepo();
-    const foreign = mkRepo();
+    const ours = mkRepo("ours");
+    const foreign = mkRepo("foreign");
     const head = git(ours, "rev-parse", "HEAD");
+    expect(git(foreign, "rev-parse", "HEAD")).not.toBe(head); // a leaked GIT_DIR would show up as the commit
     vi.stubEnv("GIT_DIR", join(foreign, ".git"));
     vi.stubEnv("GIT_WORK_TREE", foreign);
     try {
@@ -108,6 +111,8 @@ describe("run provenance (ADR-0012)", () => {
       expect(p.dirty).toBe(false);
     } finally {
       vi.unstubAllEnvs();
+      rmSync(ours, { recursive: true, force: true });
+      rmSync(foreign, { recursive: true, force: true });
     }
   });
 

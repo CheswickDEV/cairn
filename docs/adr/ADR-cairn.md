@@ -567,15 +567,15 @@ records:
 
 A CLI that exits before reading its whole prompt no longer crashes the run. Node gets `EPIPE` in two
 cases:
-- the unread part of the prompt exceeds the stdin buffer, a socket pair of about 128–150 KiB here. The
-  1.6 MB high-fill probe always does.
+- the unread part of the prompt exceeds the stdin buffer, a socket pair of about 128–150 KiB here. With
+  the 1.6 MB high-fill probe that holds unless the CLI read nearly all of it.
 - the CLI exited before the write.
 
 `defaultExec` records that error and fails the call, even if the CLI exited with 0, because an answer
 to a truncated prompt is no answer. The run keeps its artifact.
 
 Limits:
-- A CLI that leaves less than the buffer unread and exits with 0 goes unnoticed. claude and codex read
+- A CLI that leaves less than the buffer unread and exits with 0 can go unnoticed. claude and codex read
   their whole prompt.
 - The product handoff still stores a failed bridge call's answer (open point above).
 
@@ -591,7 +591,8 @@ and the 800K default fits no model). Bridge windows:
   catalog's 272,000 in codex 0.162.1. It is a client-side value, not a test of the server limit. In the
   same rollouts `turn_context` names the requested model and effort `high`.
 - Codex compacts on its own from 244,800 (90 %) mid-turn whenever it continues a turn: after a tool
-  call, an incomplete response or `end_turn: false`. A fresh call starts below every threshold.
+  call, after an interrupted response, or on `end_turn: false`. Other incomplete responses end as
+  errors. A fresh call starts below every threshold.
 - A system or cloud config, which `--ignore-user-config` does not skip, could add post-turn compaction
   or a lower limit. The bridge pins neither.
 

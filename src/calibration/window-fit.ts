@@ -14,7 +14,7 @@
  *  4b', 2026-10-11): the rollout's `model_context_window` is 258400 for all three, Codex's usable share
  *  (95 %) of the catalog's 272000 in codex 0.162.1 - a client-side value, not a server load test. Codex
  *  compacts on its own from 244800 (90 %) mid-turn whenever it continues a turn (after a tool call, an
- *  incomplete response or end_turn: false); a fresh call starts below every threshold.
+ *  interrupted response or end_turn: false); a fresh call starts below every threshold.
  *
  * So we pre-filter candidates whose effective window can't hold the probe - instead of wasting a
  * call that returns "Prompt is too long".

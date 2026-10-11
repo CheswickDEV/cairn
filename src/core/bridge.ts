@@ -79,7 +79,7 @@ export const defaultExec: ExecFn = (cmd, args, opts) =>
       // unread part exceeds the stdin buffer (a socket pair, ~128-150 KiB on Linux), or when it exited before the
       // write. Unhandled, that error would crash the whole process and a calibration run would lose its
       // artifact; it is recorded instead and makes the call fail (see "close"). A truncation that fits in the
-      // buffer stays unnoticed; claude and codex read their whole prompt.
+      // buffer can go unnoticed; claude and codex read their whole prompt.
       child.stdin.on("error", (e: NodeJS.ErrnoException) => {
         stdinError = e.code ?? e.message;
       });

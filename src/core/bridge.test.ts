@@ -29,6 +29,17 @@ describe("defaultExec", () => {
     expect(r.stderr).toMatch(/^\[cairn\] prompt not fully written/);
   });
 
+  it("the note leads a non-empty stderr; a signal exit stays -1", async () => {
+    const noisy = "process.stdin.once('data', () => { process.stderr.write('boom'); process.exit(0); })";
+    const r = await defaultExec(process.execPath, ["-e", noisy], { stdin: BIG, timeoutMs: 20_000 });
+    expect(r.code).toBe(1);
+    expect(r.stderr).toMatch(/^\[cairn\] prompt not fully written[^\n]*\nboom$/);
+    const killed = "process.stdin.once('data', () => process.kill(process.pid, 'SIGKILL'))";
+    const k = await defaultExec(process.execPath, ["-e", killed], { stdin: BIG, timeoutMs: 20_000 });
+    expect(k.code).toBe(-1);
+    expect(k.stderr).toMatch(/^\[cairn\] prompt not fully written/);
+  });
+
   it("a CLI that reads the whole prompt keeps its exit code and output", async () => {
     const echoLen = "let n = 0; process.stdin.on('data', (d) => (n += d.length)).on('end', () => process.stdout.write(String(n)))";
     const r = await defaultExec(process.execPath, ["-e", echoLen], { stdin: BIG, timeoutMs: 20_000 });

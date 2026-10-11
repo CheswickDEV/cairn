@@ -96,11 +96,11 @@ independent reviews). See ADR-0012.
     `provenance` block records the commit of the code's own checkout, the dirty flag and the Node
     version; real runs add the `claude` and `codex` versions.
   - A CLI that exits before reading its whole prompt no longer crashes the caller. Before, an unhandled
-    stdin `EPIPE` ended the process whenever the unread part exceeded the stdin buffer, which the 1.6 MB
-    high-fill probe always does, so a calibration run lost its artifact. This was existing behavior, also
+    stdin `EPIPE` ended the process whenever the unread part exceeded the stdin buffer, as with the 1.6 MB
+    high-fill probe and a CLI that stopped reading early, so a calibration run lost its artifact. This was existing behavior, also
     in the product bridge.
   - Such a call now fails, even with exit 0, because its answer would be to a truncated prompt. A
-    truncation that fits in the buffer stays undetected.
+    truncation that fits in the buffer can go undetected.
 - **Bridge windows**: Claude Fable 5.1, Sonnet 5.5 and Haiku 5.5 at 1M (Claude Code default); GPT-6 via
   Codex at 258,400, the window Codex applies. It was read from real runs on 2026-10-11 (stage 4b'): Codex's
   usable 95 % of the catalog's 272,000 in codex 0.162.1. It is not a server load test.
