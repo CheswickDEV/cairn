@@ -105,8 +105,10 @@ export function compactionEffort(modelId: string | undefined): string | undefine
   return summarizerPool().includes(p) ? "high" : undefined;
 }
 
-/** Output budget at effort `high` in API mode: `max_tokens` caps thinking plus the brief (Anthropic: "set
- *  a large max_tokens"; OpenAI: reserve at least 25,000 tokens for reasoning and output). */
+/** Output budget at effort `high` in API mode. Anthropic: `max_tokens` is a hard limit on thinking plus the
+ *  answer, so set it large at `high`; OpenAI advises reserving at least 25,000 tokens for reasoning and
+ *  output. Limit: the adapters do not stream, so a very long generation can hit fetch's ~300 s header
+ *  timeout (ADR-0012). */
 export const EFFORT_MAX_TOKENS = 32_000;
 
 export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promise<HandoffResult> {
@@ -140,7 +142,9 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
   if (mode === "account") {
     effectiveBrief = input.brief;
   } else {
-    const effort = compactionEffort(host.modelId);
+    // Effort + its larger budget only where they reach the provider: the API adapters. The bridge pins
+    // `high` itself, and sampling cannot carry an effort (ADR-0012).
+    const effort = mode === "api" ? compactionEffort(host.modelId) : undefined;
     const briefTokens = dynamicMaxTokens(input.expectedBriefTokens ?? 4_096, 8_192);
     const maxTokens = effort ? Math.max(briefTokens, EFFORT_MAX_TOKENS) : briefTokens;
     const result = await runOptionalCompaction({

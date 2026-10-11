@@ -82,6 +82,8 @@ function systemFor(request: ModelCallRequest, lang: Lang): string {
 const SAFE_MODEL = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
 /** Effort tier must be a bare lowercase word (low|medium|high|xhigh|max) - no arg/config injection. */
 const SAFE_EFFORT = /^[a-z]+$/;
+/** The levels Claude Code documents for `--effort` / CLAUDE_CODE_EFFORT_LEVEL; only these are pinned. */
+const CLAUDE_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
 
 /** Safety net: if the CLI still editorialized, trim everything before the first bucket. */
 export function stripPreamble(text: string): string {
@@ -164,18 +166,25 @@ export async function runBridge(input: RunBridgeInput): Promise<ModelCallResult>
       "default",
     ];
     if (model && SAFE_MODEL.test(model)) args.push("--model", model);
-    const safeEffort = effort && SAFE_EFFORT.test(effort) ? effort : undefined;
-    if (safeEffort) args.push("--effort", safeEffort);
-    // CLAUDE_CODE_EFFORT_LEVEL takes precedence over `--effort` (Claude Code env-vars docs), so an inherited
-    // value - e.g. `medium` in the user's shell - would silently override the requested effort (ADR-0012).
-    const env = safeEffort ? { CLAUDE_CODE_EFFORT_LEVEL: safeEffort } : undefined;
+    if (effort && SAFE_EFFORT.test(effort)) args.push("--effort", effort);
+    // Effort pin (ADR-0012): CLAUDE_CODE_EFFORT_LEVEL outranks `--effort`, and a settings `env` block outranks
+    // the shell, so an inherited or configured `medium` would silently win. Pin a documented level in the
+    // child's environment AND via `--settings` (outranks user settings; managed settings still win).
+    const pinned = effort && CLAUDE_EFFORTS.has(effort) ? effort : undefined;
+    if (pinned) args.push("--settings", JSON.stringify({ env: { CLAUDE_CODE_EFFORT_LEVEL: pinned } }));
+    // The neutral cwd is the shared tmpdir: never load project/local settings (hooks, env, effort caps) from it.
+    args.push("--setting-sources", "user");
+    const env = pinned ? { CLAUDE_CODE_EFFORT_LEVEL: pinned } : undefined;
     const { stdout, stderr, code } = await exec("claude", args, { stdin: user, timeoutMs, cwd, env });
     if (code !== 0 && !stdout.trim()) throw new Error(`claude bridge failed (code ${code}): ${stderr.slice(0, 300)}`);
     try {
       const json = JSON.parse(stdout) as Record<string, unknown>;
       const text = typeof json.result === "string" ? json.result : "";
       const finishReason = typeof json.subtype === "string" ? json.subtype : json.is_error ? "error" : "stop";
-      return { text, truncated: false, finishReason };
+      // The model(s) that actually answered: a configured fallback chain can swap the requested model.
+      const usage = json.modelUsage;
+      const modelsUsed = usage && typeof usage === "object" ? Object.keys(usage as Record<string, unknown>) : undefined;
+      return { text, truncated: false, finishReason, ...(modelsUsed ? { modelsUsed } : {}) };
     } catch {
       return { text: stdout.trim(), truncated: false, finishReason: "stop" };
     }

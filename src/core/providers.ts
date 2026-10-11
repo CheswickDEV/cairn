@@ -32,6 +32,8 @@ export interface ModelCallResult {
   /** True when the provider stopped because it hit the output cap (truncation guard). */
   truncated: boolean;
   finishReason: string;
+  /** Bridge (claude): the model ids that actually answered (`modelUsage`), when the CLI reports them. */
+  modelsUsed?: string[];
 }
 
 export type FetchFn = typeof fetch;

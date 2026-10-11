@@ -408,10 +408,10 @@ Opus 5.5 0.92, Sonnet 5.5 0.85, Haiku 5.5 0.70, GPT-6 Astra 0.93, GPT-6.1 Sol 0.
 the 0.85 floor this gives, on purpose: Claude hosts pick Opus 5.5 in green and yellow (Fable 5.1 shares
 the 0.02 band, Opus is cheaper), Codex hosts pick GPT-6.1 Sol; in red (floor 0.95) both fall back to
 verbatim. `runHandoff` assumes red when no zone is given, so until then every handoff without a zone
-reports verbatim. In account mode that is informational only; the brief is stored anyway. In bridge and
-API mode the selection is informational too: the configured caller compacts regardless, so such a
-handoff reports "verbatim fallback" but stores the model's brief. That predates this ADR (the tests
-require the call); it now hits the default path, and it is an open point.
+reports verbatim. In account mode that is informational only; the brief is stored anyway. In the
+sampling, bridge and API modes the selection is informational too: the configured caller compacts
+regardless, so such a handoff reports "verbatim fallback" but stores the model's brief. That predates
+this ADR (a bridge test requires the call); it now hits the default path, and it is an open point.
 
 **Effort.** Every model is calibrated at exactly `high`, and Cairn never requests less for a calibration
 or bridge call. The bridge silently drops an effort it does not accept, and the CLI then uses its default:
@@ -421,19 +421,33 @@ the floor is enforced before the call, in four places: `buildVariants`; the acco
 is created (exactly `high`); and the CLI's live paths (`resolveCalibConfig` + pre-flight: candidates
 exactly `high`, reviewers exactly `high`, pool models only, suspended ids rejected). `parseVariant` and
 `runBridge` stay generic, so offline paths keep working.
-`CLAUDE_CODE_EFFORT_LEVEL` takes precedence over `--effort` in Claude Code, so the bridge sets it in the
-child's environment to the requested effort; an inherited `medium` cannot override the floor. Codex
-gives `-c` overrides the highest precedence, and the bridge ignores the user config.
+
+In Claude Code, `CLAUDE_CODE_EFFORT_LEVEL` outranks `--effort`, and an `env` block in a settings file
+outranks the shell. So for a documented level the claude bridge pins the requested effort three ways:
+`--effort`, the child's environment, and `--settings '{"env":{"CLAUDE_CODE_EFFORT_LEVEL":…}}'`, which
+outranks user settings. It also passes `--setting-sources user`: its cwd is the shared tmpdir, and
+project or local settings found there (hooks, `env`, effort caps) are never the user's. Codex gives `-c`
+overrides the highest precedence, and the bridge ignores the user config. A calibration call also checks
+the model that answered: claude reports it as `modelUsage`, and a configured fallback chain could swap
+the model silently, so a brief or review from another model is skipped, not credited to the requested id.
+
 In the product, bridge mode always passes `--effort high` / `model_reasoning_effort=high`. API mode
 sends Anthropic's `output_config.effort` or OpenAI's `reasoning_effort` (Chat Completions) as `high` for
-ids that resolve to a pool model (including dated, prefixed or `-codex` variants), and raises
-`max_tokens` to 32,000, because at `high` it caps thinking plus the brief (OpenAI advises reserving at
-least 25,000). A suspended or unrecognised model keeps its provider default, because it may reject the
-field. Sampling mode cannot set an effort: MCP `sampling/createMessage` has no such field (and the
-2026-07-28 spec deprecates sampling), so the client's defaults apply.
-Limit: Claude Code clamps `--effort` to an effort cap - `maxEffortLevel` in any settings file (any plan,
-any provider) or an Enterprise role cap - and does so silently with `json` output. Cairn does not
-override caps and cannot detect the clamp, so check for a cap below `high` before a live run.
+ids that resolve to a pool model (including dated, prefixed or `-codex` variants), and raises the output
+budget to 32,000 tokens: on Anthropic `max_tokens` is a hard limit on thinking plus the answer, and
+OpenAI advises reserving at least 25,000 tokens. A suspended or unrecognised model keeps its provider
+default and the old budget, because it may reject the field. Sampling mode cannot set an effort: MCP
+`sampling/createMessage` has no such field (and the 2026-07-28 spec deprecates sampling), so the
+client's defaults apply and its budget is unchanged.
+
+Limits. Claude Code clamps `--effort` to a cap: `maxEffortLevel` in any settings file (any plan, any
+provider) or an Enterprise role cap; for the latter the docs say the clamp is silent with `json`
+output. Managed settings, including a managed `env`, outrank `--settings`. Cairn does not override
+managed settings or caps and cannot see the applied level, so check for a cap below `high` before a live
+run. The API adapters do not stream, so a very long generation at `high` can hit fetch's ~300 s header
+timeout and fail the handoff. The OpenAI adapter still sends the deprecated `max_tokens`, which OpenAI
+documents as incompatible with o-series models (`max_completion_tokens` replaces it); that predates
+this ADR and is an open point.
 
 **Reviewers.** All seven pool models review, at exactly `high`, and each brief is scored by the six
 others (k = pool − 1); a model never reviews its own brief. Pool entries are normalised to base ids, so
@@ -446,8 +460,9 @@ family's mean score from its own family against the mean from the other family.
 **Runs and artifacts.** Artifacts are named `<date>T<time>Z-<mode>[-golden|-large].json` and never
 overwritten (a taken name gets `-2`, `-3`, …). `--dry-run` resolves the live configuration on the fixture
 compactor and heuristic reviewer and prints the call count: 49 for the single probe (7 briefs + 42
-reviews), 245 for the golden set (35 + 210), 28 for the 400K high-fill probe (4 Claude briefs + 24
-reviews; GPT-6 does not fit Codex's estimated window). Bridge windows: Claude Fable 5.1, Sonnet 5.5 and
+reviews), 245 for the golden set (35 + 210), 28 for the high-fill probe at
+`CAIRN_CALIB_PROBE_TOKENS=400000` (4 Claude briefs + 24 reviews; GPT-6 does not fit Codex's estimated
+window, and the 800K default fits no model). Bridge windows: Claude Fable 5.1, Sonnet 5.5 and
 Haiku 5.5 at 1M (Claude Code's documented default, not yet bridge-measured); GPT-6 via Codex at 258,400, a
 conservative estimate because the Codex docs name no window.
 

@@ -6,7 +6,7 @@
  * effort: since ADR-0012 every model is calibrated at exactly `high`, never below.
  */
 
-import { PROFILES, type Ecosystem, type ModelProfile } from "../core/model-profiles.js";
+import { PROFILES, normalizeModelId, type Ecosystem, type ModelProfile } from "../core/model-profiles.js";
 import type { BridgeCli } from "../core/bridge.js";
 
 export type CalibEcosystem = "anthropic" | "openai";
@@ -72,6 +72,20 @@ export function assertMinEffort(effort: string, min: Effort, label = "effort"): 
 export function assertExactEffort(effort: string, required: Effort, label = "effort"): Effort {
   if (effort !== required) throw new Error(`${label}: effort must be exactly '${required}', got '${effort}' (ADR-0012)`);
   return required;
+}
+
+/**
+ * Throw unless the requested model is among the models that actually answered (claude reports them as
+ * `modelUsage`). A fallback chain (`fallbackModel`) can otherwise swap the model silently, and the brief
+ * or review would be credited to the wrong id. Not reported (codex) → nothing to check.
+ */
+export function assertRanModel(modelsUsed: string[] | undefined, requested: string, label: string): void {
+  if (!modelsUsed || modelsUsed.length === 0) return;
+  const ran = modelsUsed.some((m) => {
+    const n = normalizeModelId(m);
+    return n === requested || (n.startsWith(requested) && /^[-:.]/.test(n.charAt(requested.length)));
+  });
+  if (!ran) throw new Error(`${label}: answered by ${modelsUsed.join(", ")}, not '${requested}' (model fallback?)`);
 }
 
 /** Default effort tiers per ecosystem (claude `--effort`, codex `model_reasoning_effort`): `high` only (ADR-0012). */

@@ -1,13 +1,13 @@
 import { describe, it, expect, vi } from "vitest";
 import type { ExecFn } from "../core/bridge.js";
-import { productBridge, defaultExec, PRODUCT_BRIDGE_EFFORT } from "../core/bridge.js";
-import { callAnthropic, callOpenAICompatible, type FetchFn } from "../core/providers.js";
+import { productBridge, defaultExec, runBridge, PRODUCT_BRIDGE_EFFORT } from "../core/bridge.js";
+import { callAnthropic, callOpenAICompatible, type FetchFn, type ModelCaller } from "../core/providers.js";
 import type { CairnConfig } from "../core/config.js";
 import { runHandoff, compactionEffort, EFFORT_MAX_TOKENS } from "../tools/handoff.js";
 import { SqliteStore } from "../store/sqlite-store.js";
 import { makeAccountCompactor } from "./account-compactor.js";
 import { makeModelReviewer } from "./model-reviewer.js";
-import { DEFAULT_EFFORTS, EFFORT_ORDER, assertMinEffort, assertExactEffort, buildVariants } from "./variants.js";
+import { DEFAULT_EFFORTS, EFFORT_ORDER, assertMinEffort, assertExactEffort, assertRanModel, buildVariants } from "./variants.js";
 import { loadGroundTruth } from "./fixtures.js";
 
 /* ADR-0012: no calibration or bridge call below `high`; reviewers at exactly `high`. */
@@ -89,6 +89,27 @@ describe("CLAUDE_CODE_EFFORT_LEVEL cannot override the requested effort", () => 
     for (const exec of [compactor, reviewer, bridge]) expect(exec.mock.calls[0][2].env).toEqual({ CLAUDE_CODE_EFFORT_LEVEL: "high" });
   });
 
+  it("pins it via --settings as well (a settings `env` block outranks the shell) and loads user settings only", async () => {
+    const exec = claudeOk();
+    await runBridge({ cli: "claude", system: "S", user: "U", model: "claude-opus-5-5", effort: "high", execFn: exec });
+    const args = exec.mock.calls[0][1];
+    expect(JSON.parse(args[args.indexOf("--settings") + 1])).toEqual({ env: { CLAUDE_CODE_EFFORT_LEVEL: "high" } });
+    // project/local settings from the shared tmpdir cwd (hooks, env, caps) are never loaded
+    expect(args[args.indexOf("--setting-sources") + 1]).toBe("user");
+  });
+
+  it("pins only documented Claude levels; an unknown word is not pinned", async () => {
+    const exec = claudeOk();
+    await runBridge({ cli: "claude", system: "S", user: "U", effort: "foo", execFn: exec });
+    const [, args, opts] = exec.mock.calls[0];
+    expect(args).not.toContain("--settings");
+    expect(opts.env).toBeUndefined();
+    const codex = codexOk();
+    await runBridge({ cli: "codex", system: "S", user: "U", effort: "high", execFn: codex });
+    expect(codex.mock.calls[0][2].env).toBeUndefined();
+    expect(codex.mock.calls[0][1]).not.toContain("--settings");
+  });
+
   it("the spawned child sees `high` even when the parent has CLAUDE_CODE_EFFORT_LEVEL=medium", async () => {
     vi.stubEnv("CLAUDE_CODE_EFFORT_LEVEL", "medium");
     try {
@@ -100,6 +121,36 @@ describe("CLAUDE_CODE_EFFORT_LEVEL cannot override the requested effort", () => 
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+});
+
+describe("the requested model must be the one that answered (no silent fallback)", () => {
+  const answeredBy = (model: string) =>
+    vi.fn<ExecFn>(async () => ({
+      stdout: JSON.stringify({ result: '1) DECISIONS {"recall":1,"hallucination":1,"supersession":1}', modelUsage: { [model]: { outputTokens: 10 } } }),
+      stderr: "",
+      code: 0,
+    }));
+
+  it("assertRanModel accepts the id and its decorated forms, rejects another model, skips when unreported", () => {
+    for (const ran of ["claude-opus-5-5", "claude-opus-5-5[1m]", "us.anthropic.claude-opus-5-5-v1:0"]) {
+      expect(() => assertRanModel([ran], "claude-opus-5-5", "x")).not.toThrow();
+    }
+    expect(() => assertRanModel(["claude-haiku-4-5"], "claude-opus-5-5", "x")).toThrow(/model fallback/);
+    expect(() => assertRanModel(["claude-opus-5"], "claude-opus-5-5", "x")).toThrow(/model fallback/);
+    expect(() => assertRanModel(undefined, "claude-opus-5-5", "x")).not.toThrow();
+  });
+
+  it("a compaction answered by a fallback model is skipped, not credited to the requested id", async () => {
+    const c = makeAccountCompactor({ execFn: answeredBy("claude-haiku-4-5"), minBriefTokens: 0 });
+    await expect(c({ modelId: "claude-opus-5-5@high", maskedProbe: "P", prompt: "S" })).rejects.toThrow(/not 'claude-opus-5-5'/);
+    const ok = makeAccountCompactor({ execFn: answeredBy("claude-opus-5-5"), minBriefTokens: 0 });
+    await expect(ok({ modelId: "claude-opus-5-5@high", maskedProbe: "P", prompt: "S" })).resolves.toBeTruthy();
+  });
+
+  it("a review answered by a fallback model is skipped", async () => {
+    const r = makeModelReviewer({ execFn: answeredBy("claude-haiku-4-5") });
+    await expect(r({ authorModelId: "gpt-6-luna@high", reviewerModelId: "claude-sonnet-5-5", brief: "B", groundTruth: GT })).rejects.toThrow(/model fallback/);
   });
 });
 
@@ -164,6 +215,20 @@ describe("product paths", () => {
     expect(sent.output_config).toEqual({ effort: "high" });
     // At `high`, max_tokens must also hold the thinking: the brief budget is raised to EFFORT_MAX_TOKENS.
     expect(sent.max_tokens).toBe(EFFORT_MAX_TOKENS);
+  });
+
+  it("sampling and bridge mode keep the plain brief budget and carry no effort field", async () => {
+    for (const mode of ["sampling", "bridge"] as const) {
+      const config: CairnConfig = { enabledModes: ["account", mode], endpoints: {}, bridgeCli: "claude", storePath: ":memory:" };
+      const caller = vi.fn<ModelCaller>(async () => ({ text: "1) DECISIONS x", truncated: false, finishReason: "stop" }));
+      await runHandoff(
+        { brief: "", source: "src", host: { modelId: "claude-opus-5-5" }, sourceZone: "green", mode },
+        { store: new SqliteStore({ path: ":memory:" }), config, sample: caller, bridge: caller },
+      );
+      const req = caller.mock.calls[0][0];
+      expect(req.maxTokens).toBe(6_144);
+      expect(req.effort).toBeUndefined();
+    }
   });
 
   it("a legacy model in API mode gets no effort field and the plain brief budget", async () => {

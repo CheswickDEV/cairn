@@ -8,7 +8,7 @@
 import { runBridge, type ExecFn } from "../core/bridge.js";
 import { PROFILES } from "../core/model-profiles.js";
 import { clamp01 } from "./score.js";
-import { parseVariant, cliFor, cliModelName, assertExactEffort, CALIB_EFFORT, type CalibEcosystem } from "./variants.js";
+import { parseVariant, cliFor, cliModelName, assertExactEffort, assertRanModel, CALIB_EFFORT, type CalibEcosystem } from "./variants.js";
 import type { Reviewer, ReviewerScore } from "./review.js";
 import type { GroundTruth } from "./ground-truth.js";
 
@@ -98,6 +98,7 @@ export function makeModelReviewer(opts: ModelReviewerOptions = {}): Reviewer {
       execFn: opts.execFn,
       timeoutMs: opts.timeoutMs,
     });
+    assertRanModel(r.modelsUsed, baseModelId, `reviewer '${baseModelId}'`);
     // A reviewer with no parseable score (e.g. an unavailable model's stub or a refusal) must be
     // SKIPPED, not counted as a 0 - otherwise broken reviewers inflate the spread of every brief.
     const score = parseReviewerScore(r.text);

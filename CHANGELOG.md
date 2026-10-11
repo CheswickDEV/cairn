@@ -19,27 +19,32 @@ independent reviews). See ADR-0012.
 - **Selection until the calibration** (intended): the new profiles rank on house priors. Claude hosts get
   Opus 5.5 and Codex hosts GPT-6.1 Sol in green and yellow; red (floor 0.95) falls back to verbatim. A
   handoff without a zone counts as red, so it reports verbatim too; account mode stores the brief anyway.
-  In bridge and API mode the configured caller still compacts, so such a handoff reports verbatim but
-  stores the model's brief (existing behavior, now on the default path). Before, the calibrated pick on
+  In sampling, bridge and API mode the configured caller still compacts, so such a handoff reports
+  verbatim but stores the model's brief (existing behavior, now on the default path). Before, the calibrated pick on
   Claude hosts was Haiku 4.5.
 - **Effort floor `high`** `[CODE-IMPACTING]`: calibration runs every model at exactly `high` (was
   `medium`…`max`); reviewers run at exactly `high`. Checked in `buildVariants`, the account compactor (skip
   without a call), reviewer creation and the CLI pre-flight. Before, an id without a valid effort reached
   the CLI without `--effort` and ran the default (`medium` for Opus 5.5).
-  - The claude bridge also sets `CLAUDE_CODE_EFFORT_LEVEL` to the requested effort in the child process:
-    Claude Code ranks that variable above `--effort`, so an inherited `medium` used to win.
+  - The claude bridge also pins the effort as `CLAUDE_CODE_EFFORT_LEVEL`, in the child's environment and
+    via `--settings`: Claude Code ranks that variable above `--effort`, and a settings `env` block above the
+    shell, so an inherited or configured `medium` used to win. It loads user settings only
+    (`--setting-sources user`), never project or local settings from its tmpdir cwd.
+  - Calibration skips a brief or review that another model answered (claude `modelUsage`), e.g. after a
+    `fallbackModel` swap, instead of crediting it to the requested id.
   - Bridge mode (`CAIRN_BRIDGE`) now always passes `--effort high` / `model_reasoning_effort=high`.
   - API mode sends `output_config.effort` (Anthropic) or `reasoning_effort` (OpenAI) as `high` for pool
-    models and raises `max_tokens` to 32,000, since at `high` it also caps the thinking. Sampling mode
-    cannot set an effort (MCP has no such field); documented as a limit.
-  - Limit: a Claude Code effort cap below `high` (`maxEffortLevel` in any settings file, or an Enterprise
-    role cap) still clamps the bridge, silently with `json` output.
+    models and raises the output budget to 32,000 tokens (Anthropic: `max_tokens` also caps the thinking).
+    Sampling mode cannot set an effort (MCP has no such field); documented as a limit.
+  - Limits: a Claude Code effort cap below `high` (`maxEffortLevel`, an Enterprise role cap) or a managed
+    `env` still clamps the bridge. The API adapters do not stream (a very long generation can hit the
+    ~300 s fetch header timeout), and the OpenAI adapter still sends the deprecated `max_tokens`.
 - **Full reviewer matrix**: every brief is reviewed by all six other pool models, never by its own model
   (was: the 2–3 strongest foreign models). `CAIRN_CALIB_REVIEWER_POOL` entries are normalised to base ids;
   `CAIRN_CALIB_REVIEWERS` must be a positive integer (a non-number used to mean zero reviewers).
 - **Calibration CLI**: the configuration is resolved and validated in `calib-config.ts` before any call.
   New `--dry-run`: the live configuration on fixtures, no egress, prints the call count (single probe 49,
-  golden set 245, 400K high-fill 28).
+  golden set 245, high-fill 28 with `CAIRN_CALIB_PROBE_TOKENS=400000`).
   - Artifacts are named `<date>T<time>Z-<mode>[-golden|-large].json` and never overwritten. Before,
     offline and live runs wrote the same `<date>.json`.
   - Artifacts keep every review (reviewer, rubric, fidelity), list only reviewers that actually scored and
