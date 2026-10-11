@@ -408,22 +408,32 @@ Opus 5.5 0.92, Sonnet 5.5 0.85, Haiku 5.5 0.70, GPT-6 Astra 0.93, GPT-6.1 Sol 0.
 the 0.85 floor this gives, on purpose: Claude hosts pick Opus 5.5 in green and yellow (Fable 5.1 shares
 the 0.02 band, Opus is cheaper), Codex hosts pick GPT-6.1 Sol; in red (floor 0.95) both fall back to
 verbatim. `runHandoff` assumes red when no zone is given, so until then every handoff without a zone
-reports verbatim. In account mode that is informational only; the brief is stored anyway.
+reports verbatim. In account mode that is informational only; the brief is stored anyway. In bridge and
+API mode the selection is informational too: the configured caller compacts regardless, so such a
+handoff reports "verbatim fallback" but stores the model's brief. That predates this ADR (the tests
+require the call); it now hits the default path, and it is an open point.
 
-**Effort.** Every model is calibrated at exactly `high`, and no calibration or bridge call runs below it.
-The bridge silently drops an effort it does not accept, and the CLI then uses its default: `medium` for
-Opus, Sonnet and Haiku 5.5 in Claude Code, and GPT-6 Astra's default is not documented. So the floor is
-enforced before the call, in four places: `buildVariants`; the account compactor right after
+**Effort.** Every model is calibrated at exactly `high`, and Cairn never requests less for a calibration
+or bridge call. The bridge silently drops an effort it does not accept, and the CLI then uses its default:
+`medium` for Opus, Sonnet and Haiku 5.5 in Claude Code, and GPT-6 Astra's default is not documented. So
+the floor is enforced before the call, in four places: `buildVariants`; the account compactor right after
 `parseVariant` (a violation becomes a logged skip without a call); `makeModelReviewer` when the reviewer
 is created (exactly `high`); and the CLI's live paths (`resolveCalibConfig` + pre-flight: candidates
 exactly `high`, reviewers exactly `high`, pool models only, suspended ids rejected). `parseVariant` and
 `runBridge` stay generic, so offline paths keep working.
+`CLAUDE_CODE_EFFORT_LEVEL` takes precedence over `--effort` in Claude Code, so the bridge sets it in the
+child's environment to the requested effort; an inherited `medium` cannot override the floor. Codex
+gives `-c` overrides the highest precedence, and the bridge ignores the user config.
 In the product, bridge mode always passes `--effort high` / `model_reasoning_effort=high`. API mode
 sends Anthropic's `output_config.effort` or OpenAI's `reasoning_effort` (Chat Completions) as `high` for
-pool models; a suspended or unknown model keeps its provider default, because it may reject the field.
-Sampling mode cannot set an effort: MCP `sampling/createMessage` has no such field (and the 2026-07-28
-spec deprecates sampling), so the client's defaults apply. Claude Code also clamps `--effort` to an
-Enterprise admin cap, silently with `json` output; the bridge cannot detect that.
+ids that resolve to a pool model (including dated, prefixed or `-codex` variants), and raises
+`max_tokens` to 32,000, because at `high` it caps thinking plus the brief (OpenAI advises reserving at
+least 25,000). A suspended or unrecognised model keeps its provider default, because it may reject the
+field. Sampling mode cannot set an effort: MCP `sampling/createMessage` has no such field (and the
+2026-07-28 spec deprecates sampling), so the client's defaults apply.
+Limit: Claude Code clamps `--effort` to an effort cap - `maxEffortLevel` in any settings file (any plan,
+any provider) or an Enterprise role cap - and does so silently with `json` output. Cairn does not
+override caps and cannot detect the clamp, so check for a cap below `high` before a live run.
 
 **Reviewers.** All seven pool models review, at exactly `high`, and each brief is scored by the six
 others (k = pool − 1); a model never reviews its own brief. Pool entries are normalised to base ids, so

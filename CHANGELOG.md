@@ -19,14 +19,21 @@ independent reviews). See ADR-0012.
 - **Selection until the calibration** (intended): the new profiles rank on house priors. Claude hosts get
   Opus 5.5 and Codex hosts GPT-6.1 Sol in green and yellow; red (floor 0.95) falls back to verbatim. A
   handoff without a zone counts as red, so it reports verbatim too; account mode stores the brief anyway.
-  Before, the calibrated pick on Claude hosts was Haiku 4.5.
+  In bridge and API mode the configured caller still compacts, so such a handoff reports verbatim but
+  stores the model's brief (existing behavior, now on the default path). Before, the calibrated pick on
+  Claude hosts was Haiku 4.5.
 - **Effort floor `high`** `[CODE-IMPACTING]`: calibration runs every model at exactly `high` (was
   `medium`…`max`); reviewers run at exactly `high`. Checked in `buildVariants`, the account compactor (skip
   without a call), reviewer creation and the CLI pre-flight. Before, an id without a valid effort reached
   the CLI without `--effort` and ran the default (`medium` for Opus 5.5).
+  - The claude bridge also sets `CLAUDE_CODE_EFFORT_LEVEL` to the requested effort in the child process:
+    Claude Code ranks that variable above `--effort`, so an inherited `medium` used to win.
   - Bridge mode (`CAIRN_BRIDGE`) now always passes `--effort high` / `model_reasoning_effort=high`.
   - API mode sends `output_config.effort` (Anthropic) or `reasoning_effort` (OpenAI) as `high` for pool
-    models. Sampling mode cannot set an effort (MCP has no such field); documented as a limit.
+    models and raises `max_tokens` to 32,000, since at `high` it also caps the thinking. Sampling mode
+    cannot set an effort (MCP has no such field); documented as a limit.
+  - Limit: a Claude Code effort cap below `high` (`maxEffortLevel` in any settings file, or an Enterprise
+    role cap) still clamps the bridge, silently with `json` output.
 - **Full reviewer matrix**: every brief is reviewed by all six other pool models, never by its own model
   (was: the 2–3 strongest foreign models). `CAIRN_CALIB_REVIEWER_POOL` entries are normalised to base ids;
   `CAIRN_CALIB_REVIEWERS` must be a positive integer (a non-number used to mean zero reviewers).

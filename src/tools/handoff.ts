@@ -94,14 +94,20 @@ export interface HandoffResult {
 }
 
 /**
- * Effort for a model-driven compaction (ADR-0012): `high` for a summarizer-pool model (all seven support
- * it). A suspended, context-only or unknown model keeps its provider default, since it may reject the
- * parameter. Only the API adapters read it; the bridge always runs at `high`, sampling cannot set it.
+ * Effort for a model-driven compaction (ADR-0012): `high` for an id that resolves to a summarizer-pool
+ * profile (all seven support it) - including the decorated or prefixed ids `resolveProfile` maps to
+ * one, such as `[1m]`, a Bedrock prefix, a snapshot date or `-codex`. A suspended, context-only or
+ * unrecognised model keeps its provider default, since it may reject the parameter. Only the API
+ * adapters read it; the bridge always runs at `high`, sampling cannot set it.
  */
 export function compactionEffort(modelId: string | undefined): string | undefined {
   const p = resolveProfile(modelId);
   return summarizerPool().includes(p) ? "high" : undefined;
 }
+
+/** Output budget at effort `high` in API mode: `max_tokens` caps thinking plus the brief (Anthropic: "set
+ *  a large max_tokens"; OpenAI: reserve at least 25,000 tokens for reasoning and output). */
+export const EFFORT_MAX_TOKENS = 32_000;
 
 export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promise<HandoffResult> {
   const mode: CompactionMode = input.mode ?? "account";
@@ -134,7 +140,9 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
   if (mode === "account") {
     effectiveBrief = input.brief;
   } else {
-    const maxTokens = dynamicMaxTokens(input.expectedBriefTokens ?? 4_096, 8_192);
+    const effort = compactionEffort(host.modelId);
+    const briefTokens = dynamicMaxTokens(input.expectedBriefTokens ?? 4_096, 8_192);
+    const maxTokens = effort ? Math.max(briefTokens, EFFORT_MAX_TOKENS) : briefTokens;
     const result = await runOptionalCompaction({
       mode,
       config: deps.config,
@@ -143,7 +151,7 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
         prompt: frozen.masked,
         maxTokens,
         model: host.modelId ?? "",
-        effort: compactionEffort(host.modelId),
+        effort,
       },
       endpointKey: input.endpointKey ?? Object.keys(deps.config.endpoints)[0],
       fetchFn: deps.fetchFn,

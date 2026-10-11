@@ -171,10 +171,10 @@ async function main(): Promise<void> {
     probe = lp.probe;
     exactSpans = lp.exactSpans;
     groundTruth = LARGE_GROUND_TRUTH;
-    out.write(`Cairn calibration (${modeLabel(cfg)} high-fill ~${Math.round(targetTokens / 1000)}k) — ${date}\n`);
+    out.write(`Cairn calibration (${modeLabel(cfg)}; high-fill ~${Math.round(targetTokens / 1000)}k) — ${date}\n`);
     out.write(`Probe ≈ ${probe.length} chars (~${Math.round(probe.length / 4000)}k tok).\n`);
   } else {
-    out.write(`Cairn calibration (${modeLabel(cfg)} cross-ecosystem) — ${date}\n`);
+    out.write(`Cairn calibration (${modeLabel(cfg)}; cross-ecosystem) — ${date}\n`);
   }
   out.write(configLine());
 

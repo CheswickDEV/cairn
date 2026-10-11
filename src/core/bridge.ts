@@ -29,7 +29,8 @@ export interface ExecResult {
 export type ExecFn = (
   cmd: string,
   args: string[],
-  opts: { stdin?: string; timeoutMs: number; cwd?: string },
+  /** `env`: variables set on top of the inherited environment for this child only. */
+  opts: { stdin?: string; timeoutMs: number; cwd?: string; env?: Record<string, string> },
 ) => Promise<ExecResult>;
 
 export interface BridgeInput {
@@ -46,7 +47,8 @@ export interface BridgeInput {
 /** Default spawn-based exec: feeds the prompt on stdin, captures stdout/stderr, enforces a timeout. */
 export const defaultExec: ExecFn = (cmd, args, opts) =>
   new Promise<ExecResult>((resolve, reject) => {
-    const child = spawn(cmd, args, { stdio: ["pipe", "pipe", "pipe"], cwd: opts.cwd });
+    const env = opts.env ? { ...process.env, ...opts.env } : process.env;
+    const child = spawn(cmd, args, { stdio: ["pipe", "pipe", "pipe"], cwd: opts.cwd, env });
     let stdout = "";
     let stderr = "";
     const timer = setTimeout(() => {
@@ -162,8 +164,12 @@ export async function runBridge(input: RunBridgeInput): Promise<ModelCallResult>
       "default",
     ];
     if (model && SAFE_MODEL.test(model)) args.push("--model", model);
-    if (effort && SAFE_EFFORT.test(effort)) args.push("--effort", effort);
-    const { stdout, stderr, code } = await exec("claude", args, { stdin: user, timeoutMs, cwd });
+    const safeEffort = effort && SAFE_EFFORT.test(effort) ? effort : undefined;
+    if (safeEffort) args.push("--effort", safeEffort);
+    // CLAUDE_CODE_EFFORT_LEVEL takes precedence over `--effort` (Claude Code env-vars docs), so an inherited
+    // value - e.g. `medium` in the user's shell - would silently override the requested effort (ADR-0012).
+    const env = safeEffort ? { CLAUDE_CODE_EFFORT_LEVEL: safeEffort } : undefined;
+    const { stdout, stderr, code } = await exec("claude", args, { stdin: user, timeoutMs, cwd, env });
     if (code !== 0 && !stdout.trim()) throw new Error(`claude bridge failed (code ${code}): ${stderr.slice(0, 300)}`);
     try {
       const json = JSON.parse(stdout) as Record<string, unknown>;

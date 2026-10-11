@@ -1,9 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
 import type { ExecFn } from "../core/bridge.js";
-import { productBridge, PRODUCT_BRIDGE_EFFORT } from "../core/bridge.js";
+import { productBridge, defaultExec, PRODUCT_BRIDGE_EFFORT } from "../core/bridge.js";
 import { callAnthropic, callOpenAICompatible, type FetchFn } from "../core/providers.js";
 import type { CairnConfig } from "../core/config.js";
-import { runHandoff, compactionEffort } from "../tools/handoff.js";
+import { runHandoff, compactionEffort, EFFORT_MAX_TOKENS } from "../tools/handoff.js";
 import { SqliteStore } from "../store/sqlite-store.js";
 import { makeAccountCompactor } from "./account-compactor.js";
 import { makeModelReviewer } from "./model-reviewer.js";
@@ -77,6 +77,32 @@ describe("account compactor: effort floor before any CLI call", () => {
   });
 });
 
+describe("CLAUDE_CODE_EFFORT_LEVEL cannot override the requested effort", () => {
+  // Claude Code: the env var takes precedence over `--effort`, so the bridge pins it to the requested tier.
+  it("compactor, reviewer and product bridge set it to `high` for the claude child", async () => {
+    const compactor = claudeOk();
+    await makeAccountCompactor({ execFn: compactor, minBriefTokens: 0 })({ modelId: "claude-opus-5-5@high", maskedProbe: "P", prompt: "S" });
+    const reviewer = claudeOk();
+    await makeModelReviewer({ execFn: reviewer })({ authorModelId: "gpt-6-luna@high", reviewerModelId: "claude-fable-5-1", brief: "B", groundTruth: GT });
+    const bridge = claudeOk();
+    await productBridge("claude", "en", bridge)({ prompt: "x", maxTokens: 100, model: "claude-sonnet-5-5" });
+    for (const exec of [compactor, reviewer, bridge]) expect(exec.mock.calls[0][2].env).toEqual({ CLAUDE_CODE_EFFORT_LEVEL: "high" });
+  });
+
+  it("the spawned child sees `high` even when the parent has CLAUDE_CODE_EFFORT_LEVEL=medium", async () => {
+    vi.stubEnv("CLAUDE_CODE_EFFORT_LEVEL", "medium");
+    try {
+      const print = ["-e", "process.stdout.write(process.env.CLAUDE_CODE_EFFORT_LEVEL ?? '')"];
+      const pinned = await defaultExec(process.execPath, print, { timeoutMs: 20_000, env: { CLAUDE_CODE_EFFORT_LEVEL: "high" } });
+      expect(pinned.stdout).toBe("high");
+      const inherited = await defaultExec(process.execPath, print, { timeoutMs: 20_000 });
+      expect(inherited.stdout).toBe("medium");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
 describe("model reviewer: exactly `high`, checked at creation", () => {
   it.each(["medium", "xhigh", "High", ""])("effort %j throws when the reviewer is created", (effort) => {
     expect(() => makeModelReviewer({ effort, execFn: claudeOk() })).toThrow(/exactly 'high'/);
@@ -134,6 +160,25 @@ describe("product paths", () => {
       { brief: "", source: "src", host: { modelId: "claude-opus-5-5" }, sourceZone: "green", mode: "api" },
       { store: new SqliteStore({ path: ":memory:" }), config, fetchFn: fetchFn as unknown as FetchFn },
     );
-    expect(JSON.parse((fetchFn.mock.calls[0] as unknown as [string, RequestInit])[1].body as string).output_config).toEqual({ effort: "high" });
+    const sent = JSON.parse((fetchFn.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
+    expect(sent.output_config).toEqual({ effort: "high" });
+    // At `high`, max_tokens must also hold the thinking: the brief budget is raised to EFFORT_MAX_TOKENS.
+    expect(sent.max_tokens).toBe(EFFORT_MAX_TOKENS);
+  });
+
+  it("a legacy model in API mode gets no effort field and the plain brief budget", async () => {
+    const config: CairnConfig = {
+      enabledModes: ["account", "api"],
+      endpoints: { main: { provider: "anthropic", baseUrl: "https://api.example.test" } },
+      storePath: ":memory:",
+    };
+    const fetchFn = vi.fn(async () => ({ json: async () => ({ content: [{ type: "text", text: "1) DECISIONS x" }], stop_reason: "end_turn" }) }));
+    await runHandoff(
+      { brief: "", source: "src", host: { modelId: "claude-haiku-4-5-20251001" }, sourceZone: "green", mode: "api" },
+      { store: new SqliteStore({ path: ":memory:" }), config, fetchFn: fetchFn as unknown as FetchFn },
+    );
+    const sent = JSON.parse((fetchFn.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
+    expect(sent).not.toHaveProperty("output_config");
+    expect(sent.max_tokens).toBe(6_144); // dynamicMaxTokens(4096 × 1.5, cap 8192)
   });
 });

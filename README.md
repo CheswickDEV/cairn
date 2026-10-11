@@ -330,7 +330,8 @@ separator such as `-codex`. The longest known id wins, so `gpt-5.5-pro` stays GP
 The pool models are not calibrated yet (ADR-0012). Until then they rank on house priors: Claude hosts get
 Claude Opus 5.5 and Codex hosts GPT-6.1 Sol in the green and yellow zones, and the red zone falls back to
 verbatim. `npm run calibrate -- --dry-run --golden` shows how many model calls a live run makes;
-`npm run calibrate -- --real --golden` measures all seven at effort `high` on your accounts.
+`npm run calibrate -- --real --golden` measures all seven at effort `high` on your accounts. A Claude Code
+effort cap below `high` (`maxEffortLevel`) would clamp that run silently, so remove it first.
 
 ---
 
