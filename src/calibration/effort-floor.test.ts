@@ -205,6 +205,37 @@ describe("the requested model must be the one that answered (no silent fallback)
     expect((await runBridge({ cli: "codex", system: "S", user: "U", execFn: codexOk() })).finishReason).toBe("stop");
   });
 
+  it("a retried codex stream error followed by turn.completed is not a failure", async () => {
+    const brief = "1) DECISIONS " + "d".repeat(800);
+    const retried = vi.fn<ExecFn>(async () => ({
+      stdout: [
+        JSON.stringify({ type: "turn.started" }),
+        JSON.stringify({ type: "error", message: "stream disconnected - retrying" }),
+        JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: brief } }),
+        JSON.stringify({ type: "turn.completed", usage: {} }),
+      ].join("\n"),
+      stderr: "",
+      code: 0,
+    }));
+    expect((await runBridge({ cli: "codex", system: "S", user: "U", execFn: retried })).finishReason).toBe("stop");
+    const c = makeAccountCompactor({ execFn: retried });
+    await expect(c({ modelId: "gpt-6.1-sol@high", maskedProbe: "P", prompt: "S" })).resolves.toMatchObject({ brief });
+  });
+
+  it("claude non-JSON output with a non-zero exit is an error result", async () => {
+    const exec = vi.fn<ExecFn>(async () => ({ stdout: "Error: something went wrong " + "x".repeat(600), stderr: "", code: 2 }));
+    expect((await runBridge({ cli: "claude", system: "S", user: "U", execFn: exec })).finishReason).toBe("error");
+  });
+
+  it("a valid brief that mentions a context window is not mistaken for a window error", async () => {
+    const brief = "1) DECISIONS keep the context window at 1M; the old prompt was too long. " + "b".repeat(600);
+    const exec = vi.fn<ExecFn>(async () => ({ stdout: JSON.stringify({ result: brief, subtype: "success", modelUsage: { "claude-opus-5-5": { outputTokens: 300 } } }), stderr: "", code: 0 }));
+    const c = makeAccountCompactor({ execFn: exec });
+    await expect(c({ modelId: "claude-opus-5-5@high", maskedProbe: "P", prompt: "S" })).resolves.toMatchObject({ brief });
+    const tooLong = vi.fn<ExecFn>(async () => ({ stdout: JSON.stringify({ result: "Prompt is too long", is_error: true, subtype: "success", modelUsage: {} }), stderr: "", code: 1 }));
+    await expect(makeAccountCompactor({ execFn: tooLong })({ modelId: "claude-opus-5-5@high", maskedProbe: "P", prompt: "S" })).rejects.toThrow(/context exceeds window/);
+  });
+
   it("a refusal fallback (requested model with zero output) is skipped for compaction and review", async () => {
     const exec = vi.fn<ExecFn>(async () => ({
       stdout: JSON.stringify({

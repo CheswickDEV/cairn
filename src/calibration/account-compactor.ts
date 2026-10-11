@@ -41,8 +41,9 @@ export function makeAccountCompactor(opts: AccountCompactorOptions = {}): Compac
       execFn: opts.execFn,
       timeoutMs: opts.timeoutMs,
     });
-    // Accurate label when the probe exceeded the model's window (ADR-0003) vs a generic short stub.
-    if (/prompt is too long|too long|context (window|length)|exceeds.*(context|window|token)/i.test(result.text)) {
+    // Accurate label when the probe exceeded the model's window (ADR-0003). Only an error result is read
+    // this way: a valid brief may well mention a "context window" or something "too long".
+    if (result.finishReason === "error" && /prompt is too long|too long|context (window|length)|exceeds.*(context|window|token)/i.test(result.text)) {
       throw new Error(`context exceeds window — '${modelId}' rejected the probe: ${result.text.slice(0, 90)}`);
     }
     assertNotError(result.finishReason, `variant '${modelId}'`);

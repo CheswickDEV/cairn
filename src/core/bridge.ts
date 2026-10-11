@@ -103,17 +103,26 @@ export function answeringModels(modelUsage: unknown): string[] | undefined {
   return out;
 }
 
-/** Did a `codex exec --json` run fail? Codex documents `{"type":"error"}` and `turn.failed` events; their
- *  message would otherwise come back as the answer text. */
+/**
+ * Did a `codex exec --json` run fail? `turn.failed` always means so. A `{"type":"error"}` event alone does
+ * not: codex also emits it for a stream error it retries (`will_retry`, the turn goes on), so it counts
+ * only when no `turn.completed` follows. Otherwise the error message would come back as the answer text.
+ */
 export function codexRunFailed(stdout: string): boolean {
-  return stdout.split("\n").some((line) => {
+  let failed = false;
+  let pendingError = false;
+  for (const line of stdout.split("\n")) {
+    let type: unknown;
     try {
-      const ev = JSON.parse(line.trim()) as { type?: unknown };
-      return ev?.type === "error" || ev?.type === "turn.failed";
+      type = (JSON.parse(line.trim()) as { type?: unknown })?.type;
     } catch {
-      return false;
+      continue;
     }
-  });
+    if (type === "turn.failed") failed = true;
+    else if (type === "error") pendingError = true;
+    else if (type === "turn.completed") pendingError = false;
+  }
+  return failed || pendingError;
 }
 
 /** Safety net: if the CLI still editorialized, trim everything before the first bucket. */
@@ -227,7 +236,7 @@ export async function runBridge(input: RunBridgeInput): Promise<ModelCallResult>
         json.modelUsage && typeof json.modelUsage === "object" ? Object.keys(json.modelUsage as Record<string, unknown>) : undefined;
       return { text, truncated: false, finishReason, ...(modelsReported ? { modelsUsed, modelsReported } : {}) };
     } catch {
-      return { text: stdout.trim(), truncated: false, finishReason: "stop" };
+      return { text: stdout.trim(), truncated: false, finishReason: code !== 0 ? "error" : "stop" };
     }
   }
 

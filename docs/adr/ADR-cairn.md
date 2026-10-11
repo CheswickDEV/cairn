@@ -428,10 +428,10 @@ outranks the shell. So for a documented level the claude bridge pins the request
 outranks user settings. It also passes `--setting-sources user`: its cwd is the shared tmpdir, and
 project or local settings found there (hooks, `env`, effort caps) are never the user's. The same
 `--settings` turns off user and plugin hooks (`disableAllHooks`): a compaction or review needs none, and
-a prompt or agent hook with its own model would run that model inside the call. Managed hooks, hooks of
-plugins that managed `enabledPlugins` forces, and a managed `disableAllHooks: false` still apply; if such
-a hook runs its own model, the model check below skips every claude calibration run (none is
-mis-credited). Codex gives `-c`
+a prompt or agent hook with its own model would run that model inside the call. Managed hooks, built-in
+mods, hooks of plugins that managed `enabledPlugins` forces, and a managed `disableAllHooks: false` still
+apply; if such a hook runs a model other than the one being calibrated, the model check below skips
+that run (none is mis-credited). Codex gives `-c`
 overrides the highest precedence, and the bridge ignores the user config. A calibration call also checks
 which model answered: claude reports per-model output in `modelUsage`. A configured `fallbackModel` chain
 or the automatic switch after a refusal lets another model answer; the requested one then shows no
@@ -439,9 +439,11 @@ output, partial output (a refusal mid-stream) or is missing. Unless the requeste
 output, the brief or review is skipped, not credited to the requested id; so is a run where any other
 model produced output, such as an auxiliary model. When no model reports output (a gateway that sends no
 usage), the listed models decide: another model listed, or the requested one missing, is a fallback too.
+(Claude Code's server-side fallback is listed only with usage, which the Anthropic API always sends.)
 An error result is skipped as well, since its text is the error message: claude `is_error` (an API
-error, or a refusal mid-stream without a fallback; also in the array form `verbose` output takes), and
-for Codex an `error` or `turn.failed` event or a non-zero exit. `modelUsage` keys are the Anthropic
+error, or a refusal mid-stream without a fallback; also in the array form `verbose` output takes; or a
+non-JSON output with a non-zero exit), and for Codex a `turn.failed` event, an `error` event that no
+`turn.completed` follows (codex also reports retried stream errors as `error`), or a non-zero exit. `modelUsage` keys are the Anthropic
 model ids Claude Code resolved, not what it sent upstream, so a redirect (`modelOverrides`, a gateway
 behind `ANTHROPIC_BASE_URL`) stays invisible to this check. Codex reports no model in `codex exec
 --json`, so a Codex run that a safeguard rerouted is not detected. The product bridge does not check the
@@ -459,13 +461,13 @@ client's defaults apply and its budget is unchanged.
 Limits. Claude Code clamps `--effort` to a cap: `maxEffortLevel` in user or managed settings, also per
 model under `modelSettings` (any plan, any provider; project and local settings are not loaded), or an
 Enterprise role cap; for the latter the docs say the clamp is silent with `json` output, and against a
-mock API the other caps gave no notice either. Managed settings, including a managed `env`, outrank `--settings`. Cairn does not override
-managed settings or caps and cannot see the applied level, so check for a cap below `high` before a live
+mock API the other caps gave no notice either. Managed settings, including a managed `env`, outrank
+`--settings`. Cairn does not override managed settings or caps and cannot see the applied level, so check for a cap below `high` before a live
 run. The API adapters do not stream, so a very long generation at `high` can hit fetch's ~300 s header
 timeout and fail the handoff. The OpenAI adapter still sends the deprecated `max_tokens`, which OpenAI
-documents as incompatible with o-series models (`max_completion_tokens` replaces it). A claude error
-result (`is_error`) is returned as text (`finishReason: "error"`); calibration skips it, but a handoff
-stores it as the brief. Both predate this ADR and are open points.
+documents as incompatible with o-series models (`max_completion_tokens` replaces it). A claude or
+Codex error result is returned as text (`finishReason: "error"`); calibration skips it, but a
+bridge-mode handoff stores it as the brief. Both predate this ADR and are open points.
 
 **Reviewers.** All seven pool models review, at exactly `high`, and each brief is scored by the six
 others (k = pool − 1); a model never reviews its own brief. Pool entries are normalised to base ids, so
