@@ -351,8 +351,9 @@ Claude Opus 5.5 gets a full profile (window, max output and prices from Anthropi
 joins selection and calibration. Until a live calibration run measures it, it is uncalibrated
 and ranks on the Opus seed prior (0.92), so it never displaces a calibrated pick on a guess.
 Every other current model gets a context-only entry: documented window and max output, nothing
-else. Current means Anthropic's current lineup (models overview), OpenAI's flagship models (API
-models overview) and GPT-6 Sol, Codex's replacement for GPT-5.5. `resolveProfile` uses these entries, so
+else. Current means three groups: Anthropic's current lineup (models overview); the "Flagship models"
+section of OpenAI's API models overview; and GPT-6 Sol, which Codex names as the GPT-5.5 replacement
+on paid plans. `resolveProfile` uses these entries, so
 the statusline and `context_status` show the real window instead of the 128K generic fallback.
 Selection and calibration never use them because they have no sourced price and no fidelity.
 An entry becomes a full profile when its model gets full support.
@@ -362,9 +363,12 @@ A version step such as `claude-opus-5` (Opus 5) therefore never resolves to `cla
 and `claude-opus-4` (Opus 4, 200K) no longer borrows the 1M Opus 4.8 profile.
 The Claude Code statusline reads the window from the documented `context_window.context_window_size`
 and usage from `total_input_tokens`/`current_usage`; the legacy shape is still accepted. For a model
-without a profile, the generic 128K is a placeholder rather than a model maximum, so a host-reported
-window replaces it in `min(model_max, surface_cap, user_override)`. Without a host window it stays 128K.
+without a profile, the generic 128K is a placeholder rather than a model maximum, so an explicit window
+(host-reported or user override) replaces it in `min(model_max, surface_cap, user_override)`. Without
+one it stays 128K. Zero, negative and non-finite window values count as absent.
 
 Calibration passes the full model id to `claude --model`. Claude Code's family aliases move to
 the newest model (`opus` = Opus 5.5 on the Anthropic API), so an alias would calibrate one model under another
-model's name, and would let a model peer-review itself under a different label.
+model's name, and would let a model peer-review itself under a different label. Where `--model`
+expects an ARN or deployment name (Bedrock, Foundry), a pinned id fails, and the variant is skipped
+and logged rather than mislabeled.

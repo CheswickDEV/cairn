@@ -312,17 +312,19 @@ docs/adr/         binding architecture decisions
 ## 🧮 Model Coverage
 
 Cairn reads each model's context window from its profile and caps it with the window the host
-reports (`min(model_max, surface_cap)`).
+reports (`min(model_max, surface_cap)`). For a model it does not know, the host-reported window is
+used as is.
 
 | Coverage | Models |
 |---|---|
 | Full profile: window, prices, summarizer selection, calibration | Claude Opus 5.5 · Claude Opus 4.8 · Claude Sonnet 4.6 · Claude Haiku 4.5 · GPT-5.5 · GPT-5.5 Pro · GPT-5.4 · GPT-5.4 Pro |
 | Context-only entry: documented window and max output | Claude Fable 5.1 · Claude Sonnet 5.5 · Claude Haiku 5.5 (1M) · GPT-6 Astra · GPT-6.1 Sol · GPT-6 Luna · GPT-6 Sol (1,050,000) |
-| Other profiles | Claude Fable 5 (suspended, never selected) · Ollama (local fallback) |
-| Generic fallback (host-reported window, else 128K; conservative zones) | Any id that matches none of the above |
+| Other profiles | Claude Fable 5 (profile status `suspended`: never selected) · Ollama (local fallback) |
+| Generic fallback (host-reported window, else 128K; zones at 50/70 %) | Any id that matches none of the above |
 
-Decorated ids resolve to their base entry: `[1m]`, `@effort`, provider prefixes such as
-`anthropic.`/`openai/`, dated snapshots and Codex slugs such as `-codex`.
+An id that extends a known id resolves to that entry. Examples: `[1m]`, `@effort`, provider and region
+prefixes (`anthropic.`, `us.`/`global.anthropic.`, `openai/`), dated snapshots, and Codex slugs such as
+`-codex`.
 
 Claude Opus 5.5 is not calibrated yet; `npm run calibrate -- --real` measures it on your account.
 

@@ -9,39 +9,53 @@ See ADR-0011.
 - **Claude Opus 5.5 (`claude-opus-5-5`)**: new full profile. 1M context, 128K max output, $4/$20 per MTok,
   cache reads $0.20, Batch $2/$10, flat pricing across 1M. It is uncalibrated and ranks on the Opus seed
   prior 0.92, so the calibrated selection is unchanged. Resolves `claude-opus-5-5[1m]`, `@effort`, Bedrock
-  `anthropic.`/`us.anthropic.` prefixes and mixed case.
-- **Right context window for every current Anthropic/OpenAI model**: "current" means Anthropic's current
-  lineup (models overview) and OpenAI's flagship models (API models overview), plus GPT-6 Sol, Codex's
-  replacement for GPT-5.5. Context-only entries (documented window and max output only) for Claude
-  Fable 5.1, Sonnet 5.5, Haiku 5.5 (1M) and GPT-6 Astra, GPT-6.1 Sol, GPT-6 Luna, GPT-6 Sol (1,050,000). Before, they fell back to the 128K generic profile;
-  Fable 5.1 matched the suspended Fable 5 profile. Codex showed e.g. 50 % instead of 25 % for a GPT-6
-  session at 258,400. These entries are never summarizer or calibration candidates.
+  `anthropic.`/`us.anthropic.`/`global.anthropic.` prefixes and mixed case. Bedrock's `global.` region prefix
+  was not stripped before.
+- **Right context window for every current Anthropic/OpenAI model**. Here, "current" means Anthropic's
+  current lineup (models overview), the "Flagship models" section of OpenAI's API models overview, and
+  GPT-6 Sol. OpenAI's Codex docs name GPT-6 Sol as the GPT-5.5 replacement on paid plans; on Free/Go
+  plans the replacement is GPT-6 Luna.
+  - New context-only entries (documented window and max output only): Claude Fable 5.1, Sonnet 5.5 and
+    Haiku 5.5 (1M), and GPT-6 Astra, GPT-6.1 Sol, GPT-6 Luna and GPT-6 Sol (1,050,000).
+  - Before, these models fell back to the 128K generic profile, and Fable 5.1 matched the Fable 5 profile
+    (status `suspended`). For a GPT-6 session at 258,400, Codex showed 50 % instead of 25 %.
+  - These entries are never summarizer or calibration candidates.
 - **GPT-5.5 / GPT-5.5 Pro window corrected** from 1,000,000 to the documented 1,050,000.
 - **Id resolution fix**: the omitted-date-suffix match now accepts only real snapshot dates
-  (`20251001`, `2026-04-23`). Before, `claude-opus-5` (Opus 5) would have resolved to Opus 5.5 once
-  that profile existed. Side effect: `claude-opus-4`, `claude-sonnet-4` (also Vertex `…@20250514`),
-  `claude-haiku-4` and the version-less `claude-opus`/`claude-sonnet`/`claude-haiku`/`claude-fable` no longer
-  borrow a newer profile (e.g. Opus 4.8's 1M; Opus 4 and Sonnet 4 have 200k windows). They now use the
-  generic fallback.
-- **Unknown models take the host window**: for a model without a profile, the generic 128K is a placeholder,
-  so a host-reported window (Claude Code `context_window_size`, Codex rollout, `context_status` `surfaceCap`)
-  wins. Without this, the statusline fix below would have shown e.g. 234 % for a legacy model at 300k of 1M.
-  The same rule fixes the Codex line for models without a profile, such as GPT-5.6 Sol (50 % → 25 % at 64,600
-  of 258,400). Without a host window, it stays 128K.
-- **Claude Code statusline** reads the documented `context_window.context_window_size` as the host window
-  and `total_input_tokens` / `current_usage` as usage. Before, it read `total_tokens` / `input_tokens`,
-  which Claude Code does not send, so the host window was ignored. The legacy shape is still accepted;
-  the Codex adapter uses it.
+  (`20251001`, `2026-04-23`). Otherwise `claude-opus-5` (Opus 5) would resolve to Opus 5.5 once that
+  profile exists.
+  - Side effect: `claude-opus-4`, `claude-sonnet-4` (also Vertex `…@20250514`), `claude-haiku-4` and the
+    version-less `claude-opus`/`claude-sonnet`/`claude-haiku`/`claude-fable` no longer borrow a newer
+    profile. For example, Opus 4 borrowed Opus 4.8's 1M, but Opus 4 and Sonnet 4 have 200k windows.
+    These ids now use the generic fallback.
+- **Unknown models take an explicit window**: for a model without a profile, the generic 128K is only a
+  placeholder.
+  - An explicit window now wins: the host-reported one (Claude Code `context_window_size`, the Codex
+    rollout, `context_status` `surfaceCap`) or a user override.
+  - Zero, negative and non-finite window values are ignored. Without an explicit window, 128K remains.
+  - Without this rule, the statusline fix below would show e.g. 234 % for a legacy model at 300k of 1M.
+  - The rule also fixes the Codex line for models without a profile, such as GPT-5.6 Sol: 25 % instead
+    of 50 % at 64,600 of 258,400.
+- **Claude Code statusline**: it now reads the documented fields, `context_window.context_window_size` as
+  the host window and `total_input_tokens` / `current_usage` as usage. Before, it read `total_tokens` /
+  `input_tokens`, which Claude Code does not send, so the host window was ignored. The legacy shape is
+  still accepted; the Codex adapter uses it.
 - **Calibration** `[CODE-IMPACTING]`: `claude --model` now gets the full pinned model id instead of the
-  family alias. On the Anthropic API, Claude Code resolves `opus`/`sonnet`/`haiku` to the 5.5 models
-  (other providers map them to other versions), so 4.x variants would have run 5.5 models and Opus 5.5
-  could have peer-reviewed itself. Opus 5.5 is in the default variants, the
-  high-fill probe (medium/high/xhigh/max), the reviewer pool and `BRIDGE_WINDOWS` (1M estimate,
-  not yet bridge-measured). No calibration was run.
+  family alias.
+  - On the Anthropic API, Claude Code resolves `opus`/`sonnet`/`haiku` to the 5.5 models; some other
+    providers map them to earlier versions. With the alias, 4.x variants would have run 5.5 models, and
+    Opus 5.5 could have peer-reviewed itself.
+  - On Bedrock and Foundry, `--model` takes an inference-profile ARN or a deployment name. A pinned id
+    fails there, and the variant is skipped and logged. Before, a variant there ran whatever model the
+    alias resolved to, under the wrong label.
+  - Opus 5.5 joins the default variants, the high-fill probe (medium/high/xhigh/max), the reviewer pool
+    and `BRIDGE_WINDOWS` (1M, estimated, not yet bridge-measured).
+  - No calibration was run.
 - `host_status` recommends Claude Opus 5.5 as the Claude alternative.
-- **Tests**: 223 → 275, all green. Two existing assertions changed with the behavior above: the
-  compactor now expects `--model claude-opus-4-8` (was `opus`), and the provisional green-pick selects
-  Opus 5.5 (same prior as Opus 4.8, cheaper → ADR-0002 tiebreak).
+- **Tests**: 223 → 278, all green. Two existing assertions changed with the behavior above:
+  - the compactor now expects `--model claude-opus-4-8` (was `opus`);
+  - the provisional green-pick selects Opus 5.5: same prior as Opus 4.8 but cheaper, so the ADR-0002
+    tiebreak picks it.
 
 ## Unreleased — explicit user invocation only (2026-09-30)
 
