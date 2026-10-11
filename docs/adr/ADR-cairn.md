@@ -428,8 +428,12 @@ outranks the shell. So for a documented level the claude bridge pins the request
 outranks user settings. It also passes `--setting-sources user`: its cwd is the shared tmpdir, and
 project or local settings found there (hooks, `env`, effort caps) are never the user's. Codex gives `-c`
 overrides the highest precedence, and the bridge ignores the user config. A calibration call also checks
-the model that answered: claude reports it as `modelUsage`, and a configured fallback chain could swap
-the model silently, so a brief or review from another model is skipped, not credited to the requested id.
+which model answered: claude reports per-model output in `modelUsage`. A configured `fallbackModel` chain
+or the automatic switch after a refusal lets another model answer, and the requested one then shows zero
+output. Unless the requested model alone produced output, the brief or review is skipped, not credited
+to the requested id. `modelUsage` names the model Claude Code requested, so a redirect behind it
+(`modelOverrides`, a gateway behind `ANTHROPIC_BASE_URL`) stays invisible to this check. The product
+bridge does not check the model.
 
 In the product, bridge mode always passes `--effort high` / `model_reasoning_effort=high`. API mode
 sends Anthropic's `output_config.effort` or OpenAI's `reasoning_effort` (Chat Completions) as `high` for
@@ -440,14 +444,16 @@ default and the old budget, because it may reject the field. Sampling mode canno
 `sampling/createMessage` has no such field (and the 2026-07-28 spec deprecates sampling), so the
 client's defaults apply and its budget is unchanged.
 
-Limits. Claude Code clamps `--effort` to a cap: `maxEffortLevel` in any settings file (any plan, any
-provider) or an Enterprise role cap; for the latter the docs say the clamp is silent with `json`
-output. Managed settings, including a managed `env`, outrank `--settings`. Cairn does not override
+Limits. Claude Code clamps `--effort` to a cap: `maxEffortLevel` in user or managed settings, also per
+model under `modelSettings` (any plan, any provider; project and local settings are not loaded), or an
+Enterprise role cap; for the latter the docs say the clamp is silent with `json` output, and against a
+mock API the other caps gave no notice either. Managed settings, including a managed `env`, outrank `--settings`. Cairn does not override
 managed settings or caps and cannot see the applied level, so check for a cap below `high` before a live
 run. The API adapters do not stream, so a very long generation at `high` can hit fetch's ~300 s header
 timeout and fail the handoff. The OpenAI adapter still sends the deprecated `max_tokens`, which OpenAI
-documents as incompatible with o-series models (`max_completion_tokens` replaces it); that predates
-this ADR and is an open point.
+documents as incompatible with o-series models (`max_completion_tokens` replaces it). A claude error
+result (`is_error`) is returned as text, and outside calibration (which drops short output) a handoff
+stores it as the brief. Both predate this ADR and are open points.
 
 **Reviewers.** All seven pool models review, at exactly `high`, and each brief is scored by the six
 others (k = pool − 1); a model never reviews its own brief. Pool entries are normalised to base ids, so

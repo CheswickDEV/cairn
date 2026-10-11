@@ -85,6 +85,23 @@ const SAFE_EFFORT = /^[a-z]+$/;
 /** The levels Claude Code documents for `--effort` / CLAUDE_CODE_EFFORT_LEVEL; only these are pinned. */
 const CLAUDE_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
 
+/**
+ * The models that produced output in a claude run, from `modelUsage` (`{ "<model>": { outputTokens,
+ * thinkingTokens, … } }`). A fallback - a configured `fallbackModel` chain, or the automatic switch after a
+ * refusal - can answer instead of the requested model, which then shows up with zero output. An entry
+ * without token counts counts as having answered. `undefined` when the CLI reports no usage.
+ */
+export function answeringModels(modelUsage: unknown): string[] | undefined {
+  if (!modelUsage || typeof modelUsage !== "object") return undefined;
+  const out: string[] = [];
+  for (const [model, u] of Object.entries(modelUsage as Record<string, unknown>)) {
+    const usage = (u ?? {}) as Record<string, unknown>;
+    const counts = [usage.outputTokens, usage.thinkingTokens].filter((n): n is number => typeof n === "number");
+    if (counts.length === 0 || counts.some((n) => n > 0)) out.push(model);
+  }
+  return out;
+}
+
 /** Safety net: if the CLI still editorialized, trim everything before the first bucket. */
 export function stripPreamble(text: string): string {
   const m = text.match(/(?:^|\n)\s*(1\)\s*DECISIONS|DECISIONS\b)/i);
@@ -181,9 +198,7 @@ export async function runBridge(input: RunBridgeInput): Promise<ModelCallResult>
       const json = JSON.parse(stdout) as Record<string, unknown>;
       const text = typeof json.result === "string" ? json.result : "";
       const finishReason = typeof json.subtype === "string" ? json.subtype : json.is_error ? "error" : "stop";
-      // The model(s) that actually answered: a configured fallback chain can swap the requested model.
-      const usage = json.modelUsage;
-      const modelsUsed = usage && typeof usage === "object" ? Object.keys(usage as Record<string, unknown>) : undefined;
+      const modelsUsed = answeringModels(json.modelUsage);
       return { text, truncated: false, finishReason, ...(modelsUsed ? { modelsUsed } : {}) };
     } catch {
       return { text: stdout.trim(), truncated: false, finishReason: "stop" };

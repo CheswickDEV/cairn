@@ -74,18 +74,27 @@ export function assertExactEffort(effort: string, required: Effort, label = "eff
   return required;
 }
 
+/** What may follow a model id and still name the same model: a snapshot date and/or a provider version
+ *  (`-v1:0`). A version step (`claude-opus-5` → `claude-opus-5-5`) is a different model. */
+const SAME_MODEL_SUFFIX = /^(?:-(?:\d{8}|\d{4}-\d{2}-\d{2}))?(?:-v\d+(?::\d+)?)?$/;
+
+function isSameModel(reported: string, requested: string): boolean {
+  const n = normalizeModelId(reported);
+  return n.startsWith(requested) && SAME_MODEL_SUFFIX.test(n.slice(requested.length));
+}
+
 /**
- * Throw unless the requested model is among the models that actually answered (claude reports them as
- * `modelUsage`). A fallback chain (`fallbackModel`) can otherwise swap the model silently, and the brief
- * or review would be credited to the wrong id. Not reported (codex) → nothing to check.
+ * Throw unless the requested model - and only it - produced the output (claude reports the answering
+ * models via `modelUsage`; see `answeringModels`). A fallback - a configured `fallbackModel` chain or
+ * the automatic switch after a refusal - would otherwise credit another model's brief or review to the
+ * requested id. Not reported (codex) → nothing to check.
  */
 export function assertRanModel(modelsUsed: string[] | undefined, requested: string, label: string): void {
-  if (!modelsUsed || modelsUsed.length === 0) return;
-  const ran = modelsUsed.some((m) => {
-    const n = normalizeModelId(m);
-    return n === requested || (n.startsWith(requested) && /^[-:.]/.test(n.charAt(requested.length)));
-  });
-  if (!ran) throw new Error(`${label}: answered by ${modelsUsed.join(", ")}, not '${requested}' (model fallback?)`);
+  if (!modelsUsed) return;
+  const foreign = modelsUsed.filter((m) => !isSameModel(m, requested));
+  if (modelsUsed.length === 0 || foreign.length > 0) {
+    throw new Error(`${label}: answered by ${modelsUsed.join(", ") || "no model"}, not only '${requested}' (model fallback?)`);
+  }
 }
 
 /** Default effort tiers per ecosystem (claude `--effort`, codex `model_reasoning_effort`): `high` only (ADR-0012). */

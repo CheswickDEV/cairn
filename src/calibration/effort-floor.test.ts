@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import type { ExecFn } from "../core/bridge.js";
-import { productBridge, defaultExec, runBridge, PRODUCT_BRIDGE_EFFORT } from "../core/bridge.js";
+import { productBridge, defaultExec, runBridge, answeringModels, PRODUCT_BRIDGE_EFFORT } from "../core/bridge.js";
 import { callAnthropic, callOpenAICompatible, type FetchFn, type ModelCaller } from "../core/providers.js";
 import type { CairnConfig } from "../core/config.js";
 import { runHandoff, compactionEffort, EFFORT_MAX_TOKENS } from "../tools/handoff.js";
@@ -132,18 +132,50 @@ describe("the requested model must be the one that answered (no silent fallback)
       code: 0,
     }));
 
-  it("assertRanModel accepts the id and its decorated forms, rejects another model, skips when unreported", () => {
-    for (const ran of ["claude-opus-5-5", "claude-opus-5-5[1m]", "us.anthropic.claude-opus-5-5-v1:0"]) {
+  it("answeringModels keeps only models that produced output (a refused model shows zero output)", () => {
+    const refusal = {
+      "claude-opus-5-5": { inputTokens: 20, outputTokens: 0, thinkingTokens: 0 },
+      "claude-opus-5": { inputTokens: 10, outputTokens: 7, thinkingTokens: 0 },
+    };
+    expect(answeringModels(refusal)).toEqual(["claude-opus-5"]);
+    expect(answeringModels({ "claude-opus-5-5": { outputTokens: 0, thinkingTokens: 12 } })).toEqual(["claude-opus-5-5"]);
+    expect(answeringModels({ "claude-opus-5-5": {} })).toEqual(["claude-opus-5-5"]); // no counts → counts as answered
+    expect(answeringModels(undefined)).toBeUndefined();
+  });
+
+  it("assertRanModel accepts only the requested model (date / provider-version forms), never another one", () => {
+    for (const ran of ["claude-opus-5-5", "claude-opus-5-5[1m]", "us.anthropic.claude-opus-5-5-v1:0", "claude-opus-5-5-20260922"]) {
       expect(() => assertRanModel([ran], "claude-opus-5-5", "x")).not.toThrow();
     }
     expect(() => assertRanModel(["claude-haiku-4-5"], "claude-opus-5-5", "x")).toThrow(/model fallback/);
     expect(() => assertRanModel(["claude-opus-5"], "claude-opus-5-5", "x")).toThrow(/model fallback/);
+    // a version step is another model, also in the other direction
+    expect(() => assertRanModel(["claude-opus-5-5"], "claude-opus-5", "x")).toThrow(/model fallback/);
+    expect(() => assertRanModel(["claude-fable-5-1"], "claude-fable-5", "x")).toThrow(/model fallback/);
+    // the requested model plus a fallback that also produced output: still rejected
+    expect(() => assertRanModel(["claude-opus-5-5", "claude-opus-4-8"], "claude-opus-5-5", "x")).toThrow(/model fallback/);
+    expect(() => assertRanModel([], "claude-opus-5-5", "x")).toThrow(/no model/);
     expect(() => assertRanModel(undefined, "claude-opus-5-5", "x")).not.toThrow();
+  });
+
+  it("a refusal fallback (requested model with zero output) is skipped for compaction and review", async () => {
+    const exec = vi.fn<ExecFn>(async () => ({
+      stdout: JSON.stringify({
+        result: '1) DECISIONS {"recall":1,"hallucination":1,"supersession":1}',
+        modelUsage: { "claude-opus-5-5": { outputTokens: 0, thinkingTokens: 0 }, "claude-opus-5": { outputTokens: 7, thinkingTokens: 0 } },
+      }),
+      stderr: "",
+      code: 0,
+    }));
+    const c = makeAccountCompactor({ execFn: exec, minBriefTokens: 0 });
+    await expect(c({ modelId: "claude-opus-5-5@high", maskedProbe: "P", prompt: "S" })).rejects.toThrow(/answered by claude-opus-5/);
+    const r = makeModelReviewer({ execFn: exec });
+    await expect(r({ authorModelId: "gpt-6-luna@high", reviewerModelId: "claude-opus-5-5", brief: "B", groundTruth: GT })).rejects.toThrow(/model fallback/);
   });
 
   it("a compaction answered by a fallback model is skipped, not credited to the requested id", async () => {
     const c = makeAccountCompactor({ execFn: answeredBy("claude-haiku-4-5"), minBriefTokens: 0 });
-    await expect(c({ modelId: "claude-opus-5-5@high", maskedProbe: "P", prompt: "S" })).rejects.toThrow(/not 'claude-opus-5-5'/);
+    await expect(c({ modelId: "claude-opus-5-5@high", maskedProbe: "P", prompt: "S" })).rejects.toThrow(/not only 'claude-opus-5-5'/);
     const ok = makeAccountCompactor({ execFn: answeredBy("claude-opus-5-5"), minBriefTokens: 0 });
     await expect(ok({ modelId: "claude-opus-5-5@high", maskedProbe: "P", prompt: "S" })).resolves.toBeTruthy();
   });

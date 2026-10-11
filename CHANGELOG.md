@@ -30,14 +30,16 @@ independent reviews). See ADR-0012.
     via `--settings`: Claude Code ranks that variable above `--effort`, and a settings `env` block above the
     shell, so an inherited or configured `medium` used to win. It loads user settings only
     (`--setting-sources user`), never project or local settings from its tmpdir cwd.
-  - Calibration skips a brief or review that another model answered (claude `modelUsage`), e.g. after a
-    `fallbackModel` swap, instead of crediting it to the requested id.
+  - Calibration skips a brief or review unless the requested model alone produced output (claude
+    `modelUsage`), e.g. after a `fallbackModel` swap or the automatic switch after a refusal, instead of
+    crediting it to the requested id. A redirect behind the requested id (`modelOverrides`, a gateway)
+    stays invisible to this check; the product bridge does not check the model.
   - Bridge mode (`CAIRN_BRIDGE`) now always passes `--effort high` / `model_reasoning_effort=high`.
   - API mode sends `output_config.effort` (Anthropic) or `reasoning_effort` (OpenAI) as `high` for pool
     models and raises the output budget to 32,000 tokens (Anthropic: `max_tokens` also caps the thinking).
     Sampling mode cannot set an effort (MCP has no such field); documented as a limit.
-  - Limits: a Claude Code effort cap below `high` (`maxEffortLevel`, an Enterprise role cap) or a managed
-    `env` still clamps the bridge. The API adapters do not stream (a very long generation can hit the
+  - Limits: a Claude Code effort cap below `high` (`maxEffortLevel` in user or managed settings, also per
+    model, or an Enterprise role cap) or a managed `env` still clamps the bridge, without notice. The API adapters do not stream (a very long generation can hit the
     ~300 s fetch header timeout), and the OpenAI adapter still sends the deprecated `max_tokens`.
 - **Full reviewer matrix**: every brief is reviewed by all six other pool models, never by its own model
   (was: the 2–3 strongest foreign models). `CAIRN_CALIB_REVIEWER_POOL` entries are normalised to base ids;
