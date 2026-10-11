@@ -126,7 +126,8 @@ export function codexRunFailed(stdout: string): boolean {
 }
 
 /** The last error message a `codex exec --json` run reported (`error` / `turn.failed` events) - the
- *  failure reason, which codex writes to stdout only. */
+ *  failure reason, which codex writes to stdout only. A retried error that a `turn.completed` followed
+ *  is no reason. */
 export function codexErrorMessage(stdout: string): string {
   let message = "";
   for (const line of stdout.split("\n")) {
@@ -138,6 +139,7 @@ export function codexErrorMessage(stdout: string): string {
     }
     if (ev?.type === "error" && typeof ev.message === "string") message = ev.message;
     else if (ev?.type === "turn.failed" && typeof ev.error?.message === "string") message = ev.error.message;
+    else if (ev?.type === "turn.completed") message = "";
   }
   return message;
 }

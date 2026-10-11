@@ -204,6 +204,16 @@ describe("the requested model must be the one that answered (no silent fallback)
     await expect(runBridge({ cli: "codex", system: "S", user: "U", execFn: errorExit0 })).rejects.toThrow(/ran out of room/);
     const turnFailed = vi.fn<ExecFn>(async () => ({ stdout: JSON.stringify({ type: "turn.failed", error: { message: "quota exceeded" } }), stderr: "Reading prompt from stdin...", code: 1 }));
     await expect(runBridge({ cli: "codex", system: "S", user: "U", execFn: turnFailed })).rejects.toThrow(/quota exceeded/);
+    // turn.failed without an answer fails the call even with exit 0
+    const turnFailedExit0 = vi.fn<ExecFn>(async () => ({ stdout: JSON.stringify({ type: "turn.failed", error: { message: "quota exceeded" } }), stderr: "", code: 0 }));
+    await expect(runBridge({ cli: "codex", system: "S", user: "U", execFn: turnFailedExit0 })).rejects.toThrow(/\(code 0\): quota exceeded/);
+    // a retried error that turn.completed followed is no failure reason: stderr is reported instead
+    const retriedThenExit1 = vi.fn<ExecFn>(async () => ({
+      stdout: [JSON.stringify({ type: "error", message: "Reconnecting... 1/5" }), JSON.stringify({ type: "turn.completed", usage: {} })].join("\n"),
+      stderr: "request handling failed",
+      code: 1,
+    }));
+    await expect(runBridge({ cli: "codex", system: "S", user: "U", execFn: retriedThenExit1 })).rejects.toThrow(/\(code 1\): request handling failed/);
     const c = makeAccountCompactor({ execFn: codexError });
     await expect(c({ modelId: "gpt-6-astra@high", maskedProbe: "P", prompt: "S" })).rejects.toThrow(/codex bridge failed/);
     // an answer text with a non-zero exit is an error result

@@ -35,9 +35,10 @@ independent reviews). See ADR-0012.
   - Calibration skips a brief or review unless the requested model alone produced output (claude
     `modelUsage`; without any reported output the listed models decide), e.g. after a `fallbackModel` swap
     or the automatic switch after a refusal, instead of crediting it to the requested id. It also skips
-    error results, whose text is the error message: claude `is_error` (e.g. a refusal mid-stream, also in
-    `verbose` array output), and for Codex a `turn.failed` event, an `error` event without a following
-    `turn.completed` (retried stream errors also come as `error`) or a non-zero exit. A redirect behind the requested id (`modelOverrides`, a
+    error results: claude `is_error` (e.g. a refusal mid-stream, also in `verbose` array output), whose
+    text is the error message, and for Codex a `turn.failed` event, an `error` event without a following
+    `turn.completed` (retried stream errors also come as `error`) or a non-zero exit, whose text is at
+    most a partial answer. A redirect behind the requested id (`modelOverrides`, a
     gateway) stays invisible to this check; for Codex only a safeguard reroute is visible (an error item
     `model rerouted: <from> -> <to>`, best-effort: Codex may drop it under backpressure), and the product
     bridge does not check the model. A claude run with a
