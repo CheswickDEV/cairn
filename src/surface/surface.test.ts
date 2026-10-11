@@ -128,6 +128,9 @@ describe("statusline — Claude Code's documented context_window fields", () => 
     // a 0 size counts as "not reported" and falls through to the legacy field
     const zero = computeStatus({ model: { id: "claude-opus-5" }, context_window: { context_window_size: 0, total_tokens: 1_000_000, total_input_tokens: 300_000 } });
     expect(zero.window).toBe(1_000_000);
+    // a non-number size is ignored the same way (JSON false / "")
+    const bogus = { context_window_size: false, total_tokens: 1_000_000, total_input_tokens: 300_000 } as unknown as NonNullable<Parameters<typeof computeStatus>[0]["context_window"]>;
+    expect(computeStatus({ model: { id: "claude-opus-5" }, context_window: bogus }).window).toBe(1_000_000);
   });
 
   it.each([
