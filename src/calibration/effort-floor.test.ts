@@ -221,6 +221,30 @@ describe("the requested model must be the one that answered (no silent fallback)
       code: 0,
     }));
     await expect(runBridge({ cli: "codex", system: "S", user: "U", execFn: failedThenCompleted })).rejects.toThrow(/quota exceeded/);
+    // the latest reason wins: an error after turn.failed (no turn.completed after it), and empty messages are ignored
+    const failedThenError = vi.fn<ExecFn>(async () => ({
+      stdout: [JSON.stringify({ type: "turn.failed", error: { message: "C" } }), JSON.stringify({ type: "error", message: "B" })].join("\n"),
+      stderr: "",
+      code: 1,
+    }));
+    await expect(runBridge({ cli: "codex", system: "S", user: "U", execFn: failedThenError })).rejects.toThrow(/\(code 1\): B$/);
+    const errorThenEmptyFailed = vi.fn<ExecFn>(async () => ({
+      stdout: [JSON.stringify({ type: "error", message: "B" }), JSON.stringify({ type: "turn.failed", error: { message: "" } })].join("\n"),
+      stderr: "",
+      code: 1,
+    }));
+    await expect(runBridge({ cli: "codex", system: "S", user: "U", execFn: errorThenEmptyFailed })).rejects.toThrow(/\(code 1\): B$/);
+    // a retried error after turn.failed does not hide the turn.failed reason
+    const failedRetriedCompleted = vi.fn<ExecFn>(async () => ({
+      stdout: [
+        JSON.stringify({ type: "turn.failed", error: { message: "F" } }),
+        JSON.stringify({ type: "error", message: "Reconnecting... 1/5" }),
+        JSON.stringify({ type: "turn.completed", usage: {} }),
+      ].join("\n"),
+      stderr: "",
+      code: 1,
+    }));
+    await expect(runBridge({ cli: "codex", system: "S", user: "U", execFn: failedRetriedCompleted })).rejects.toThrow(/\(code 1\): F$/);
     const c = makeAccountCompactor({ execFn: codexError });
     await expect(c({ modelId: "gpt-6-astra@high", maskedProbe: "P", prompt: "S" })).rejects.toThrow(/codex bridge failed/);
     // an answer text with a non-zero exit is an error result

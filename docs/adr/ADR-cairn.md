@@ -439,15 +439,16 @@ output, partial output (a refusal mid-stream) or is missing. Unless the requeste
 output, the brief or review is skipped, not credited to the requested id; so is a run where any other
 model produced output, such as an auxiliary model. When no model reports output (a gateway that sends no
 usage), the listed models decide: another model listed, or the requested one missing (also an empty
-`modelUsage`), is a fallback too.
+`modelUsage`), is a fallback too. A claude result without `modelUsage` at all is not checked; Claude
+Code 2.1.296 always reports it (`{}` on errors).
 (Claude Code's server-side fallback is listed only with usage, which the Anthropic API always sends.)
 An error result is skipped as well: claude `is_error` (an API error, or a refusal mid-stream without a
 fallback; also in the array form `verbose` output takes), whose text is the error message, or any
 claude output with a non-zero exit; and for Codex a `turn.failed` event, an `error` event that no
 `turn.completed` follows (codex also reports retried stream errors as `error`), or a non-zero exit,
 whose text is at most a partial answer. A failed Codex run without an answer makes the bridge call fail,
-with Codex's error message (which it writes to stdout only) as the reason, or stderr when Codex
-reported none. `modelUsage` keys are the Anthropic
+with Codex's error message (which it writes to stdout only) as the reason: the latest `turn.failed`
+message or `error` message that no `turn.completed` follows, else stderr. `modelUsage` keys are the Anthropic
 model ids Claude Code resolved, not what it sent upstream, so a redirect (`modelOverrides`, a gateway
 behind `ANTHROPIC_BASE_URL`) stays invisible to this check. `codex exec --json` names no model, except
 for a safeguard reroute, which it reports as an error item `model rerouted: <from> -> <to>`; such a run

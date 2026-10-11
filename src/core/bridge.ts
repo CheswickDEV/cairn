@@ -125,24 +125,26 @@ export function codexRunFailed(stdout: string): boolean {
   return failed || pendingError;
 }
 
-/** The last error message a `codex exec --json` run reported (`error` / `turn.failed` events) - the
- *  failure reason, which codex writes to stdout only. A retried error that a `turn.completed` followed
- *  is no reason. */
+/**
+ * The failure reason of a `codex exec --json` run, which codex writes to stdout only: the latest non-empty
+ * message of a `turn.failed` event or of an `error` event that no `turn.completed` follows (an error
+ * codex retried is no reason). Empty when there is none.
+ */
 export function codexErrorMessage(stdout: string): string {
-  let failedMessage = ""; // turn.failed is final
-  let message = "";
-  for (const line of stdout.split("\n")) {
+  let failed = { at: -1, message: "" }; // latest turn.failed
+  let pending = { at: -1, message: "" }; // latest error not (yet) followed by turn.completed
+  stdout.split("\n").forEach((line, at) => {
     let ev: { type?: unknown; message?: unknown; error?: { message?: unknown } };
     try {
       ev = JSON.parse(line.trim());
     } catch {
-      continue;
+      return;
     }
-    if (ev?.type === "error" && typeof ev.message === "string") message = ev.message;
-    else if (ev?.type === "turn.failed" && typeof ev.error?.message === "string") failedMessage = ev.error.message;
-    else if (ev?.type === "turn.completed") message = "";
-  }
-  return failedMessage || message;
+    if (ev?.type === "error" && typeof ev.message === "string" && ev.message) pending = { at, message: ev.message };
+    else if (ev?.type === "turn.failed" && typeof ev.error?.message === "string" && ev.error.message) failed = { at, message: ev.error.message };
+    else if (ev?.type === "turn.completed") pending = { at: -1, message: "" };
+  });
+  return (pending.at > failed.at ? pending : failed).message;
 }
 
 /** A Codex safeguard reroute: `codex exec --json` reports it as an error item
