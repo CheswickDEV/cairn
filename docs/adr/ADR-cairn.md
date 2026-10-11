@@ -458,23 +458,28 @@ best-effort. A Codex error message never becomes the answer text. The product br
 model.
 
 **Context isolation.** A bridge call (compaction, calibration brief or review) should see only its
-system prompt and its input, plus what the CLI itself adds. For claude that is an identity line and an
-environment block (cwd, platform, model, date); for Codex it is its environment context. Two independent reviews ran Claude Code 2.1.296 offline against a mock API
-and read the Codex `rust-v0.162.1` source. They found gaps the earlier flags left open, all of them
-older than this ADR:
+system prompt and its input, plus what the CLI itself adds. For claude that is a billing header, an
+identity line and an environment block: cwd, git flag, platform, shell, OS, model and knowledge cutoff,
+token budget, date, and a note on downloaded files. For Codex it is its base instructions plus its
+permissions, collaboration-mode and environment context. Two independent reviews ran Claude Code
+2.1.296 offline against a mock API and read the Codex `rust-v0.162.1` source. They found gaps the
+earlier flags left open, all of them older than this ADR:
 - `--tools ""` disables built-in tools only. User-scope and plugin MCP servers started on every call.
   Their tools went to the model and ran under a matching allow rule.
 - The user's `~/.claude/CLAUDE.md` was injected, and every call left a session transcript.
-- For Codex, `--ignore-user-config` skips only `config.toml`. Still loaded:
-  `$CODEX_HOME/AGENTS.override.md` (or `AGENTS.md`), the skills catalog (`$CODEX_HOME/skills`, `~/.agents/skills`, bundled skills) and a project
-  `AGENTS.md` in the cwd.
+- For Codex, `--ignore-user-config` skips the user's `config.toml`, profiles and environments. Still
+  loaded:
+  - the first non-empty of `$CODEX_HOME/AGENTS.override.md` and `AGENTS.md`;
+  - the skills catalog from every skill root, e.g. `$CODEX_HOME/skills`, `~/.agents/skills`,
+    `/etc/codex/skills`, a repo's `.agents/skills`, plugin and bundled skills;
+  - a project `AGENTS.md` in the cwd.
 
 The claude bridge now passes:
 - `--strict-mcp-config` without `--mcp-config`, so no MCP server starts. It is left out when a
-  `managed-mcp.json` that Claude Code can read and parse sits at the documented path
-  (`/etc/claude-code/`, `/Library/Application Support/ClaudeCode/`, `C:\Program Files\ClaudeCode\`).
-  Under that file Claude Code exits at startup on the flag. It then loads only the managed servers
-  anyway, not user or plugin servers.
+  `managed-mcp.json` exists at the documented path (`/etc/claude-code/`,
+  `/Library/Application Support/ClaudeCode/`, `C:\Program Files\ClaudeCode\`). With a valid file
+  Claude Code exits at startup on the flag. With an invalid one, Claude Code 2.1.296 keeps exclusive
+  control as well. Either way only managed servers load, never user or plugin servers.
 - `--disallowedTools mcp__*`, which removes every MCP tool, but not a loaded server's instructions;
 - `--no-session-persistence`;
 - `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` and `ENABLE_CLAUDEAI_MCP_SERVERS=false`, set both in the child's
@@ -485,13 +490,14 @@ The codex bridge adds `-c skills.include_instructions=false`, `-c project_doc_ma
 `-c features.apps=false`.
 
 Limits:
-- Codex 0.162 has no switch for `$CODEX_HOME/AGENTS.override.md` or `AGENTS.md`. A global AGENTS.md,
-  which Cairn's installer appends to, still reaches every Codex call.
+- Codex 0.162 has no switch for `$CODEX_HOME/AGENTS.override.md` or `AGENTS.md`. The first non-empty
+  of the two still reaches every Codex call. Cairn's installer appends to `~/.codex/AGENTS.md`.
 - With the skills catalog off, a `$<skill>` mention in the input still makes Codex inject that skill's
   SKILL.md, for example `$cairn-handoff` in a transcript being compacted. The calibration probes
   contain no such mention.
-- Managed settings stay out of Cairn's reach: managed Codex config outranks `-c`, and so do managed
-  Claude Code settings. Under a `managed-mcp.json` the managed servers start. Their tools are denied,
+- Managed settings stay out of Cairn's reach. Codex's `managed_config.toml` and its requirements
+  outrank `-c`; system and cloud-managed `config.toml` do not. Managed Claude Code settings outrank
+  `--settings`. Under a `managed-mcp.json` the managed servers start. Their tools are denied,
   but their instructions reach the model.
 - The claude.ai connectors and the ChatGPT apps connector exist only with a subscription login, and
   the offline tests could not observe them. Their switches follow the vendor docs and the Codex source.

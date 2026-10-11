@@ -14,7 +14,7 @@
  */
 
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import type { ModelCaller, ModelCallRequest, ModelCallResult } from "./providers.js";
 import { t, type Lang } from "../i18n/index.js";
@@ -87,11 +87,11 @@ const SAFE_EFFORT = /^[a-z]+$/;
  *  memory in a compaction/review, no claude.ai connectors (fetched for a logged-in subscription). */
 const CLAUDE_ISOLATION_ENV = { CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1", ENABLE_CLAUDEAI_MCP_SERVERS: "false" } as const;
 
-/** Codex context `--ignore-user-config` still loads (ADR-0012): the skills catalog ($CODEX_HOME/skills,
- *  ~/.agents/skills, bundled), a project AGENTS.md in the shared tmpdir cwd, and the ChatGPT apps
- *  connector. `-c` overrides outrank the user layer (managed config still wins). Codex 0.162 has no switch
- *  for $CODEX_HOME/AGENTS.override.md or AGENTS.md, and a `$<skill>` mention in the input still injects
- *  that skill. */
+/** Codex context `--ignore-user-config` still loads (ADR-0012): the skills catalog (all skill roots, e.g.
+ *  $CODEX_HOME/skills, ~/.agents/skills, bundled), a project AGENTS.md in the shared tmpdir cwd, and the
+ *  ChatGPT apps connector. `-c` overrides outrank the user layer (Codex's managed_config.toml and
+ *  requirements still win). Codex 0.162 has no switch for $CODEX_HOME/AGENTS.override.md or AGENTS.md,
+ *  and a `$<skill>` mention in the input still injects that skill. */
 const CODEX_ISOLATION_OVERRIDES = ["skills.include_instructions=false", "project_doc_max_bytes=0", "features.apps=false"] as const;
 
 /** Where Claude Code reads a managed-mcp.json (managed-mcp docs, "Exclusive control"). */
@@ -101,18 +101,15 @@ export function managedMcpConfigPath(platform: NodeJS.Platform = process.platfor
   return "/etc/claude-code/managed-mcp.json";
 }
 
-/** Is a managed-mcp.json deployed that Claude Code can read and parse? Then it loads only the managed
- *  servers, and `--strict-mcp-config` makes it exit at startup. OS edges are injectable for testing. */
+/** Is a managed-mcp.json deployed? Claude Code then loads only the managed servers. When the file parses,
+ *  `--strict-mcp-config` makes it exit at startup; when it does not, Claude Code 2.1.296 still keeps that
+ *  exclusive control. So existence decides, not our parse (Claude Code also accepts a UTF-8 BOM).
+ *  OS edges are injectable for testing. */
 export function managedMcpConfigPresent(
-  read: (path: string) => string = (path) => readFileSync(path, "utf8"),
+  exists: (path: string) => boolean = existsSync,
   platform: NodeJS.Platform = process.platform,
 ): boolean {
-  try {
-    JSON.parse(read(managedMcpConfigPath(platform)));
-    return true;
-  } catch {
-    return false;
-  }
+  return exists(managedMcpConfigPath(platform));
 }
 
 /** The levels Claude Code documents for `--effort` / CLAUDE_CODE_EFFORT_LEVEL; only these are pinned. */
@@ -290,8 +287,8 @@ export async function runBridge(input: RunBridgeInput): Promise<ModelCallResult>
       // A compaction or review is no session to resume: no transcript under ~/.claude/projects.
       "--no-session-persistence",
     ];
-    // Without `--mcp-config` strict mode loads no MCP server. Under a managed-mcp.json Claude Code exits at
-    // startup on that flag; there only the managed servers load, and the deny rule removes their tools.
+    // Without `--mcp-config` strict mode loads no MCP server. Under a valid managed-mcp.json Claude Code exits
+    // at startup on that flag; there only the managed servers load, and the deny rule removes their tools.
     if (!(input.managedMcp ?? managedMcpConfigPresent)()) args.push("--strict-mcp-config");
     if (model && SAFE_MODEL.test(model)) args.push("--model", model);
     if (effort && SAFE_EFFORT.test(effort)) args.push("--effort", effort);

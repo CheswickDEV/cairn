@@ -121,18 +121,16 @@ describe("context isolation (ADR-0012)", () => {
     expect(args[args.indexOf("--disallowedTools") + 1]).toBe("mcp__*");
   });
 
-  it("finds a managed-mcp.json only at the documented path and only when it parses", () => {
+  it("finds a managed-mcp.json at the documented path; existence decides, not parsing", () => {
     expect(managedMcpConfigPath("linux")).toBe("/etc/claude-code/managed-mcp.json");
     expect(managedMcpConfigPath("darwin")).toBe("/Library/Application Support/ClaudeCode/managed-mcp.json");
     expect(managedMcpConfigPath("win32")).toBe("C:\\Program Files\\ClaudeCode\\managed-mcp.json");
-    const read = vi.fn((path: string) => (path === "/etc/claude-code/managed-mcp.json" ? '{"mcpServers":{}}' : ""));
-    expect(managedMcpConfigPresent(read, "linux")).toBe(true);
-    expect(read).toHaveBeenCalledWith("/etc/claude-code/managed-mcp.json");
-    expect(managedMcpConfigPresent(() => "{not json", "linux")).toBe(false);
-    const missing = () => {
-      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
-    };
-    expect(managedMcpConfigPresent(missing, "linux")).toBe(false);
+    // Claude Code keeps exclusive control even over a file it cannot parse, and it accepts a UTF-8 BOM
+    // our JSON.parse would reject, so the bridge never parses the file.
+    const exists = vi.fn((path: string) => path === "/Library/Application Support/ClaudeCode/managed-mcp.json");
+    expect(managedMcpConfigPresent(exists, "darwin")).toBe(true);
+    expect(exists).toHaveBeenCalledWith("/Library/Application Support/ClaudeCode/managed-mcp.json");
+    expect(managedMcpConfigPresent(exists, "linux")).toBe(false);
   });
 
   it("claude: no CLAUDE.md and no claude.ai connectors, in the child env and via --settings, also without an effort", async () => {

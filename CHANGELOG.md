@@ -57,14 +57,15 @@ independent reviews). See ADR-0012.
     partial answer, or an empty Codex answer as the brief (all pre-existing). A Codex error message is no
     longer taken as the answer: a failed Codex run without an answer fails the bridge call, with Codex's
     error message (or stderr) as the reason.
-- **Bridge context isolation** `[CODE-IMPACTING]`: a bridge call no longer carries the user's own context.
-  It still carries what the CLI itself adds: an identity line and environment block, or Codex's
-  environment context. These gaps are older than this release.
+- **Bridge context isolation** `[CODE-IMPACTING]`: a bridge call carries far less of the user's own
+  context. It still carries Codex's global AGENTS.md and any skill named with `$<skill>` (see limits
+  below), plus what the CLI itself adds: claude's identity line and environment block, Codex's base
+  instructions and environment context. These gaps are older than this release.
   - claude: user and plugin MCP servers no longer start, and their tools are no longer offered.
     `--tools ""` covered built-in tools only; the bridge now passes `--strict-mcp-config` and
     `--disallowedTools mcp__*`.
-  - Under a deployed `managed-mcp.json`, Claude Code exits at startup on `--strict-mcp-config`, so the
-    bridge leaves the flag out there. Only the managed servers load; their tools are denied, but
+  - When a `managed-mcp.json` exists, the bridge leaves `--strict-mcp-config` out. With a valid file,
+    Claude Code exits at startup on that flag. Only the managed servers load; their tools are denied, but
     their instructions still reach the model.
   - claude: the user's CLAUDE.md is no longer injected, and the claude.ai connectors are off
     (`CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`, `ENABLE_CLAUDEAI_MCP_SERVERS=false`, `disableClaudeAiConnectors`).
