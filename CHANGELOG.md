@@ -57,17 +57,22 @@ independent reviews). See ADR-0012.
     partial answer, or an empty Codex answer as the brief (all pre-existing). A Codex error message is no
     longer taken as the answer: a failed Codex run without an answer fails the bridge call, with Codex's
     error message (or stderr) as the reason.
-- **Bridge context isolation** `[CODE-IMPACTING]`: a bridge call now sees only its system prompt and input.
-  These gaps are older than this release.
+- **Bridge context isolation** `[CODE-IMPACTING]`: a bridge call no longer carries the user's own context.
+  It still carries what the CLI itself adds: an identity line and environment block, or Codex's
+  environment context. These gaps are older than this release.
   - claude: user and plugin MCP servers no longer start, and their tools are no longer offered.
     `--tools ""` covered built-in tools only; the bridge now passes `--strict-mcp-config` and
     `--disallowedTools mcp__*`.
+  - Under a deployed `managed-mcp.json`, Claude Code exits at startup on `--strict-mcp-config`, so the
+    bridge leaves the flag out there. Only the managed servers load; their tools are denied, but
+    their instructions still reach the model.
   - claude: the user's CLAUDE.md is no longer injected, and the claude.ai connectors are off
     (`CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`, `ENABLE_CLAUDEAI_MCP_SERVERS=false`, `disableClaudeAiConnectors`).
   - claude: no session transcript is written (`--no-session-persistence`).
   - Codex: no skills catalog, no project AGENTS.md from the tmpdir cwd and no ChatGPT apps connector
     (`-c skills.include_instructions=false`, `project_doc_max_bytes=0`, `features.apps=false`).
-  - Limit: Codex 0.162 still loads `$CODEX_HOME/AGENTS.md`.
+  - Limits: Codex 0.162 still loads `$CODEX_HOME/AGENTS.override.md` or `AGENTS.md`. A `$<skill>`
+    mention in the input still injects that skill; the calibration probes contain none.
 - **Full reviewer matrix**: every brief is reviewed by all six other pool models, never by its own model
   (was: the 2–3 strongest foreign models). `CAIRN_CALIB_REVIEWER_POOL` entries are normalised to base ids;
   `CAIRN_CALIB_REVIEWERS` must be a positive integer (a non-number used to mean zero reviewers).

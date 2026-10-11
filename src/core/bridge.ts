@@ -14,6 +14,7 @@
  */
 
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import type { ModelCaller, ModelCallRequest, ModelCallResult } from "./providers.js";
 import { t, type Lang } from "../i18n/index.js";
@@ -88,9 +89,31 @@ const CLAUDE_ISOLATION_ENV = { CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1", ENABLE_CLAUD
 
 /** Codex context `--ignore-user-config` still loads (ADR-0012): the skills catalog ($CODEX_HOME/skills,
  *  ~/.agents/skills, bundled), a project AGENTS.md in the shared tmpdir cwd, and the ChatGPT apps
- *  connector. `-c` overrides outrank the user layer. $CODEX_HOME/AGENTS.md has no switch in codex
- *  0.162 and still reaches the model. */
+ *  connector. `-c` overrides outrank the user layer (managed config still wins). Codex 0.162 has no switch
+ *  for $CODEX_HOME/AGENTS.override.md or AGENTS.md, and a `$<skill>` mention in the input still injects
+ *  that skill. */
 const CODEX_ISOLATION_OVERRIDES = ["skills.include_instructions=false", "project_doc_max_bytes=0", "features.apps=false"] as const;
+
+/** Where Claude Code reads a managed-mcp.json (managed-mcp docs, "Exclusive control"). */
+export function managedMcpConfigPath(platform: NodeJS.Platform = process.platform): string {
+  if (platform === "darwin") return "/Library/Application Support/ClaudeCode/managed-mcp.json";
+  if (platform === "win32") return "C:\\Program Files\\ClaudeCode\\managed-mcp.json";
+  return "/etc/claude-code/managed-mcp.json";
+}
+
+/** Is a managed-mcp.json deployed that Claude Code can read and parse? Then it loads only the managed
+ *  servers, and `--strict-mcp-config` makes it exit at startup. OS edges are injectable for testing. */
+export function managedMcpConfigPresent(
+  read: (path: string) => string = (path) => readFileSync(path, "utf8"),
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  try {
+    JSON.parse(read(managedMcpConfigPath(platform)));
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /** The levels Claude Code documents for `--effort` / CLAUDE_CODE_EFFORT_LEVEL; only these are pinned. */
 const CLAUDE_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
@@ -229,6 +252,8 @@ export interface RunBridgeInput {
   effort?: string;
   execFn?: ExecFn;
   timeoutMs?: number;
+  /** Seam for tests; defaults to `managedMcpConfigPresent()`. */
+  managedMcp?: () => boolean;
 }
 
 /**
@@ -258,14 +283,16 @@ export async function runBridge(input: RunBridgeInput): Promise<ModelCallResult>
       "--permission-mode",
       "default",
       // Context isolation (ADR-0012): `--tools ""` covers built-in tools only, so user-scope and plugin MCP
-      // servers would start and offer their tools. `--strict-mcp-config` without `--mcp-config` loads none,
-      // and the deny rule removes any MCP tool that still reaches the call.
-      "--strict-mcp-config",
+      // servers would start and offer their tools. The deny rule removes every MCP tool (not a server's
+      // instructions); `--strict-mcp-config` below keeps the servers from loading at all.
       "--disallowedTools",
       "mcp__*",
       // A compaction or review is no session to resume: no transcript under ~/.claude/projects.
       "--no-session-persistence",
     ];
+    // Without `--mcp-config` strict mode loads no MCP server. Under a managed-mcp.json Claude Code exits at
+    // startup on that flag; there only the managed servers load, and the deny rule removes their tools.
+    if (!(input.managedMcp ?? managedMcpConfigPresent)()) args.push("--strict-mcp-config");
     if (model && SAFE_MODEL.test(model)) args.push("--model", model);
     if (effort && SAFE_EFFORT.test(effort)) args.push("--effort", effort);
     // Effort pin (ADR-0012): CLAUDE_CODE_EFFORT_LEVEL outranks `--effort`, and a settings `env` block outranks

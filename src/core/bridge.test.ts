@@ -1,5 +1,13 @@
 import { describe, it, expect, vi } from "vitest";
-import { bridgeCompact, parseCodexJsonl, stripPreamble, type ExecFn } from "./bridge.js";
+import {
+  bridgeCompact,
+  managedMcpConfigPath,
+  managedMcpConfigPresent,
+  parseCodexJsonl,
+  runBridge,
+  stripPreamble,
+  type ExecFn,
+} from "./bridge.js";
 
 const req = { prompt: "compact this source", maxTokens: 1024, model: "claude-opus-4-8" };
 
@@ -96,13 +104,35 @@ describe("context isolation (ADR-0012)", () => {
 
   it("claude: no MCP server or MCP tool, no transcript", async () => {
     const exec = claudeExec();
-    await bridgeCompact({ cli: "claude", request: req, execFn: exec });
+    await runBridge({ cli: "claude", system: "S", user: "U", execFn: exec, managedMcp: () => false });
     const args = exec.mock.calls[0][1];
     // `--tools ""` covers built-in tools only; strict mode without `--mcp-config` loads no MCP server
     expect(args).toContain("--strict-mcp-config");
     expect(args).not.toContain("--mcp-config");
     expect(args[args.indexOf("--disallowedTools") + 1]).toBe("mcp__*");
     expect(args).toContain("--no-session-persistence");
+  });
+
+  it("claude: under a managed-mcp.json no strict mode (Claude Code would exit at startup), MCP tools still denied", async () => {
+    const exec = claudeExec();
+    await runBridge({ cli: "claude", system: "S", user: "U", execFn: exec, managedMcp: () => true });
+    const args = exec.mock.calls[0][1];
+    expect(args).not.toContain("--strict-mcp-config");
+    expect(args[args.indexOf("--disallowedTools") + 1]).toBe("mcp__*");
+  });
+
+  it("finds a managed-mcp.json only at the documented path and only when it parses", () => {
+    expect(managedMcpConfigPath("linux")).toBe("/etc/claude-code/managed-mcp.json");
+    expect(managedMcpConfigPath("darwin")).toBe("/Library/Application Support/ClaudeCode/managed-mcp.json");
+    expect(managedMcpConfigPath("win32")).toBe("C:\\Program Files\\ClaudeCode\\managed-mcp.json");
+    const read = vi.fn((path: string) => (path === "/etc/claude-code/managed-mcp.json" ? '{"mcpServers":{}}' : ""));
+    expect(managedMcpConfigPresent(read, "linux")).toBe(true);
+    expect(read).toHaveBeenCalledWith("/etc/claude-code/managed-mcp.json");
+    expect(managedMcpConfigPresent(() => "{not json", "linux")).toBe(false);
+    const missing = () => {
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    };
+    expect(managedMcpConfigPresent(missing, "linux")).toBe(false);
   });
 
   it("claude: no CLAUDE.md and no claude.ai connectors, in the child env and via --settings, also without an effort", async () => {
