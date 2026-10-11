@@ -71,12 +71,15 @@ independent reviews). See ADR-0012.
   - claude: no session transcript is written (`--no-session-persistence`).
   - Codex: no skills catalog, no project AGENTS.md from the tmpdir cwd and no ChatGPT apps connector
     (`-c skills.include_instructions=false`, `project_doc_max_bytes=0`, `features.apps=false`).
-  - Codex: no multi-agent tools (`-c agents.enabled=false`). They could start further, uncounted model
-    calls.
-  - Codex: no user execpolicy rules (`--ignore-rules`). With them, a command matching an allow rule ran
-    outside the read-only sandbox.
-  - Limits: Codex 0.162 still loads `$CODEX_HOME/AGENTS.override.md` or `AGENTS.md`. A `$<skill>`
-    mention in the input still injects that skill; the calibration probes contain none.
+  - Codex: no multi-agent tools (`-c agents.enabled=false`, `features.multi_agent_v2=false`). They
+    could start further, uncounted model calls.
+  - Codex: no user or project execpolicy rules (`--ignore-rules`). With them, a command matching an
+    allow rule ran outside the read-only sandbox. System rules (`/etc/codex/rules`) still load.
+  - Limits:
+    - Codex 0.162 still loads `$CODEX_HOME/AGENTS.override.md` or `AGENTS.md`.
+    - A `$<skill>` mention in the input still injects that skill; the calibration probes contain none.
+    - Codex keeps its exec/shell tools (read-only sandbox), web search and image generation (backend
+      calls Cairn does not count).
 - **Full reviewer matrix**: every brief is reviewed by all six other pool models, never by its own model
   (was: the 2–3 strongest foreign models). `CAIRN_CALIB_REVIEWER_POOL` entries are normalised to base ids;
   `CAIRN_CALIB_REVIEWERS` must be a positive integer (a non-number used to mean zero reviewers).
@@ -95,8 +98,8 @@ independent reviews). See ADR-0012.
     lost its artifact; this was existing behavior, also in the product bridge. Such a call now fails,
     even with exit 0, because its answer would be to a truncated prompt.
 - **Bridge windows**: Claude Fable 5.1, Sonnet 5.5 and Haiku 5.5 at 1M (Claude Code default); GPT-6 via
-  Codex at 258,400. Measured on 2026-10-11 in stage 4b': Codex's usable 95 % of the catalog's 272,000
-  in codex 0.162.1.
+  Codex at 258,400, the window Codex applies. It was read from real runs on 2026-10-11 (stage 4b'): Codex's
+  usable 95 % of the catalog's 272,000 in codex 0.162.1. It is not a server load test.
 - **`host_status`** suggests GPT-6.1 Sol (Codex's recommended model) instead of the retiring GPT-5.5.
 
 ## Unreleased — Claude Opus 5.5 and current-model context windows (2026-10-11)

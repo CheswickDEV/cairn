@@ -102,14 +102,17 @@ const CLAUDE_ISOLATION_ENV = { CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1", ENABLE_CLAUD
 /** Codex context `--ignore-user-config` still loads (ADR-0012): the skills catalog (all skill roots, e.g.
  *  $CODEX_HOME/skills, ~/.agents/skills, bundled), a project AGENTS.md in the shared tmpdir cwd, the
  *  ChatGPT apps connector, and the multi-agent tools (`spawn_agent` …, which would start further model
- *  calls). `-c` overrides outrank the user layer (Codex's managed_config.toml and requirements still win).
- *  Codex 0.162 has no switch for $CODEX_HOME/AGENTS.override.md or AGENTS.md, a `$<skill>` mention in the
- *  input still injects that skill, and its own exec/shell tools stay (read-only sandbox). */
+ *  calls; `features.multi_agent_v2` from any config layer would bring them back, hence both switches).
+ *  `-c` overrides outrank the user, system and cloud layers (Codex's managed_config.toml and requirements
+ *  still win). Codex 0.162 has no switch for $CODEX_HOME/AGENTS.override.md or AGENTS.md, a `$<skill>`
+ *  mention in the input still injects that skill, and its own tools stay: exec/shell in the read-only
+ *  sandbox, plus web search and image generation as backend calls Cairn does not count. */
 const CODEX_ISOLATION_OVERRIDES = [
   "skills.include_instructions=false",
   "project_doc_max_bytes=0",
   "features.apps=false",
   "agents.enabled=false",
+  "features.multi_agent_v2=false",
 ] as const;
 
 /** Where Claude Code reads a managed-mcp.json (managed-mcp docs, "Exclusive control"). */
@@ -275,8 +278,9 @@ export interface RunBridgeInput {
 /**
  * Generic hardened CLI call on the subscription session (used by both compaction and review).
  * Same security posture everywhere: claude with ALL tools disabled (built-in and MCP) + no permission
- * bypass, no CLAUDE.md, connectors or transcript; codex read-only sandbox, ignore-user-config, ephemeral,
- * no skills catalog, project AGENTS.md or apps; neutral cwd. Returns the RAW model text.
+ * bypass, no CLAUDE.md, connectors or transcript; codex read-only sandbox, ignore-user-config, no user or
+ * project execpolicy rules, ephemeral, no skills catalog, project AGENTS.md, apps or sub-agents; neutral
+ * cwd. Returns the RAW model text.
  */
 export async function runBridge(input: RunBridgeInput): Promise<ModelCallResult> {
   const exec = input.execFn ?? defaultExec;

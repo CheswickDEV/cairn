@@ -183,6 +183,7 @@ describe("context isolation (ADR-0012)", () => {
         "project_doc_max_bytes=0",
         "features.apps=false",
         "agents.enabled=false",
+        "features.multi_agent_v2=false",
       ]),
     );
     // execpolicy allow rules would let a matching command bypass the read-only sandbox

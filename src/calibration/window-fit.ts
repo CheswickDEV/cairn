@@ -10,10 +10,10 @@
  *     the subscription CLI, opus took 400k but sonnet & haiku rejected it → their effective window
  *     is ≈ 200k, not the 1M the API tier allows. Codex windows are tracked separately below.
  *  The current Claude generation runs a native 1M window in Claude Code (documented, not yet
- *  bridge-measured). For GPT-6 via Codex the window was measured (ADR-0012 stage 4b', 2026-10-11): the
- *  rollout's `model_context_window` is 258400 for all three, Codex's usable share (95 %) of the
- *  catalog's 272000 in codex 0.162.1. Codex itself compacts from 244800 (90 %) only mid-turn, i.e.
- *  after a tool call; a single bridge call does not.
+ *  bridge-measured). For GPT-6 via Codex the window Codex applies was read from real runs (ADR-0012 stage
+ *  4b', 2026-10-11): the rollout's `model_context_window` is 258400 for all three, Codex's usable share
+ *  (95 %) of the catalog's 272000 in codex 0.162.1 - a client-side value, not a server load test. Codex
+ *  compacts on its own from 244800 (90 %) mid-turn, i.e. only once the model has called a tool.
  *
  * So we pre-filter candidates whose effective window can't hold the probe - instead of wasting a
  * call that returns "Prompt is too long".
@@ -35,7 +35,7 @@ export const BRIDGE_WINDOWS: Record<string, number> = {
   "claude-opus-5-5": 1_000_000,
   "claude-sonnet-5-5": 1_000_000,
   "claude-haiku-5-5": 1_000_000,
-  // GPT-6 via Codex: measured 2026-10-11 (ADR-0012 4b'): 95 % of the catalog's 272000 in codex 0.162.1.
+  // GPT-6 via Codex: as Codex reports it (ADR-0012 4b', 2026-10-11): 95 % of the catalog's 272000 in 0.162.1.
   "gpt-6-astra": 258_400,
   "gpt-6.1-sol": 258_400,
   "gpt-6-luna": 258_400,

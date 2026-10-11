@@ -495,18 +495,24 @@ The codex bridge adds:
 - `-c skills.include_instructions=false`;
 - `-c project_doc_max_bytes=0`;
 - `-c features.apps=false`;
-- `-c agents.enabled=false`. This removes the multi-agent tools (`spawn_agent` …) and their
-  instructions, which GPT-6's catalog switches on and which could start further, uncounted model
-  calls.
+- `-c agents.enabled=false` and `-c features.multi_agent_v2=false`. Together they remove the
+  multi-agent tools (`spawn_agent` …) and their instructions. GPT-6's catalog switches them on, and
+  they could start further, uncounted model calls. `multi_agent_v2` would win over `agents.enabled`
+  from any config layer, hence both.
 - `--ignore-rules`. Without it, the user's execpolicy rules load as well, 877 allowed command
   prefixes in the 4b' rollouts, and a command matching an allow rule runs outside the read-only
-  sandbox.
+  sandbox. The flag drops the user and project rules entirely, forbid rules included.
 
 Limits:
 - Codex 0.162 has no switch for `$CODEX_HOME/AGENTS.override.md` or `AGENTS.md`. The first non-empty
   of the two still reaches every Codex call. Cairn's installer appends to `~/.codex/AGENTS.md`.
-- Codex keeps offering its own tools, such as code-mode `exec` with shell commands. Without user rules
-  these run in the read-only sandbox, which may still read files.
+- Codex keeps offering its own tools:
+  - code-mode `exec` with shell commands, run in the read-only sandbox, which may still read files.
+    The exception is an allow rule from the system layer (`/etc/codex/rules`), which still bypasses
+    the sandbox.
+  - web search (`web.run`, cached mode, on by default);
+  - image generation for a paid ChatGPT plan.
+  Web search and image generation are backend calls outside the sandbox and outside Cairn's count.
 - With the skills catalog off, a `$<skill>` mention in the input still makes Codex inject that skill's
   SKILL.md, for example `$cairn-handoff` in a transcript being compacted. The calibration probes
   contain no such mention.
@@ -571,11 +577,12 @@ reviews), 245 for the golden set (35 + 210), 28 for the high-fill probe at
 and the 800K default fits no model). Bridge windows:
 - Claude Fable 5.1, Sonnet 5.5 and Haiku 5.5 at 1M. This is Claude Code's documented default, not yet
   bridge-measured.
-- GPT-6 via Codex at 258,400, measured in stage 4b' on 2026-10-11. All three rollouts report this
-  `model_context_window`, Codex's usable 95 % of the catalog's 272,000 in codex 0.162.1. In the same
-  rollouts `turn_context` names the requested model and effort `high`.
-- Codex compacts on its own only mid-turn, after a tool call, from 244,800. A single bridge call
-  never does.
+- GPT-6 via Codex at 258,400, the window Codex applies, read from real runs in stage 4b' on
+  2026-10-11. All three rollouts report this `model_context_window`, Codex's usable 95 % of the
+  catalog's 272,000 in codex 0.162.1. It is a client-side value, not a test of the server limit. In the
+  same rollouts `turn_context` names the requested model and effort `high`.
+- Codex compacts on its own from 244,800 (90 %) mid-turn, i.e. only once the model has called a
+  tool. A fresh call starts below every threshold.
 
 **Decision basis.** The model decision uses the golden-set mean (5 probes), including its verbosity. The
 earlier precedent of keeping the single-probe score for cross-profile comparability (GPT-5.4) is not
