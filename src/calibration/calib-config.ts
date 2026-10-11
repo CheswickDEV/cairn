@@ -36,7 +36,7 @@ export const CALIB_POOL = [
 ] as const;
 
 /** High-fill probe candidates: the whole pool at `high`. The window pre-filter drops the models whose
- *  bridge window cannot hold the probe (GPT-6 via Codex at the 258,400 estimate). */
+ *  bridge window cannot hold the probe (GPT-6 via Codex at the measured 258,400). */
 export const LARGE_VARIANTS: readonly string[] = CALIB_POOL.map((id) => variantId(id, CALIB_EFFORT));
 /** High-fill reviewers: the whole pool (reviewers only see the small brief, so GPT-6 can review). */
 export const LARGE_REVIEWER_POOL: readonly string[] = CALIB_POOL;

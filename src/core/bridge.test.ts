@@ -100,6 +100,7 @@ describe("bridgeCompact — codex exec (hardened)", () => {
         "--sandbox",
         "read-only",
         "--ignore-user-config",
+        "--ignore-rules",
         "--ephemeral",
         "-C",
       ]),
@@ -157,15 +158,22 @@ describe("context isolation (ADR-0012)", () => {
     }
   });
 
-  it("codex: no skills catalog, no project AGENTS.md from the tmpdir cwd, no apps connector", async () => {
+  it("codex: no skills catalog, no project AGENTS.md from the tmpdir cwd, no apps connector, no sub-agents, no user rules", async () => {
     const jsonl = JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "1) DECISIONS" } });
     const exec = vi.fn<ExecFn>(async () => ({ stdout: jsonl, stderr: "", code: 0 }));
     await bridgeCompact({ cli: "codex", request: req, effort: "high", execFn: exec });
     const args = exec.mock.calls[0][1];
     const overrides = args.flatMap((a, i) => (a === "-c" ? [args[i + 1]] : []));
     expect(overrides).toEqual(
-      expect.arrayContaining(["skills.include_instructions=false", "project_doc_max_bytes=0", "features.apps=false"]),
+      expect.arrayContaining([
+        "skills.include_instructions=false",
+        "project_doc_max_bytes=0",
+        "features.apps=false",
+        "agents.enabled=false",
+      ]),
     );
+    // execpolicy allow rules would let a matching command bypass the read-only sandbox
+    expect(args).toContain("--ignore-rules");
     expect(overrides).toContain("model_reasoning_effort=high");
   });
 });

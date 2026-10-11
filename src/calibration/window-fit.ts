@@ -8,10 +8,12 @@
  *     probe became a ~1.33M-token request → rejected; a 400k probe (~0.68M request) was accepted.
  *  2. The effective window is SURFACE-dependent (ADR-0003) and NOT the profile's API maximum: via
  *     the subscription CLI, opus took 400k but sonnet & haiku rejected it → their effective window
- *     is ≈ 200k, not the 1M the API tier allows. Codex bridge estimates are tracked separately
- *     below; interactive rollout telemetry has observed a plan/client cap of 258400.
+ *     is ≈ 200k, not the 1M the API tier allows. Codex windows are tracked separately below.
  *  The current Claude generation runs a native 1M window in Claude Code (documented, not yet
- *  bridge-measured); for GPT-6 via Codex the docs name no window, so 258400 is a conservative estimate.
+ *  bridge-measured). For GPT-6 via Codex the window was measured (ADR-0012 stage 4b', 2026-10-11): the
+ *  rollout's `model_context_window` is 258400 for all three, Codex's usable share (95 %) of the
+ *  catalog's 272000 in codex 0.162.1. Codex itself compacts from 244800 (90 %) only mid-turn, i.e.
+ *  after a tool call; a single bridge call does not.
  *
  * So we pre-filter candidates whose effective window can't hold the probe - instead of wasting a
  * call that returns "Prompt is too long".
@@ -23,8 +25,8 @@ import type { ModelProfile } from "../core/model-profiles.js";
 export const REQUEST_INFLATION = 1.7;
 
 /**
- * Effective SUBSCRIPTION-CLI windows (measured via the bridge), distinct from the profiles' API
- * maxima. Estimates; refine with a dedicated window-probe sweep.
+ * Effective SUBSCRIPTION-CLI windows, distinct from the profiles' API maxima. GPT-6 via Codex is
+ * measured; the Claude 5.x values follow Claude Code's documented default and are not yet measured.
  */
 export const BRIDGE_WINDOWS: Record<string, number> = {
   // Not yet bridge-measured: Claude Code runs Fable 5.1, Sonnet 5.5, Haiku 5.5 and Opus 4.7 and later with
@@ -33,7 +35,7 @@ export const BRIDGE_WINDOWS: Record<string, number> = {
   "claude-opus-5-5": 1_000_000,
   "claude-sonnet-5-5": 1_000_000,
   "claude-haiku-5-5": 1_000_000,
-  // GPT-6 via Codex: no documented window; conservative estimate = the observed Codex cap (measure: ADR-0012 4b').
+  // GPT-6 via Codex: measured 2026-10-11 (ADR-0012 4b'): 95 % of the catalog's 272000 in codex 0.162.1.
   "gpt-6-astra": 258_400,
   "gpt-6.1-sol": 258_400,
   "gpt-6-luna": 258_400,

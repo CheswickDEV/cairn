@@ -235,7 +235,7 @@ describe("artifacts carry what the model decision needs and are never overwritte
 /* ------------------------------- windows + call counts ------------------------------- */
 
 describe("bridge windows of the pool and the high-fill (4d) configuration", () => {
-  it("Claude 5.x at 1M (Claude Code), GPT-6 via Codex at the conservative 258,400; old entries kept", () => {
+  it("Claude 5.x at 1M (Claude Code), GPT-6 via Codex at the measured 258,400; old entries kept", () => {
     for (const id of ["claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"]) expect(BRIDGE_WINDOWS[id]).toBe(1_000_000);
     for (const id of ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-luna"]) expect(BRIDGE_WINDOWS[id]).toBe(258_400);
     expect(BRIDGE_WINDOWS["claude-sonnet-4-6"]).toBe(200_000);

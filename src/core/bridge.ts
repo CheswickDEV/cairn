@@ -92,11 +92,17 @@ const SAFE_EFFORT = /^[a-z]+$/;
 const CLAUDE_ISOLATION_ENV = { CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1", ENABLE_CLAUDEAI_MCP_SERVERS: "false" } as const;
 
 /** Codex context `--ignore-user-config` still loads (ADR-0012): the skills catalog (all skill roots, e.g.
- *  $CODEX_HOME/skills, ~/.agents/skills, bundled), a project AGENTS.md in the shared tmpdir cwd, and the
- *  ChatGPT apps connector. `-c` overrides outrank the user layer (Codex's managed_config.toml and
- *  requirements still win). Codex 0.162 has no switch for $CODEX_HOME/AGENTS.override.md or AGENTS.md,
- *  and a `$<skill>` mention in the input still injects that skill. */
-const CODEX_ISOLATION_OVERRIDES = ["skills.include_instructions=false", "project_doc_max_bytes=0", "features.apps=false"] as const;
+ *  $CODEX_HOME/skills, ~/.agents/skills, bundled), a project AGENTS.md in the shared tmpdir cwd, the
+ *  ChatGPT apps connector, and the multi-agent tools (`spawn_agent` …, which would start further model
+ *  calls). `-c` overrides outrank the user layer (Codex's managed_config.toml and requirements still win).
+ *  Codex 0.162 has no switch for $CODEX_HOME/AGENTS.override.md or AGENTS.md, a `$<skill>` mention in the
+ *  input still injects that skill, and its own exec/shell tools stay (read-only sandbox). */
+const CODEX_ISOLATION_OVERRIDES = [
+  "skills.include_instructions=false",
+  "project_doc_max_bytes=0",
+  "features.apps=false",
+  "agents.enabled=false",
+] as const;
 
 /** Where Claude Code reads a managed-mcp.json (managed-mcp docs, "Exclusive control"). */
 export function managedMcpConfigPath(platform: NodeJS.Platform = process.platform): string {
@@ -333,7 +339,8 @@ export async function runBridge(input: RunBridgeInput): Promise<ModelCallResult>
   }
 
   // codex: no system-prompt flag → fold it into the stdin prompt; neutral cwd via -C; read-only
-  // sandbox + skip the trusted-git gate; ignore-user-config + ephemeral (audit finding 2).
+  // sandbox + skip the trusted-git gate; ignore-user-config + ephemeral (audit finding 2). `--ignore-rules`:
+  // the user's execpolicy allow rules would let a matching command run outside the sandbox (ADR-0012).
   const args = [
     "exec",
     "--json",
@@ -341,6 +348,7 @@ export async function runBridge(input: RunBridgeInput): Promise<ModelCallResult>
     "--sandbox",
     "read-only",
     "--ignore-user-config",
+    "--ignore-rules",
     "--ephemeral",
     "-C",
     cwd,

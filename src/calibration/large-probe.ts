@@ -8,7 +8,7 @@
  * "same basis for every model" still holds: same target → byte-identical probe.
  *
  * Candidates are the whole pool at `high` (ADR-0012); the window pre-filter keeps only the Claude models
- * (1M in Claude Code) - GPT-6 via Codex sits far below at the 258400 estimate. The ~800k default does not
+ * (1M in Claude Code) - GPT-6 via Codex sits far below at the measured 258400. The ~800k default does not
  * fit even 1M after the ~1.7× request inflation, so live runs set CAIRN_CALIB_PROBE_TOKENS=400000.
  * Reviewers (small briefs) are the whole pool, cross-ecosystem.
  */

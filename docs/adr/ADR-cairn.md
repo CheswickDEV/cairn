@@ -491,12 +491,22 @@ The claude bridge now passes:
   environment and in the `--settings` `env`;
 - `disableClaudeAiConnectors: true`, also in `--settings`.
 
-The codex bridge adds `-c skills.include_instructions=false`, `-c project_doc_max_bytes=0` and
-`-c features.apps=false`.
+The codex bridge adds:
+- `-c skills.include_instructions=false`;
+- `-c project_doc_max_bytes=0`;
+- `-c features.apps=false`;
+- `-c agents.enabled=false`. This removes the multi-agent tools (`spawn_agent` …) and their
+  instructions, which GPT-6's catalog switches on and which could start further, uncounted model
+  calls.
+- `--ignore-rules`. Without it, the user's execpolicy rules load as well, 877 allowed command
+  prefixes in the 4b' rollouts, and a command matching an allow rule runs outside the read-only
+  sandbox.
 
 Limits:
 - Codex 0.162 has no switch for `$CODEX_HOME/AGENTS.override.md` or `AGENTS.md`. The first non-empty
   of the two still reaches every Codex call. Cairn's installer appends to `~/.codex/AGENTS.md`.
+- Codex keeps offering its own tools, such as code-mode `exec` with shell commands. Without user rules
+  these run in the read-only sandbox, which may still read files.
 - With the skills catalog off, a `$<skill>` mention in the input still makes Codex inject that skill's
   SKILL.md, for example `$cairn-handoff` in a transcript being compacted. The calibration probes
   contain no such mention.
@@ -549,13 +559,20 @@ records:
   run starts neither CLI.
 
 Writing the prompt to a CLI that has already exited no longer crashes the run: `defaultExec` handles
-the stdin `EPIPE`, so the call fails like any other, and the run keeps its artifact. `--dry-run` resolves the live configuration on the fixture
+the stdin `EPIPE`, so the call fails like any other, and the run keeps its artifact.
+
+`--dry-run` resolves the live configuration on the fixture
 compactor and heuristic reviewer and prints the call count: 49 for the single probe (7 briefs + 42
 reviews), 245 for the golden set (35 + 210), 28 for the high-fill probe at
-`CAIRN_CALIB_PROBE_TOKENS=400000` (4 Claude briefs + 24 reviews; GPT-6 does not fit Codex's estimated
-window, and the 800K default fits no model). Bridge windows: Claude Fable 5.1, Sonnet 5.5 and
-Haiku 5.5 at 1M (Claude Code's documented default, not yet bridge-measured); GPT-6 via Codex at 258,400, a
-conservative estimate because the Codex docs name no window.
+`CAIRN_CALIB_PROBE_TOKENS=400000` (4 Claude briefs + 24 reviews; GPT-6 does not fit Codex's window,
+and the 800K default fits no model). Bridge windows:
+- Claude Fable 5.1, Sonnet 5.5 and Haiku 5.5 at 1M. This is Claude Code's documented default, not yet
+  bridge-measured.
+- GPT-6 via Codex at 258,400, measured in stage 4b' on 2026-10-11. All three rollouts report this
+  `model_context_window`, Codex's usable 95 % of the catalog's 272,000 in codex 0.162.1. In the same
+  rollouts `turn_context` names the requested model and effort `high`.
+- Codex compacts on its own only mid-turn, after a tool call, from 244,800. A single bridge call
+  never does.
 
 **Decision basis.** The model decision uses the golden-set mean (5 probes), including its verbosity. The
 earlier precedent of keeping the single-probe score for cross-profile comparability (GPT-5.4) is not
@@ -566,7 +583,10 @@ Codex's direct replacement for the retiring GPT-5.5 on Plus, Pro, Business, Ente
 GPT-6.1 Sol is the model the Codex models page recommends (`codex exec -m gpt-6.1-sol`). Both statements
 hold.
 
-**Follow-up.** Live calibration in stages, each only after explicit approval: 4b single probe, optional
-4b' measurement of the GPT-6 Codex window, 4c golden set, optional 4d high-fill. Then write the measured
+**Follow-up.** Live calibration in stages, each only after explicit approval:
+- 4b single probe (done 2026-10-11, 49 calls, no skips);
+- 4b' measurement of the GPT-6 Codex window (done 2026-10-11);
+- 4c golden set;
+- optional 4d high-fill. Then write the measured
 `fidelityScore`, `verbosityCoeff`, `confidence`, `effort: "high"` and date into the profiles; the fidelity
 floor changes only after the user signs it off.
