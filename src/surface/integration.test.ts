@@ -25,12 +25,12 @@ describe("Claude Code integration artifacts", () => {
     expect(mcp.mcpServers.cairn.args[0]).toMatch(/dist\/server\.js$/);
   });
 
-  it("settings.example.json wires statusline + SessionStart + PreCompact", () => {
+  it("manual/plugin setup installs no automatic session or compaction hooks", () => {
     const s = JSON.parse(repoFile("integration/claude/settings.example.json"));
     expect(s.statusLine.type).toBe("command");
     expect(s.statusLine.command).toMatch(/cairn-statusline/);
-    expect(s.hooks.SessionStart[0].hooks[0].command).toMatch(/cairn-session-start/);
-    expect(s.hooks.PreCompact[0].hooks[0].command).toMatch(/cairn-precompact/);
+    expect(s.hooks).toBeUndefined();
+    expect(JSON.parse(repoFile("hooks/hooks.json")).hooks).toEqual({});
   });
 });
 
@@ -40,8 +40,7 @@ describe("Codex integration artifacts", () => {
     expect(skill).toMatch(/^name:\s*.+/m);
     expect(skill).toMatch(/^description:\s*.+/m);
     expect(skill).toContain("handoff");
-    // Codex has no ambient surface - the skill must say so.
-    expect(skill.toLowerCase()).toMatch(/no statusline|no ambient|on-demand/);
+    expect(skill.toLowerCase()).toContain("explicit requests only");
     expect(skill.toLowerCase()).toContain("sampling");
   });
 
@@ -57,5 +56,21 @@ describe("Codex integration artifacts", () => {
     for (const tool of ["context_status", "handoff", "decision_log"]) {
       expect(agents).toContain(tool);
     }
+  });
+});
+
+describe("shipped skill invocation controls", () => {
+  for (const name of ["cairn", "cairn-handoff", "cairn-resume", "cairn-help"]) {
+    it(`${name} ships explicit-only controls for each host and matching instructions`, () => {
+      const claude = repoFile(`skills/${name}/SKILL.md`);
+      const codex = repoFile(`.agents/skills/${name}/SKILL.md`);
+      expect(claude).toMatch(/^disable-model-invocation: true$/m);
+      expect(repoFile(`.claude/skills/${name}/SKILL.md`)).toBe(claude);
+      expect(claude.replace("disable-model-invocation: true\n", "")).toBe(codex);
+      expect(repoFile(`.agents/skills/${name}/agents/openai.yaml`)).toMatch(/allow_implicit_invocation:\s*false/);
+    });
+  }
+  it("includes Codex policies in the installable package", () => {
+    expect(JSON.parse(repoFile("package.json")).files).toContain(".agents/skills");
   });
 });

@@ -79,6 +79,7 @@ export function registerDecisionLog(server: McpServer, store: StoreApi, lang: La
     {
       title: "Decision log",
       description:
+        "Use only for an explicit Cairn resume or ledger-inspection request. " +
         "Reads the decision/evidence ledger. view='current' reconstructs accepted+open decisions " +
         "for a new session (lean — evidence is NOT attached here, to keep re-injection small); " +
         "view='all' returns the filterable history including superseded rows, and is the only view " +

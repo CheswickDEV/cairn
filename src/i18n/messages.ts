@@ -140,7 +140,7 @@ export interface Messages {
 
 const EN: Messages = {
   statusline: {
-    hint: { green: "", yellow: " · ⚠ consider handoff", red: " · handoff now" },
+    hint: { green: "", yellow: " · ⚠ context filling", red: " · context high" },
   },
   codex: {
     noContext: "— no active Codex context",
@@ -149,8 +149,8 @@ const EN: Messages = {
   contextStatus: {
     rec: {
       green: "🟢 Green zone — context clean, no handoff needed.",
-      yellow: "⚠ Yellow zone — consider `handoff` before recall/accuracy degrade.",
-      red: "🔴 Red zone — `handoff` now; the context is in the degraded range.",
+      yellow: "⚠ Yellow zone — context is filling. Save only when the user explicitly requests Cairn Handoff.",
+      red: "🔴 Red zone — context usage is high. No automatic handoff; wait for an explicit user request.",
     },
     body: (p) =>
       `Model ${p.model}: ${p.used} / ${p.window} tokens (${p.pct}%). ` +
@@ -245,7 +245,7 @@ const EN: Messages = {
     noHostHint: "Install one of the hosts and sign in, then run `cairn install` again.",
     title: "Cairn install",
     claudeHeader: "• Claude Code:",
-    settingsOk: (p) => `  ✓ settings.json — statusline + SessionStart/PreCompact hooks (${p.path})`,
+    settingsOk: (p) => `  ✓ settings.json — statusline; legacy automatic hooks removed (${p.path})`,
     skillsClaude: "  ✓ Skills → ~/.claude/skills/ (cairn, cairn-handoff, cairn-resume, cairn-help)",
     mcpRegistered: "  ✓ MCP server registered (claude mcp add, scope user)",
     mcpAddFailed: "  ⚠ 'claude mcp add' failed — please run manually:",
@@ -265,7 +265,7 @@ const EN: Messages = {
     shellPosixOk: (p) => `  ✓ Shell command 'cairn' (window/tab/status/list) → ${p.path} (+ ~/.zshrc/.bashrc)`,
     shellPosixHint: "    Open a new shell (or re-source rc), then e.g. 'cairn window'.",
     langSet: (p) => `  ✓ Language: ${p.lang} (set CAIRN_LANG to override per session)`,
-    doneInstall: "Done. Restart Claude Code / Codex so the MCP server + hooks take effect.",
+    doneInstall: "Done. Restart Claude Code / Codex so the MCP server + explicit-only skills take effect.",
     uninstallTitle: "Cairn uninstall",
     settingsCleaned: "  ✓ settings.json cleaned (statusline + hooks removed)",
     mcpRemoved: "  ✓ MCP server removed (claude mcp remove)",
@@ -303,7 +303,7 @@ const EN: Messages = {
 
 const DE: Messages = {
   statusline: {
-    hint: { green: "", yellow: " · ⚠ handoff erwägen", red: " · handoff jetzt" },
+    hint: { green: "", yellow: " · ⚠ Kontext füllt sich", red: " · Kontext hoch" },
   },
   codex: {
     noContext: "— kein aktiver Codex-Kontext",
@@ -312,8 +312,8 @@ const DE: Messages = {
   contextStatus: {
     rec: {
       green: "🟢 Grün-Zone — Kontext sauber, kein Handoff nötig.",
-      yellow: "⚠ Gelb-Zone — `handoff` erwägen, bevor Recall/Genauigkeit sinken.",
-      red: "🔴 Rot-Zone — jetzt `handoff`; der Kontext ist im degradierten Bereich.",
+      yellow: "⚠ Gelb-Zone — Kontext füllt sich. Nur auf ausdrücklichen Nutzeraufruf Cairn Handoff speichern.",
+      red: "🔴 Rot-Zone — hohe Kontextnutzung. Kein automatischer Handoff; ausdrücklichen Nutzeraufruf abwarten.",
     },
     body: (p) =>
       `Modell ${p.model}: ${p.used} / ${p.window} Tokens (${p.pct}%). ` +
@@ -408,7 +408,7 @@ const DE: Messages = {
     noHostHint: "Installiere einen der Hosts und logge dich ein, dann `cairn install` erneut.",
     title: "Cairn install",
     claudeHeader: "• Claude Code:",
-    settingsOk: (p) => `  ✓ settings.json — Statusline + SessionStart/PreCompact-Hooks (${p.path})`,
+    settingsOk: (p) => `  ✓ settings.json — Statusline; alte automatische Hooks entfernt (${p.path})`,
     skillsClaude: "  ✓ Skills → ~/.claude/skills/ (cairn, cairn-handoff, cairn-resume, cairn-help)",
     mcpRegistered: "  ✓ MCP-Server registriert (claude mcp add, scope user)",
     mcpAddFailed: "  ⚠ 'claude mcp add' fehlgeschlagen — bitte manuell ausführen:",
@@ -428,7 +428,7 @@ const DE: Messages = {
     shellPosixOk: (p) => `  ✓ Shell-Befehl 'cairn' (window/tab/status/list) → ${p.path} (+ ~/.zshrc/.bashrc)`,
     shellPosixHint: "    Neue Shell öffnen (oder rc neu sourcen), dann z. B. 'cairn window'.",
     langSet: (p) => `  ✓ Sprache: ${p.lang} (mit CAIRN_LANG pro Session überschreibbar)`,
-    doneInstall: "Fertig. Claude Code / Codex neu starten, damit MCP-Server + Hooks greifen.",
+    doneInstall: "Fertig. Claude Code / Codex neu starten, damit MCP-Server + Skills nur auf Zuruf greifen.",
     uninstallTitle: "Cairn uninstall",
     settingsCleaned: "  ✓ settings.json bereinigt (Statusline + Hooks entfernt)",
     mcpRemoved: "  ✓ MCP-Server entfernt (claude mcp remove)",

@@ -47,6 +47,7 @@ export function registerHostStatus(
     {
       title: "Host status",
       description:
+        "Use only when the user explicitly requests host status, not at startup. " +
         "Detects installed host CLIs (claude/codex), best-effort login + active session model, and " +
         "prints a sign-in overview with a recommendation. Login detection is best-effort.",
       inputSchema: {},

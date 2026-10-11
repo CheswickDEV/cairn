@@ -46,8 +46,9 @@ export interface HandoffInput {
   brief: string;
   /** Non-account modes: the raw context Cairn compacts itself (falls back to `brief` if absent). */
   source?: string;
-  host: HostSignal;
-  sourceZone: Zone;
+  host?: HostSignal;
+  /** Optional metadata: explicit saves do not require a status query first. */
+  sourceZone?: Zone;
   mode?: CompactionMode;
   who?: string;
   fidelityFloor?: number;
@@ -92,13 +93,15 @@ export interface HandoffResult {
 
 export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promise<HandoffResult> {
   const mode: CompactionMode = input.mode ?? "account";
+  const host = input.host ?? {};
   const lang: Lang = deps.lang ?? "en";
   const select = deps.select ?? selectSummarizer;
 
   // Quality-first selection (informational in account mode; provider choice in API mode).
   const selection = await select({
-    host: input.host,
-    sourceZone: input.sourceZone,
+    host,
+    // Conservative selector input when unknown, not a measured context-zone claim.
+    sourceZone: input.sourceZone ?? "red",
     cost: {
       inputTokens: input.estInputTokens ?? input.brief.length,
       expectedBriefTokens: input.expectedBriefTokens ?? 6_000,
@@ -127,7 +130,7 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
         systemPrompt: t(lang).prompts.sevenBucket,
         prompt: frozen.masked,
         maxTokens,
-        model: input.host.modelId ?? "",
+        model: host.modelId ?? "",
       },
       endpointKey: input.endpointKey ?? Object.keys(deps.config.endpoints)[0],
       fetchFn: deps.fetchFn,
@@ -141,7 +144,7 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
   const missingRequired = missingVerbatim(effectiveBrief, input.requiredVerbatim ?? []);
 
   // Persist: the brief as a handoff decision, with verbatim holds bound as byte-exact evidence.
-  const who = input.who ?? input.host.modelId ?? "host";
+  const who = input.who ?? host.modelId ?? "host";
   // Collapse prior handoff briefs: a new brief SUPERSEDES the previous one(s), so the live state
   // (decision_log view=current / the SessionStart re-injection) carries only the LATEST brief, not
   // every historical one. Without this the briefs accumulate unbounded and re-injection eventually
@@ -163,7 +166,7 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
     deps.store.addEvidence({
       decisionId: head.decisionId,
       claim: t(lang).handoff.verbatimClaim,
-      sourceRef: input.host.modelId ?? "brief",
+      sourceRef: host.modelId ?? "brief",
       type: "tool_out",
       verbatim: h.content,
     });
@@ -217,13 +220,14 @@ export function registerHandoff(server: McpServer, deps: HandoffDeps): void {
     {
       title: "Handoff",
       description:
+        "Use only for an explicit user request to save a Cairn handoff. " +
         "Persists a host-produced 7-bucket brief: freezes verbatim spans, validates required " +
         "verbatim, records decisions/evidence. Default account mode makes NO model call / NO egress.",
       inputSchema: {
         brief: z.string(),
         source: z.string().optional(),
-        host: z.object({ modelId: z.string().optional(), provider: z.string().optional() }),
-        sourceZone: z.enum(["green", "yellow", "red"]),
+        host: z.object({ modelId: z.string().optional(), provider: z.string().optional() }).optional(),
+        sourceZone: z.enum(["green", "yellow", "red"]).optional(),
         mode: z.enum(["account", "sampling", "bridge", "api"]).optional(),
         who: z.string().optional(),
         fidelityFloor: z.number().min(0).max(1).optional(),

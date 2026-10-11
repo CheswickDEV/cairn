@@ -69,6 +69,17 @@ describe("handoff tool (account mode, ADR-0006)", () => {
     expect(store.currentState().map((dd) => dd.decisionId)).toContain(r.storedDecisionId);
   });
 
+  it("saves an explicit brief without requiring host or zone status first", async () => {
+    const { store, fetchSpy, deps: d } = deps();
+    const r = await runHandoff({ brief, requiredVerbatim: ["read:logs"] }, d);
+    expect(r.mode).toBe("account");
+    expect(r.egress).toBe(false);
+    expect(r.missingRequired).toEqual([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(store.getDecision(r.storedDecisionId)?.rationale).toBe(brief);
+    expect(store.getDecision(r.storedDecisionId)?.who).toBe("host");
+  });
+
   it("an Anthropic host is never assigned an OpenAI model (ADR-0004)", async () => {
     const { deps: d } = deps();
     const r = await runHandoff({ brief, host: { modelId: "claude-sonnet-4-6" }, sourceZone: "green" }, d);

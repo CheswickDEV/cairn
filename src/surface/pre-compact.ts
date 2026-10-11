@@ -1,12 +1,5 @@
-/**
- * Cairn - PreCompact hook logic (ADR-0001/0004/0007 surface).
- *
- * Fires BEFORE Claude Code compacts. A PreCompact hook canNOT supply/replace the host's compaction
- * summary, and any context it emits is itself summarized (claude-code#14258) - so its job is to
- * DETECT + SECURE: record the compaction event and (when the bin passes a transcript tail) persist
- * it byte-exact as a verbatim safety-net (ADR-0004: rather a lossless snapshot than lost context).
- * The faithful brief is carried into the continued context by the `SessionStart`(`compact`) hook,
- * which fires AFTER compaction (not summarized). Pure; the bin does stdin + transcript read + store.
+/** Legacy internal helpers retained for compatibility and tests.
+ * No runtime hook invokes these functions after ADR-0010; the old bin entry points are inert.
  */
 
 import { realpathSync } from "node:fs";

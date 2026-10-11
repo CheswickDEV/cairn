@@ -30,6 +30,7 @@
     "dist",
     "integration",
     "skills",
+    ".agents/skills",
     "hooks",
     ".claude-plugin",
     "docs",

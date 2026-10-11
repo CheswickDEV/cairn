@@ -109,8 +109,8 @@ describe("catalog locale parity (en ⇿ de)", () => {
   it("t(lang) returns distinct, language-appropriate copy for sampled keys", () => {
     expect(t("en").decisionLog.header({ count: 2, view: "current" })).toBe("2 decision(s) [current]:");
     expect(t("de").decisionLog.header({ count: 2, view: "current" })).toBe("2 Entscheidung(en) [current]:");
-    expect(t("en").statusline.hint.red).toBe(" · handoff now");
-    expect(t("de").statusline.hint.red).toBe(" · handoff jetzt");
+    expect(t("en").statusline.hint.red).toBe(" · context high");
+    expect(t("de").statusline.hint.red).toBe(" · Kontext hoch");
     expect(t("en").prompts.sevenBucket).toContain("7 buckets");
     expect(t("de").prompts.sevenBucket).toContain("7 Buckets");
   });

@@ -116,23 +116,23 @@ describe("renderCodexStatusLine — render mapping (surface-relative, ADR-0003)"
   it("turns yellow at ≥ 40 % of the rollout window", () => {
     // 0.5 · 258400 = 129200 → yellow
     expect(renderCodexStatusLine({ modelId: "gpt-5.5", window: 258_400, usedTokens: 129_200 })).toBe(
-      "🟡 50% ctx · gpt-5.5 · ⚠ consider handoff",
+      "🟡 50% ctx · gpt-5.5 · ⚠ context filling",
     );
   });
 
   it("turns red at ≥ 70 % of the rollout window", () => {
     // 0.8 · 258400 = 206720 → red
     expect(renderCodexStatusLine({ modelId: "gpt-5.5", window: 258_400, usedTokens: 206_720 })).toBe(
-      "🔴 80% ctx · gpt-5.5 · handoff now",
+      "🔴 80% ctx · gpt-5.5 · context high",
     );
   });
 
   it("renders the German zone hint when lang = 'de'", () => {
     expect(renderCodexStatusLine({ modelId: "gpt-5.5", window: 258_400, usedTokens: 129_200 }, "de")).toBe(
-      "🟡 50% ctx · gpt-5.5 · ⚠ handoff erwägen",
+      "🟡 50% ctx · gpt-5.5 · ⚠ Kontext füllt sich",
     );
     expect(renderCodexStatusLine({ modelId: "gpt-5.5", window: 258_400, usedTokens: 206_720 }, "de")).toBe(
-      "🔴 80% ctx · gpt-5.5 · handoff jetzt",
+      "🔴 80% ctx · gpt-5.5 · Kontext hoch",
     );
   });
 
@@ -141,7 +141,7 @@ describe("renderCodexStatusLine — render mapping (surface-relative, ADR-0003)"
     const wide = renderCodexStatusLine({ modelId: "gpt-5.5", window: 1_000_000, usedTokens: 100_000 });
     const narrow = renderCodexStatusLine({ modelId: "gpt-5.5", window: 200_000, usedTokens: 100_000 });
     expect(wide).toBe("🟢 10% ctx · gpt-5.5"); // 10 % of a 1M window → green
-    expect(narrow).toBe("🟡 50% ctx · gpt-5.5 · ⚠ consider handoff"); // same tokens, 50 % of 200k → yellow
+    expect(narrow).toBe("🟡 50% ctx · gpt-5.5 · ⚠ context filling"); // same tokens, 50 % of 200k → yellow
   });
 });
 
@@ -243,7 +243,7 @@ describe("findActiveRollout / readCodexStatusLine — IO", () => {
 
       const rows = listRollouts(dir);
       expect(rows).toEqual([
-        { id: "uuid-bbb", cwd: "/proj-b", statusLine: "🔴 80% ctx · gpt-5.5 · handoff now" },
+        { id: "uuid-bbb", cwd: "/proj-b", statusLine: "🔴 80% ctx · gpt-5.5 · context high" },
         { id: "uuid-aaa", cwd: "/proj-a", statusLine: "🟢 8% ctx · gpt-5.5" },
       ]);
       expect(listRollouts(join(root, "missing"))).toEqual([]);

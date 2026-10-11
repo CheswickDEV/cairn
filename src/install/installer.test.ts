@@ -13,6 +13,7 @@ import {
   addCodexAgents,
   removeCodexAgents,
   CODEX_AGENTS_BEGIN,
+  CODEX_AGENTS_SNIPPET,
   statuslineCmd,
   sessionStartCmd,
   preCompactCmd,
@@ -25,23 +26,43 @@ import {
 const BIN = "/opt/cairn/dist/bin";
 
 describe("installer — Claude settings.json merge", () => {
-  it("adds statusline + both hooks, preserving foreign hooks", () => {
+  it("adds only the passive statusline, preserving foreign hooks", () => {
     const foreign = { matcher: "startup", hooks: [{ type: "command", command: "echo other" }] };
     const merged = mergeClaudeSettings({ hooks: { SessionStart: [foreign] } }, BIN) as any;
     expect(merged.statusLine.command).toContain("cairn-statusline.js");
     expect(merged.hooks.SessionStart).toContainEqual(foreign); // foreign survives
-    expect(JSON.stringify(merged.hooks.SessionStart)).toContain("cairn-session-start.js");
-    expect(JSON.stringify(merged.hooks.PreCompact)).toContain("cairn-precompact.js");
+    expect(merged.hooks.SessionStart).toEqual([foreign]);
+    expect(merged.hooks.PreCompact).toBeUndefined();
   });
 
-  it("is idempotent — merging twice yields one cairn entry per hook", () => {
+  it("is idempotent and installs no automatic hooks", () => {
     const once = mergeClaudeSettings({}, BIN);
     const twice = mergeClaudeSettings(once, BIN) as any;
-    const cairnSession = (twice.hooks.SessionStart as any[]).filter((e) =>
-      JSON.stringify(e).includes("cairn-"),
-    );
-    expect(cairnSession).toHaveLength(1);
-    expect(twice.hooks.PreCompact).toHaveLength(1);
+    expect(twice).toEqual(once);
+    expect(twice.hooks).toBeUndefined();
+  });
+
+  it("migrates legacy hooks without losing foreign commands in shared entries or mutating input", () => {
+    const foreign = { type: "command", command: "echo other" };
+    const stop = [{ hooks: [foreign] }];
+    const old = {
+      permissions: { allow: ["Read"] },
+      hooks: {
+        SessionStart: [{ matcher: "startup|resume|compact", hooks: [
+          foreign, { type: "command", command: sessionStartCmd(BIN) },
+        ] }],
+        PreCompact: [{ hooks: [{ type: "command", command: preCompactCmd(BIN) }] }],
+        Stop: stop,
+      },
+    };
+    const before = structuredClone(old);
+    for (const result of [mergeClaudeSettings(old, BIN), unmergeClaudeSettings(old)] as any[]) {
+      expect(result.hooks.SessionStart).toEqual([{ matcher: "startup|resume|compact", hooks: [foreign] }]);
+      expect(result.hooks.PreCompact).toBeUndefined();
+      expect(result.hooks.Stop).toEqual(stop);
+      expect(result.permissions).toEqual(old.permissions);
+    }
+    expect(old).toEqual(before);
   });
 
   it("unmerge removes exactly the cairn entries and restores cleanliness", () => {
@@ -199,7 +220,7 @@ describe("installer — end-to-end against a temp HOME", () => {
 
       const settings = JSON.parse(readFileSync(join(home, ".claude", "settings.json"), "utf8"));
       expect(settings.statusLine.command).toContain("cairn-statusline.js");
-      expect(JSON.stringify(settings.hooks)).toContain("cairn-session-start.js");
+      expect(settings.hooks).toBeUndefined();
       expect(existsSync(join(home, ".claude", "skills", "cairn", "SKILL.md"))).toBe(true);
       for (const s of ["cairn-handoff", "cairn-resume", "cairn-help"]) {
         expect(existsSync(join(home, ".claude", "skills", s, "SKILL.md"))).toBe(true);
@@ -211,7 +232,23 @@ describe("installer — end-to-end against a temp HOME", () => {
       for (const s of ["cairn-handoff", "cairn-resume", "cairn-help"]) {
         expect(existsSync(join(home, ".agents", "skills", s, "SKILL.md"))).toBe(true);
       }
+      for (const s of ["cairn", "cairn-handoff", "cairn-resume", "cairn-help"]) {
+        const policy = readFileSync(join(home, ".agents", "skills", s, "agents", "openai.yaml"), "utf8");
+        expect(policy).toMatch(/allow_implicit_invocation:\s*false/);
+        const claude = readFileSync(join(home, ".claude", "skills", s, "SKILL.md"), "utf8");
+        expect(claude).toMatch(/^disable-model-invocation: true$/m);
+      }
       expect(existsSync(join(home, ".codex", "AGENTS.md"))).toBe(true); // created from empty
+
+      // Simulate an existing installation with old guidance and missing metadata, then upgrade.
+      const agentsPath = join(home, ".codex", "AGENTS.md");
+      writeFileSync(agentsPath, addCodexAgents("# Personal rules\nKeep these.\n", "Call decision_log at task start."));
+      rmSync(join(home, ".agents", "skills", "cairn", "agents"), { recursive: true });
+      runInstaller("install", opts);
+      expect(readFileSync(agentsPath, "utf8")).toBe(addCodexAgents(
+        "# Personal rules\nKeep these.\n", readFileSync(CODEX_AGENTS_SNIPPET, "utf8"),
+      ));
+      expect(existsSync(join(home, ".agents", "skills", "cairn", "agents", "openai.yaml"))).toBe(true);
 
       // no claude CLI → printed manual guidance instead of running it
       expect(logs.join("\n")).toContain("claude mcp add cairn --scope user");
@@ -228,8 +265,7 @@ describe("installer — end-to-end against a temp HOME", () => {
         expect(existsSync(join(home, ".claude", "skills", s))).toBe(false);
         expect(existsSync(join(home, ".agents", "skills", s))).toBe(false);
       }
-      // the bug fix: AGENTS.md (100% ours, created from empty) is removed on uninstall
-      expect(existsSync(join(home, ".codex", "AGENTS.md"))).toBe(false);
+      expect(readFileSync(agentsPath, "utf8").trim()).toBe("# Personal rules\nKeep these.");
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

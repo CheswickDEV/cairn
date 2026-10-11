@@ -2,7 +2,7 @@
  * Cairn - self-installer (`cairn install` / `cairn uninstall`).
  *
  * Wires Cairn into the detected host CLIs with no manual path editing:
- *  - Claude Code: merges the statusline + SessionStart/PreCompact hooks into ~/.claude/settings.json,
+ *  - Claude Code: merges the statusline and removes legacy hooks from ~/.claude/settings.json,
  *    copies the skill, and registers the MCP server via `claude mcp add` (or prints the command if the
  *    CLI is absent).
  *  - Codex: appends the `[mcp_servers.cairn]` block to ~/.codex/config.toml, the AGENTS snippet, and
@@ -16,7 +16,7 @@
 import { homedir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { commandOnPath } from "../core/platform.js";
 import { t, resolveLang, isLang, type Lang } from "../i18n/index.js";
@@ -38,14 +38,14 @@ export const BIN_DIR = join(DIST_DIR, "bin");
 /** Every skill the installer ships: the umbrella `cairn` skill plus the named action skills
  *  triggered by "Cairn resume" / "Cairn Handoff" / "Cairn Help". Each lives at `skills/<name>/SKILL.md`. */
 export const SKILL_NAMES = ["cairn", "cairn-handoff", "cairn-resume", "cairn-help"] as const;
-const skillSrc = (name: string): string => join(ROOT_DIR, "skills", name, "SKILL.md");
+const skillSrc = (name: string, host: "claude" | "codex"): string =>
+  join(ROOT_DIR, ...(host === "codex" ? [".agents", "skills"] : ["skills"]), name);
 export const CODEX_AGENTS_SNIPPET = join(ROOT_DIR, "integration", "codex", "AGENTS.cairn.md");
 
 // A Node CLI flag, NOT a bash env-prefix (`VAR=val node …`): Claude Code runs hooks via cmd.exe /
 // PowerShell on Windows, where the bash prefix fails ("NODE_OPTIONS not recognized", exit 255).
 // `node --disable-warning=… script` runs identically under cmd, PowerShell and bash.
 const NODE_FLAG = "--disable-warning=ExperimentalWarning";
-const CAIRN_MARKER = "cairn-";
 
 // ---------- pure: command strings ----------
 export function statuslineCmd(binDir: string): string {
@@ -62,46 +62,42 @@ export function preCompactCmd(binDir: string): string {
 type Json = Record<string, unknown>;
 type HookEntry = { matcher?: string; hooks: { type: string; command: string }[] };
 
-function isCairnHook(entry: unknown): boolean {
-  return JSON.stringify(entry ?? "").includes(CAIRN_MARKER);
-}
-
-function addHook(arr: unknown, matcher: string | undefined, command: string): HookEntry[] {
-  const kept = Array.isArray(arr) ? (arr as HookEntry[]).filter((e) => !isCairnHook(e)) : [];
-  const entry: HookEntry = { hooks: [{ type: "command", command }] };
-  if (matcher) entry.matcher = matcher;
-  return [...kept, entry];
-}
-
-/** Add Cairn's statusline + hooks to an existing settings object (idempotent). */
-export function mergeClaudeSettings(existing: Json, binDir: string): Json {
+/** Remove Cairn commands individually: foreign hooks can share the same matcher entry.
+ * Clone changed objects so merging does not mutate the caller's configuration. */
+function withoutLegacyHooks(existing: Json): Json {
   const s: Json = { ...existing };
-  s.statusLine = { type: "command", command: statuslineCmd(binDir) };
-  const hooks: Json = { ...((s.hooks as Json) ?? {}) };
-  hooks.SessionStart = addHook(hooks.SessionStart, "startup|resume|compact", sessionStartCmd(binDir));
-  hooks.PreCompact = addHook(hooks.PreCompact, undefined, preCompactCmd(binDir));
-  s.hooks = hooks;
+  if (!s.hooks || typeof s.hooks !== "object" || Array.isArray(s.hooks)) return s;
+  const hooks: Json = { ...(s.hooks as Json) };
+  for (const event of ["SessionStart", "PreCompact"]) {
+    const entries = hooks[event];
+    if (!Array.isArray(entries)) continue;
+    const kept = entries.flatMap((entry: HookEntry) => {
+      if (!entry || !Array.isArray(entry.hooks)) return [entry];
+      const commands = entry.hooks.filter((h) =>
+        !/cairn-(?:session-start|precompact)(?:\.js)?(?=[\s"']|$)/.test(h.command ?? ""));
+      if (commands.length === entry.hooks.length) return [entry];
+      return commands.length ? [{ ...entry, hooks: commands }] : [];
+    });
+    if (kept.length) hooks[event] = kept;
+    else delete hooks[event];
+  }
+  if (Object.keys(hooks).length) s.hooks = hooks;
+  else delete s.hooks;
   return s;
 }
 
-/** Remove exactly what mergeClaudeSettings added (matched by the cairn- marker). */
+/** Install the passive statusline; migrate old installations to explicit-only use. */
+export function mergeClaudeSettings(existing: Json, binDir: string): Json {
+  const s = withoutLegacyHooks(existing);
+  s.statusLine = { type: "command", command: statuslineCmd(binDir) };
+  return s;
+}
+
+/** Remove Cairn's statusline and any remaining legacy hook commands. */
 export function unmergeClaudeSettings(existing: Json): Json {
-  const s: Json = { ...existing };
+  const s = withoutLegacyHooks(existing);
   const sl = s.statusLine as { command?: string } | undefined;
   if (sl && typeof sl.command === "string" && sl.command.includes("cairn-statusline")) delete s.statusLine;
-  const hooks = s.hooks as Json | undefined;
-  if (hooks) {
-    for (const k of ["SessionStart", "PreCompact"]) {
-      const arr = hooks[k];
-      if (Array.isArray(arr)) {
-        const kept = (arr as HookEntry[]).filter((e) => !isCairnHook(e));
-        if (kept.length) hooks[k] = kept;
-        else delete hooks[k];
-      }
-    }
-    if (Object.keys(hooks).length === 0) delete s.hooks;
-    else s.hooks = hooks;
-  }
   return s;
 }
 
@@ -267,17 +263,16 @@ function writeJson(path: string, obj: Json): void {
   writeFileSync(path, JSON.stringify(obj, null, 2) + "\n", "utf8");
 }
 
-/** Copy every shipped skill into a host's skills root (`<root>/<name>/SKILL.md`). Idempotent. */
-function copySkills(skillsRoot: string, log: (m: string) => void, lang: Lang): void {
+/** Copy complete host-specific skills, including invocation policy metadata. Idempotent. */
+function copySkills(skillsRoot: string, host: "claude" | "codex", log: (m: string) => void, lang: Lang): void {
   for (const name of SKILL_NAMES) {
-    const src = skillSrc(name);
-    if (!existsSync(src)) {
+    const src = skillSrc(name, host);
+    if (!existsSync(join(src, "SKILL.md"))) {
       log(t(lang).install.skillSourceMissing({ src }));
       continue;
     }
-    const dest = join(skillsRoot, name, "SKILL.md");
-    mkdirSync(dirname(dest), { recursive: true });
-    copyFileSync(src, dest);
+    const dest = join(skillsRoot, name);
+    cpSync(src, dest, { recursive: true });
   }
 }
 
@@ -332,7 +327,7 @@ function install(
     writeJson(settingsPath, mergeClaudeSettings(readJson(settingsPath), BIN_DIR));
     log(m.settingsOk({ path: settingsPath }));
 
-    copySkills(join(home, ".claude", "skills"), log, lang);
+    copySkills(join(home, ".claude", "skills"), "claude", log, lang);
     log(m.skillsClaude);
 
     // Copy-paste-correct on every shell: path + db quoted (handles spaces like "Claude Meta").
@@ -374,7 +369,7 @@ function install(
     log(m.codexTomlOk({ path: tomlPath }));
 
     appendCodexAgents(home, log, lang);
-    copySkills(join(home, ".agents", "skills"), log, lang);
+    copySkills(join(home, ".agents", "skills"), "codex", log, lang);
     log(m.skillsCodex);
   }
 

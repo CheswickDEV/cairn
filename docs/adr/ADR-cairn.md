@@ -1,3 +1,5 @@
+> **Current invocation policy: ADR-0010 below supersedes automatic triggers and hooks in earlier ADRs.**
+
 # Architecture Decision Log — Cairn — AI Context Continuity Engine
 
 > Context-Handoff: condensation and handoff of AI chat context across sessions and models, locally-private, with a proactive context-zone indicator.
@@ -12,7 +14,7 @@
 | 0004 | Summarizer pool restricted to the host ecosystem, with a reachability filter and verbatim floor | Accepted |
 | 0005 | Calibration of fidelityScore/verbosityCoeff via a fixed probe context + model peer-review | Accepted |
 | 0006 | Condensation via the host agent's account session, not via API keys | Accepted |
-| 0007 | Handoff trigger (warn-instead-of-auto) and continuation flow (in-place default) | Accepted |
+| 0007 | Handoff trigger and continuation flow | Invocation/hooks superseded by ADR-0010 |
 
 ---
 
@@ -317,3 +319,24 @@ the markers `# >>> cairn >>>` / `# <<< cairn <<<`; `uninstall` removes it exactl
 ### Follow-Up
 Ticket T7. Smoke-test the macOS paths on a Mac (tmux split, iTerm2 split, Terminal.app `do script`,
 `cairn tab` title).
+
+## ADR-0010 — Cairn runs only on explicit user requests (2026-09-30)
+
+Accepted. Supersedes automatic invocation and hook behavior in ADR-0001/0007; the ledger,
+account mode, verbatim preservation and passive status displays remain unchanged.
+
+Repeated task-start resumes and task-end handoffs add unnecessary tokens and context.
+Only an explicit user request permits the corresponding action: Cairn Handoff, Cairn resume,
+Cairn Help, or a requested status inspection. Quoted commands are not invocations. One action
+does not enable future automation. Help does not call tools; resume does not trigger handoff.
+Session/task boundaries, yellow/red zones, compaction, clearing and host/model switches never
+authorize an action. Status displays are informational and do not inject prompts.
+
+All shipped skills disable implicit invocation using host-specific metadata. The installer
+refreshes the marked AGENTS block, copies that metadata, and removes only Cairn's legacy
+SessionStart/PreCompact commands, preserving unrelated commands in shared hook entries.
+Plugin/manual templates have no automatic hooks. Old hook binaries remain silent no-ops so
+stale registrations neither access the ledger/transcript nor inject context after updating.
+
+Existing users update, build and re-run the installer, then restart their host. New installs
+receive these defaults. No ledger records are deleted or automatically rewritten.

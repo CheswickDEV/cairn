@@ -72,6 +72,7 @@ export function registerContextStatus(
     {
       title: "Context status",
       description:
+        "Use only when the user explicitly requests context status; never poll automatically. " +
         "Reports the quality zone (green/yellow/red) for the current token usage, relative to the " +
         "active surface window (ADR-0003), with a plain-language recommendation.",
       inputSchema: {

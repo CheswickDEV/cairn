@@ -1,11 +1,5 @@
-/**
- * Cairn - SessionStart hook logic (ADR-0001/0006/0007 surface).
- *
- * Reconstructs the live decision state (accepted + open) so the session re-injects prior context
- * via the hook's `additionalContext`. With the hook's `compact` matcher this fires right AFTER a
- * host auto-compaction (NOT subject to summarization) - that is the supported, faithful realization
- * of ADR-0007's in-place continuation (the PreCompact hook cannot replace the host summary). Pure;
- * the bin wrapper opens the store, resolves the language, and wraps this in the SessionStart hook JSON.
+/** Legacy internal helpers retained for compatibility and tests.
+ * No runtime hook invokes these functions after ADR-0010; the old bin entry points are inert.
  */
 
 import type { StoreApi } from "../store/types.js";

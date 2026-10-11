@@ -1,11 +1,14 @@
-# CHANGELOG — for the running CLI agent
+# CHANGELOG
 
-> **To the agent:** First **finish your current ticket**. Then work the deltas below in
-> the order given. **Do NOT rebuild from scratch** and do not re-read the whole repo —
-> only the files/locations named here are affected. Most of it is additive; exactly **one**
-> change affects already-written code (marked `[CODE-IMPACTING]` below).
+## Unreleased — explicit user invocation only (2026-09-30)
 
----
+- Remove automatic task/session/threshold/compaction triggers from skills, AGENTS and MCP guidance.
+- Disable implicit skill loading in Codex and Claude; package and install the host-specific metadata.
+- New installations have no SessionStart/PreCompact hooks. Reinstallation removes legacy Cairn
+  commands while preserving foreign hooks; legacy executables are silent no-ops after updating.
+- Handoff accepts unknown host/zone metadata without requiring extra status calls.
+- Resume does not schedule a handoff; help makes no tool calls. Zone text is informational.
+- Existing ledgers and passive status displays remain available. See ADR-0010 and README migration.
 
 ## Unreleased — Transcript-path hardening, dependency audit, server version
 

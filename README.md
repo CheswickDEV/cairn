@@ -70,7 +70,12 @@ npm install
 node dist/server.js install      # detects Claude Code + Codex, wires up both best-effort
 ```
 
-Then just say it in chat:
+Cairn acts **only when you explicitly ask**. It does not resume/save at task or session boundaries,
+on yellow/red zones, or around compaction. One request covers one action; resume never enables
+a later automatic handoff. Help and passive status displays do not call MCP tools.
+
+Then just say it in chat (or use `/cairn-handoff`, `/cairn-resume`, `/cairn-help` in Claude Code;
+`$cairn-handoff`, `$cairn-resume`, `$cairn-help` in Codex):
 
 | Say… | …and the agent does |
 |---|---|
@@ -101,18 +106,18 @@ To undo: `node dist/server.js uninstall`
 
 | Tool | Job | Typical moment |
 |---|---|---|
-| `host_status` | Detects installed host CLIs, login (best-effort), and the active model. | Start of a session |
-| `decision_log` | Re-injects accepted + open decisions from the ledger. | Start / resume |
-| `context_status` | Computes the zone relative to the active window. | Ongoing, during long sessions |
-| `handoff` | Persists the host-produced 7-bucket brief with verbatim protection. | Before `/clear`, compaction, model switch |
+| `host_status` | Detects installed host CLIs, login (best-effort), and the active model. | Explicit host-status request |
+| `decision_log` | Re-injects accepted + open decisions from the ledger. | Explicit Cairn resume request |
+| `context_status` | Computes the zone relative to the active window. | Explicit context-status request |
+| `handoff` | Persists the host-produced 7-bucket brief with verbatim protection. | Explicit Cairn Handoff request |
 
 The zones are deliberately simple:
 
 | Zone | Threshold | Meaning |
 |:--:|:--:|---|
 | 🟢 **Green** | `< 40 %` | Keep working normally |
-| 🟡 **Yellow** | `40–70 %` | Plan a handoff at the next natural break |
-| 🔴 **Red** | `≥ 70 %` | Prioritize the handoff, prefer the strongest reachable model |
+| 🟡 **Yellow** | `40–70 %` | Context filling; user decides whether to request a handoff |
+| 🔴 **Red** | `≥ 70 %` | High context usage; no automatic handoff |
 
 ---
 
@@ -175,7 +180,7 @@ node dist/server.js install
 /plugin install cairn@cairn
 ```
 
-The plugin ships the MCP server, skill, and hooks. For the full statusline, the
+The plugin ships the MCP server and explicitly invoked skills, with no automatic hooks. For the full statusline, the
 self-installer is still the easiest path.
 
 </details>
@@ -216,13 +221,25 @@ startup_timeout_sec = 30
 tool_timeout_sec = 60
 ```
 
-Then append `integration/codex/AGENTS.cairn.md` to `~/.codex/AGENTS.md` and place the skills under
-`skills/` into `~/.agents/skills/` or `~/.claude/skills/`. Ready-made snippets are in
+Then append `integration/codex/AGENTS.cairn.md` to `~/.codex/AGENTS.md`. Copy `.agents/skills/`
+into `~/.agents/skills/` for Codex (including `agents/openai.yaml`), or `skills/` into
+`~/.claude/skills/` for Claude Code. Ready-made snippets are in
 [integration/](integration/).
 
 </details>
 
 ---
+
+## Updating an existing installation
+
+After updating your checkout, run `npm install` and `node dist/server.js install`, then restart
+Claude Code / Codex. This refreshes the marked Cairn block in AGENTS.md and the skills, including
+Codex's `allow_implicit_invocation: false` policy. Claude skills use
+[`disable-model-invocation: true`](https://code.claude.com/docs/en/skills#control-who-invokes-a-skill).
+The installer removes old Cairn SessionStart/PreCompact commands while retaining foreign hooks.
+Legacy hook executables are silent no-ops after the build, even before reinstallation.
+The existing ledger is retained. For manually copied project instructions/skills, replace the
+old Cairn block/copies too; old guidance otherwise remains active in that project.
 
 ## ⚙️ Configuration
 
@@ -296,7 +313,7 @@ docs/adr/         binding architecture decisions
 
 - MCP core with four tools + SQLite decision/evidence ledger
 - Account mode as the default (no egress)
-- Claude Code statusline & hooks · Codex ambient zone via rollout reader
+- Passive Claude Code statusline · Codex ambient zone via rollout reader · no automatic hooks
 - Named trigger skills: `Cairn resume` · `Cairn Handoff` · `Cairn Help`
 - Lean ledger: a new handoff supersedes the previous brief
 - Strict TypeScript + Vitest
