@@ -125,6 +125,23 @@ export function codexRunFailed(stdout: string): boolean {
   return failed || pendingError;
 }
 
+/** The last error message a `codex exec --json` run reported (`error` / `turn.failed` events) - the
+ *  failure reason, which codex writes to stdout only. */
+export function codexErrorMessage(stdout: string): string {
+  let message = "";
+  for (const line of stdout.split("\n")) {
+    let ev: { type?: unknown; message?: unknown; error?: { message?: unknown } };
+    try {
+      ev = JSON.parse(line.trim());
+    } catch {
+      continue;
+    }
+    if (ev?.type === "error" && typeof ev.message === "string") message = ev.message;
+    else if (ev?.type === "turn.failed" && typeof ev.error?.message === "string") message = ev.error.message;
+  }
+  return message;
+}
+
 /** A Codex safeguard reroute: `codex exec --json` reports it as an error item
  *  `"model rerouted: <from> -> <to> (<reason>)"` (openai/codex exec JSONL processor). */
 export function codexReroute(stdout: string): { from: string; to: string } | undefined {
@@ -278,13 +295,16 @@ export async function runBridge(input: RunBridgeInput): Promise<ModelCallResult>
   if (effort && SAFE_EFFORT.test(effort)) args.push("-c", `model_reasoning_effort=${effort}`);
   const { stdout, stderr, code } = await exec("codex", args, { stdin: `${system}\n\n${user}`, timeoutMs, cwd });
   const text = parseCodexJsonl(stdout);
-  if (!text && code !== 0) throw new Error(`codex bridge failed (code ${code}): ${stderr.slice(0, 300)}`);
+  const failed = code !== 0 || codexRunFailed(stdout);
+  if (!text && failed) {
+    throw new Error(`codex bridge failed (code ${code}): ${(codexErrorMessage(stdout) || stderr).slice(0, 300)}`);
+  }
   // Codex names no model in its events except a safeguard reroute; report it so calibration can see it.
   const reroute = codexReroute(stdout);
   return {
     text,
     truncated: false,
-    finishReason: code !== 0 || codexRunFailed(stdout) ? "error" : "stop",
+    finishReason: failed ? "error" : "stop",
     ...(reroute ? { modelsUsed: [reroute.to], modelsReported: [reroute.from, reroute.to] } : {}),
   };
 }

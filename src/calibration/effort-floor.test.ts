@@ -196,8 +196,14 @@ describe("the requested model must be the one that answered (no silent fallback)
       stderr: "",
       code: 1,
     }));
-    // The error message is never taken as the answer: no text + exit 1 → the bridge call fails outright.
-    await expect(runBridge({ cli: "codex", system: "S", user: "U", model: "gpt-6-astra", effort: "high", execFn: codexError })).rejects.toThrow(/codex bridge failed/);
+    // The error message is never taken as the answer: no text + exit 1 → the bridge call fails outright,
+    // with codex's own error message (stdout only) as the reason.
+    await expect(runBridge({ cli: "codex", system: "S", user: "U", model: "gpt-6-astra", effort: "high", execFn: codexError })).rejects.toThrow(/codex bridge failed \(code 1\): unexpected status 400/);
+    // the same without a non-zero exit: an error event that no turn.completed follows also fails the call
+    const errorExit0 = vi.fn<ExecFn>(async () => ({ stdout: JSON.stringify({ type: "error", message: "Codex ran out of room in the model's context window" }), stderr: "", code: 0 }));
+    await expect(runBridge({ cli: "codex", system: "S", user: "U", execFn: errorExit0 })).rejects.toThrow(/ran out of room/);
+    const turnFailed = vi.fn<ExecFn>(async () => ({ stdout: JSON.stringify({ type: "turn.failed", error: { message: "quota exceeded" } }), stderr: "Reading prompt from stdin...", code: 1 }));
+    await expect(runBridge({ cli: "codex", system: "S", user: "U", execFn: turnFailed })).rejects.toThrow(/quota exceeded/);
     const c = makeAccountCompactor({ execFn: codexError });
     await expect(c({ modelId: "gpt-6-astra@high", maskedProbe: "P", prompt: "S" })).rejects.toThrow(/codex bridge failed/);
     // an answer text with a non-zero exit is an error result
@@ -208,7 +214,11 @@ describe("the requested model must be the one that answered (no silent fallback)
     }));
     expect((await runBridge({ cli: "codex", system: "S", user: "U", execFn: textExit1 })).finishReason).toBe("error");
     await expect(makeAccountCompactor({ execFn: textExit1 })({ modelId: "gpt-6-astra@high", maskedProbe: "P", prompt: "S" })).rejects.toThrow(/error result/);
-    const failedTurn = vi.fn<ExecFn>(async () => ({ stdout: JSON.stringify({ type: "turn.failed", error: { message: "boom" } }), stderr: "", code: 0 }));
+    const failedTurn = vi.fn<ExecFn>(async () => ({
+      stdout: [JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "partial" } }), JSON.stringify({ type: "turn.failed", error: { message: "boom" } })].join("\n"),
+      stderr: "",
+      code: 0,
+    }));
     expect((await runBridge({ cli: "codex", system: "S", user: "U", execFn: failedTurn })).finishReason).toBe("error");
     expect((await runBridge({ cli: "codex", system: "S", user: "U", execFn: codexOk() })).finishReason).toBe("stop");
   });

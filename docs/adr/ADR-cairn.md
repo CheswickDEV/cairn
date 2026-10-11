@@ -440,15 +440,19 @@ output, the brief or review is skipped, not credited to the requested id; so is 
 model produced output, such as an auxiliary model. When no model reports output (a gateway that sends no
 usage), the listed models decide: another model listed, or the requested one missing, is a fallback too.
 (Claude Code's server-side fallback is listed only with usage, which the Anthropic API always sends.)
-An error result is skipped as well, since its text is the error message: claude `is_error` (an API
-error, or a refusal mid-stream without a fallback; also in the array form `verbose` output takes; or
-any output with a non-zero exit), and for Codex a `turn.failed` event, an `error` event that no
-`turn.completed` follows (codex also reports retried stream errors as `error`), or a non-zero exit. `modelUsage` keys are the Anthropic
+An error result is skipped as well: claude `is_error` (an API error, or a refusal mid-stream without a
+fallback; also in the array form `verbose` output takes; or any output with a non-zero exit), whose
+text is the error message; and for Codex a `turn.failed` event, an `error` event that no
+`turn.completed` follows (codex also reports retried stream errors as `error`), or a non-zero exit,
+whose text is at most a partial answer. A failed Codex run without an answer makes the bridge call fail,
+with Codex's error message (which it writes to stdout only) as the reason. `modelUsage` keys are the Anthropic
 model ids Claude Code resolved, not what it sent upstream, so a redirect (`modelOverrides`, a gateway
 behind `ANTHROPIC_BASE_URL`) stays invisible to this check. `codex exec --json` names no model, except
 for a safeguard reroute, which it reports as an error item `model rerouted: <from> -> <to>`; such a run
-counts as answered by `<to>` and is skipped. An error message never becomes the answer text. The
-product bridge does not check the model.
+counts as answered by `<to>` and is skipped (a dated form of the requested model is the same model).
+Codex may drop that notice under backpressure (it is not a guaranteed notification), so this check is
+best-effort. A Codex error message never becomes the answer text. The product bridge does not check the
+model.
 
 In the product, bridge mode always passes `--effort high` / `model_reasoning_effort=high`. API mode
 sends Anthropic's `output_config.effort` or OpenAI's `reasoning_effort` (Chat Completions) as `high` for
@@ -466,10 +470,10 @@ mock API the other caps gave no notice either. Managed settings, including a man
 `--settings`. Cairn does not override managed settings or caps and cannot see the applied level, so check for a cap below `high` before a live
 run. The API adapters do not stream, so a very long generation at `high` can hit fetch's ~300 s header
 timeout and fail the handoff. The OpenAI adapter still sends the deprecated `max_tokens`, which OpenAI
-documents as incompatible with o-series models (`max_completion_tokens` replaces it). A claude error
-result is returned as text (`finishReason: "error"`); calibration skips it, but a bridge-mode handoff
-stores it as the brief. Both predate this ADR and are open points. (A Codex error message is no longer
-taken as the answer: a failed Codex run without an answer now fails the bridge call.)
+documents as incompatible with o-series models (`max_completion_tokens` replaces it). A bridge-mode
+handoff ignores `finishReason`: it stores the text of a claude error result and the partial answer of
+a failed Codex run as the brief, and a Codex run that completes without an answer as an empty brief;
+calibration skips all of these. Both predate this ADR and are open points.
 
 **Reviewers.** All seven pool models review, at exactly `high`, and each brief is scored by the six
 others (k = pool − 1); a model never reviews its own brief. Pool entries are normalised to base ids, so
