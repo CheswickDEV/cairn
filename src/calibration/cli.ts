@@ -30,7 +30,7 @@ import { makeModelReviewer } from "./model-reviewer.js";
 import { buildLargeProbe, LARGE_GROUND_TRUTH } from "./large-probe.js";
 import { runGoldenSet, goldenProbes } from "./golden-set.js";
 import { resolveCalibConfig, assertCalibPreflight, artifactSuffix, type CalibConfig } from "./calib-config.js";
-import { collectProvenance } from "./provenance.js";
+import { collectProvenance, collectsCliVersions } from "./provenance.js";
 import type { GroundTruth } from "./ground-truth.js";
 import type { Compactor } from "./runner.js";
 import type { Reviewer } from "./review.js";
@@ -90,7 +90,7 @@ async function main(): Promise<void> {
   const { makeCompactor, reviewer } = seams(cfg, calls);
   const suffix = artifactSuffix(now, cfg.mode, cfg.probe);
   // Commit always; CLI versions only for a real run (a dry run must not start claude or codex).
-  const provenance = collectProvenance({ live: cfg.mode === "real" });
+  const provenance = collectProvenance({ live: collectsCliVersions(cfg.mode) });
   const skips: string[] = [];
   const onSkip = (label: string, err: unknown) => {
     const msg = err instanceof Error ? err.message : String(err);

@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCalibration } from "./harness.js";
-import { makeFixtureCompactor } from "./runner.js";
+import { makeFixtureCompactor, type Compactor } from "./runner.js";
 import {
   heuristicReviewer,
   assignReviewers,
@@ -211,11 +211,33 @@ describe("deterministic recall/verbatim metrics (real fixtures)", () => {
     const first = GT.mustSurvive.find((i) => !i.exact)!;
     const brief = allTexts.replace(first.text, first.text.replace(/\.$/, ""));
     expect(missingMustSurvive(brief, GT)).toEqual([first.id]);
-    expect(computeRecall(brief, GT)).toBe(1 - 1 / GT.mustSurvive.length);
+    expect(computeRecall(brief, GT)).toBe((GT.mustSurvive.length - 1) / GT.mustSurvive.length);
   });
 });
 
 describe("artifact keeps what a later check needs (ADR-0012)", () => {
+  it("stores the brief the reviewers scored and the ids it misses, for a brief that drops facts", async () => {
+    const dropped = GT.mustSurvive.filter((i) => !i.exact).slice(0, 2);
+    const lossy: Compactor = async (req) => {
+      const r = await COMPACTOR(req);
+      return { ...r, brief: dropped.reduce((b, it) => b.replace(it.text, ""), r.brief) };
+    };
+    const seen: string[] = [];
+    const recording: Reviewer = async (req) => {
+      seen.push(req.brief);
+      return heuristicReviewer(req);
+    };
+    const art = await runCalibration({
+      candidates: ANTHROPIC, profiles: PROFILES, compactor: lossy, reviewer: recording, groundTruth: GT, date: FIXED_DATE,
+    });
+    for (const m of art.models) {
+      expect(m.missingMustSurvive).toEqual(dropped.map((i) => i.id));
+      expect(m.retainedAllMustSurvive).toBe(false);
+      expect(seen).toContain(m.brief);
+    }
+    expect(new Set(seen)).toEqual(new Set(art.models.map((m) => m.brief)));
+  });
+
   it("stores each brief and the must-survive ids it misses", async () => {
     const art = await offlineRun();
     for (const m of art.models) {

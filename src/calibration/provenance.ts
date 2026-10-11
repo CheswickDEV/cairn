@@ -1,48 +1,89 @@
 /**
- * Cairn - provenance of a calibration run (ADR-0012): which code and which CLIs produced an artifact,
- * so a paid run can be checked later without running it again.
+ * Cairn - provenance of a calibration run (ADR-0012): the git commit of this code and the CLI versions
+ * behind an artifact, so a paid run can be checked later without running it again.
  */
 
 import { execFileSync } from "node:child_process";
+import { realpathSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import type { CalibConfig } from "./calib-config.js";
+
+/** This package's root: `src/calibration` (tsx) or `dist/calibration` (build), two levels up. */
+export const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 export interface RunProvenance {
-  /** `git rev-parse HEAD` where the run started; null outside a git checkout. */
+  /** HEAD of the git checkout holding this code; null unless the package root is the top level of a
+   *  checkout (an installed package, an archive or a missing `git` give null). */
   commit: string | null;
-  /** Tracked files differed from `commit` (untracked files do not count); null when unknown. */
+  /** Tracked files differ from `commit`; untracked and gitignored files (e.g. a stale `dist/`) do not
+   *  count. null when unknown. */
   dirty: boolean | null;
   node: string;
-  /** `claude --version` / `codex --version`, for live runs only: a dry run must not start either CLI. */
+  /** First non-empty line of `claude --version` / `codex --version`; real runs only, so a dry or offline
+   *  run starts neither CLI. */
   cli?: { claude: string | null; codex: string | null };
 }
 
 /** Runs a local command and returns its trimmed stdout; throws on failure. Injectable for tests. */
 export type RunCommand = (cmd: string, args: string[]) => string;
 
+// SIGKILL: a `--version` that ignores SIGTERM must not outlast the timeout.
 const defaultRun: RunCommand = (cmd, args) =>
-  execFileSync(cmd, args, { encoding: "utf8", timeout: 15_000, stdio: ["ignore", "pipe", "ignore"] }).trim();
+  execFileSync(cmd, args, {
+    encoding: "utf8",
+    timeout: 15_000,
+    killSignal: "SIGKILL",
+    stdio: ["ignore", "pipe", "ignore"],
+  }).trim();
+
+/** Only a real run asks the CLIs for their version (ADR-0012). */
+export function collectsCliVersions(mode: CalibConfig["mode"]): boolean {
+  return mode === "real";
+}
 
 function firstLine(run: RunCommand, cmd: string, args: string[]): string | null {
   try {
-    return run(cmd, args).split("\n")[0]?.trim() || null;
+    return (
+      run(cmd, args)
+        .split("\n")
+        .map((l) => l.trim())
+        .find((l) => l.length > 0) ?? null
+    );
   } catch {
     return null;
   }
 }
 
-export function collectProvenance(opts: { live: boolean; run?: RunCommand }): RunProvenance {
-  const run = opts.run ?? defaultRun;
-  const commit = firstLine(run, "git", ["rev-parse", "HEAD"]);
-  let dirty: boolean | null = null;
-  if (commit) {
+function samePath(a: string, b: string): boolean {
+  const norm = (p: string) => {
     try {
-      dirty = run("git", ["status", "--porcelain", "--untracked-files=no"]).trim().length > 0;
+      return realpathSync(p);
     } catch {
-      dirty = null;
+      return resolve(p);
     }
+  };
+  return norm(a) === norm(b);
+}
+
+function isDirty(run: RunCommand, root: string): boolean | null {
+  try {
+    return run("git", ["-C", root, "status", "--porcelain", "--untracked-files=no"]).length > 0;
+  } catch (e) {
+    // Output beyond the exec buffer can only mean changes.
+    return (e as NodeJS.ErrnoException).code === "ENOBUFS" ? true : null;
   }
+}
+
+export function collectProvenance(opts: { live: boolean; run?: RunCommand; root?: string }): RunProvenance {
+  const run = opts.run ?? defaultRun;
+  const root = opts.root ?? PACKAGE_ROOT;
+  // From the package root, not the caller's cwd: a run started elsewhere must not record another repo.
+  const top = firstLine(run, "git", ["-C", root, "rev-parse", "--show-toplevel"]);
+  const commit = top && samePath(top, root) ? firstLine(run, "git", ["-C", root, "rev-parse", "HEAD"]) : null;
   return {
     commit,
-    dirty,
+    dirty: commit ? isDirty(run, root) : null,
     node: process.version,
     ...(opts.live
       ? { cli: { claude: firstLine(run, "claude", ["--version"]), codex: firstLine(run, "codex", ["--version"]) } }

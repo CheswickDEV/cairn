@@ -540,8 +540,16 @@ family's mean score from its own family against the mean from the other family.
 overwritten (a taken name gets `-2`, `-3`, …). They keep each scored brief and the ids of the
 must-survive items the deterministic check missed (`missingMustSurvive`, the same matching as
 `computeRecall`). A paid run can then be checked again without rerunning it. A `provenance` block
-records the commit, whether tracked files differed from it, the Node version and, for a real run
-only, the first line of `claude --version` and `codex --version`. A dry run starts neither CLI. `--dry-run` resolves the live configuration on the fixture
+records:
+- the commit of this code's own checkout, asked in the package root rather than the cwd (null for an
+  installed package);
+- whether tracked files differ from it (a gitignored `dist/` does not count);
+- the Node version;
+- for a real run only, the first non-empty line of `claude --version` and `codex --version`. A dry
+  run starts neither CLI.
+
+Writing the prompt to a CLI that has already exited no longer crashes the run: `defaultExec` handles
+the stdin `EPIPE`, so the call fails like any other, and the run keeps its artifact. `--dry-run` resolves the live configuration on the fixture
 compactor and heuristic reviewer and prints the call count: 49 for the single probe (7 briefs + 42
 reviews), 245 for the golden set (35 + 210), 28 for the high-fill probe at
 `CAIRN_CALIB_PROBE_TOKENS=400000` (4 Claude briefs + 24 reviews; GPT-6 does not fit Codex's estimated

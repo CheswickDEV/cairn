@@ -67,6 +67,10 @@ export const defaultExec: ExecFn = (cmd, args, opts) =>
       resolve({ stdout, stderr, code: code ?? -1 });
     });
     if (opts.stdin != null) {
+      // A CLI that exits before reading stdin (e.g. a startup failure) fails the write with EPIPE. Unhandled,
+      // that error would crash the whole process and a calibration run would lose its artifact; the exit
+      // code and stderr already report the failure.
+      child.stdin.on("error", () => {});
       child.stdin.write(opts.stdin);
       child.stdin.end();
     }

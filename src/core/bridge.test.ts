@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   bridgeCompact,
+  defaultExec,
   managedMcpConfigPath,
   managedMcpConfigPresent,
   parseCodexJsonl,
@@ -10,6 +11,16 @@ import {
 } from "./bridge.js";
 
 const req = { prompt: "compact this source", maxTokens: 1024, model: "claude-opus-4-8" };
+
+describe("defaultExec", () => {
+  it("a CLI that exits without reading stdin is a normal failed result, not a crash (EPIPE)", async () => {
+    const r = await defaultExec(process.execPath, ["-e", "process.exit(3)"], {
+      stdin: "x".repeat(8 * 1024 * 1024),
+      timeoutMs: 20_000,
+    });
+    expect(r.code).toBe(3);
+  });
+});
 
 describe("bridgeCompact — claude -p (hardened)", () => {
   it("passes the directive as --system-prompt (+exclude-dynamic) and the SOURCE on stdin", async () => {

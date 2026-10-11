@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { runGoldenSet, goldenProbes } from "./golden-set.js";
-import { makeFixtureCompactor } from "./runner.js";
-import { heuristicReviewer } from "./review.js";
+import { makeFixtureCompactor, type Compactor } from "./runner.js";
+import { heuristicReviewer, type Reviewer } from "./review.js";
 import { PROFILES } from "../core/model-profiles.js";
 
 const ANTHROPIC = ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"];
@@ -49,14 +49,37 @@ describe("golden set (multi-probe aggregation)", () => {
     expect(await offlineGolden()).toEqual(await offlineGolden());
   });
 
-  it("keeps each probe's brief and missed must-survive ids (ADR-0012)", async () => {
-    const res = await offlineGolden();
+  it("keeps each probe's scored brief and missed must-survive ids (ADR-0012)", async () => {
+    // Per probe, drop its first non-exact must-survive item from the faithful fixture brief.
+    const droppedIds = new Set<string>();
+    const seen: string[] = [];
+    const recording: Reviewer = async (req) => {
+      seen.push(req.brief);
+      return heuristicReviewer(req);
+    };
+    const res = await runGoldenSet({
+      probes: goldenProbes(),
+      candidates: ANTHROPIC,
+      profiles: PROFILES,
+      makeCompactor: (gt): Compactor => {
+        const drop = gt.mustSurvive.find((i) => !i.exact)!;
+        droppedIds.add(drop.id);
+        const base = makeFixtureCompactor(gt);
+        return async (req) => {
+          const r = await base(req);
+          return { ...r, brief: r.brief.replace(drop.text, "") };
+        };
+      },
+      reviewer: recording,
+      date: "2026-06-22",
+      now: () => 0,
+    });
     for (const m of res.perModel) {
       for (const p of m.perProbe) {
-        expect(typeof p.brief).toBe("string");
-        expect(p.brief!.length).toBeGreaterThan(0);
-        expect(Array.isArray(p.missingMustSurvive)).toBe(true);
-        if (p.missingMustSurvive!.length > 0) expect(p.retainedAllMustSurvive).toBe(false);
+        expect(p.missingMustSurvive).toHaveLength(1);
+        expect(droppedIds.has(p.missingMustSurvive![0])).toBe(true);
+        expect(p.retainedAllMustSurvive).toBe(false);
+        expect(seen).toContain(p.brief);
       }
     }
   });
