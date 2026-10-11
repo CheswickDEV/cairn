@@ -125,6 +125,24 @@ export function codexRunFailed(stdout: string): boolean {
   return failed || pendingError;
 }
 
+/** A Codex safeguard reroute: `codex exec --json` reports it as an error item
+ *  `"model rerouted: <from> -> <to> (<reason>)"` (openai/codex exec JSONL processor). */
+export function codexReroute(stdout: string): { from: string; to: string } | undefined {
+  let found: { from: string; to: string } | undefined;
+  for (const line of stdout.split("\n")) {
+    let ev: { type?: unknown; item?: { type?: unknown; message?: unknown } };
+    try {
+      ev = JSON.parse(line.trim());
+    } catch {
+      continue;
+    }
+    const msg = ev?.type === "item.completed" && ev.item?.type === "error" ? ev.item.message : undefined;
+    const m = typeof msg === "string" ? msg.match(/^model rerouted: (\S+) -> (\S+)/) : null;
+    if (m) found = { from: m[1], to: m[2] };
+  }
+  return found;
+}
+
 /** Safety net: if the CLI still editorialized, trim everything before the first bucket. */
 export function stripPreamble(text: string): string {
   const m = text.match(/(?:^|\n)\s*(1\)\s*DECISIONS|DECISIONS\b)/i);
@@ -156,6 +174,8 @@ export function parseCodexJsonl(stdout: string): string {
     const item = o.item as Record<string, unknown> | undefined;
     if (o.type === "item.completed" && item?.type === "agent_message" && typeof item.text === "string") {
       agentText = item.text;
+    } else if (o.type === "error" || o.type === "turn.failed") {
+      continue; // an error message is never the answer (codex also reports retried stream errors this way)
     } else if (typeof o.text === "string") {
       lastText = o.text;
     } else if (typeof o.message === "string") {
@@ -230,7 +250,8 @@ export async function runBridge(input: RunBridgeInput): Promise<ModelCallResult>
       const text = typeof json.result === "string" ? json.result : "";
       // `is_error` wins over `subtype`: an API error or a refusal mid-stream comes back as `subtype: "success"`
       // with the error message as `result`.
-      const finishReason = json.is_error === true ? "error" : typeof json.subtype === "string" ? json.subtype : "stop";
+      const finishReason =
+        json.is_error === true || code !== 0 ? "error" : typeof json.subtype === "string" ? json.subtype : "stop";
       const modelsUsed = answeringModels(json.modelUsage);
       const modelsReported =
         json.modelUsage && typeof json.modelUsage === "object" ? Object.keys(json.modelUsage as Record<string, unknown>) : undefined;
@@ -258,7 +279,14 @@ export async function runBridge(input: RunBridgeInput): Promise<ModelCallResult>
   const { stdout, stderr, code } = await exec("codex", args, { stdin: `${system}\n\n${user}`, timeoutMs, cwd });
   const text = parseCodexJsonl(stdout);
   if (!text && code !== 0) throw new Error(`codex bridge failed (code ${code}): ${stderr.slice(0, 300)}`);
-  return { text, truncated: false, finishReason: code !== 0 || codexRunFailed(stdout) ? "error" : "stop" };
+  // Codex names no model in its events except a safeguard reroute; report it so calibration can see it.
+  const reroute = codexReroute(stdout);
+  return {
+    text,
+    truncated: false,
+    finishReason: code !== 0 || codexRunFailed(stdout) ? "error" : "stop",
+    ...(reroute ? { modelsUsed: [reroute.to], modelsReported: [reroute.from, reroute.to] } : {}),
+  };
 }
 
 /** Effort of the product's bridge mode (ADR-0012): every bridged compaction runs at `high`, never the CLI

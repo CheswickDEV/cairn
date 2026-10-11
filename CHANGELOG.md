@@ -38,8 +38,10 @@ independent reviews). See ADR-0012.
     error results, whose text is the error message: claude `is_error` (e.g. a refusal mid-stream, also in
     `verbose` array output), and for Codex a `turn.failed` event, an `error` event without a following
     `turn.completed` (retried stream errors also come as `error`) or a non-zero exit. A redirect behind the requested id (`modelOverrides`, a
-    gateway) stays invisible to this check, Codex runs are not checked (no model in its JSON output), and
-    the product bridge does not check the model.
+    gateway) stays invisible to this check; for Codex only a safeguard reroute is visible (an error item
+    `model rerouted: <from> -> <to>`), and the product bridge does not check the model. A claude run with a
+    non-zero exit also counts as an error result, and the "context exceeds window" label is given to error
+    results only, so a valid brief that mentions a context window is no longer rejected.
   - Bridge mode (`CAIRN_BRIDGE`) now always passes `--effort high` / `model_reasoning_effort=high`.
   - API mode sends `output_config.effort` (Anthropic) or `reasoning_effort` (OpenAI) as `high` for pool
     models and raises the output budget to 32,000 tokens (Anthropic: `max_tokens` also caps the thinking).
@@ -47,7 +49,8 @@ independent reviews). See ADR-0012.
   - Limits: a Claude Code effort cap below `high` (`maxEffortLevel` in user or managed settings, also per
     model, or an Enterprise role cap) or a managed `env` still clamps the bridge, without notice. The API adapters do not stream (a very long generation can hit the
     ~300 s fetch header timeout), the OpenAI adapter still sends the deprecated `max_tokens`, and a
-    handoff in bridge mode stores a claude or Codex error result as the brief (all pre-existing).
+    handoff in bridge mode stores a claude error result as the brief (all pre-existing). A Codex error
+    message is no longer taken as the answer, so a failed Codex run without one fails the bridge call.
 - **Full reviewer matrix**: every brief is reviewed by all six other pool models, never by its own model
   (was: the 2–3 strongest foreign models). `CAIRN_CALIB_REVIEWER_POOL` entries are normalised to base ids;
   `CAIRN_CALIB_REVIEWERS` must be a positive integer (a non-number used to mean zero reviewers).

@@ -196,10 +196,18 @@ describe("the requested model must be the one that answered (no silent fallback)
       stderr: "",
       code: 1,
     }));
-    const r = await runBridge({ cli: "codex", system: "S", user: "U", model: "gpt-6-astra", effort: "high", execFn: codexError });
-    expect(r.finishReason).toBe("error");
+    // The error message is never taken as the answer: no text + exit 1 → the bridge call fails outright.
+    await expect(runBridge({ cli: "codex", system: "S", user: "U", model: "gpt-6-astra", effort: "high", execFn: codexError })).rejects.toThrow(/codex bridge failed/);
     const c = makeAccountCompactor({ execFn: codexError });
-    await expect(c({ modelId: "gpt-6-astra@high", maskedProbe: "P", prompt: "S" })).rejects.toThrow(/error result/);
+    await expect(c({ modelId: "gpt-6-astra@high", maskedProbe: "P", prompt: "S" })).rejects.toThrow(/codex bridge failed/);
+    // an answer text with a non-zero exit is an error result
+    const textExit1 = vi.fn<ExecFn>(async () => ({
+      stdout: JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "1) DECISIONS " + "x".repeat(800) } }),
+      stderr: "",
+      code: 1,
+    }));
+    expect((await runBridge({ cli: "codex", system: "S", user: "U", execFn: textExit1 })).finishReason).toBe("error");
+    await expect(makeAccountCompactor({ execFn: textExit1 })({ modelId: "gpt-6-astra@high", maskedProbe: "P", prompt: "S" })).rejects.toThrow(/error result/);
     const failedTurn = vi.fn<ExecFn>(async () => ({ stdout: JSON.stringify({ type: "turn.failed", error: { message: "boom" } }), stderr: "", code: 0 }));
     expect((await runBridge({ cli: "codex", system: "S", user: "U", execFn: failedTurn })).finishReason).toBe("error");
     expect((await runBridge({ cli: "codex", system: "S", user: "U", execFn: codexOk() })).finishReason).toBe("stop");
@@ -220,6 +228,46 @@ describe("the requested model must be the one that answered (no silent fallback)
     expect((await runBridge({ cli: "codex", system: "S", user: "U", execFn: retried })).finishReason).toBe("stop");
     const c = makeAccountCompactor({ execFn: retried });
     await expect(c({ modelId: "gpt-6.1-sol@high", maskedProbe: "P", prompt: "S" })).resolves.toMatchObject({ brief });
+  });
+
+  it("a retried stream error without a final agent message yields no text (the error is never the answer)", async () => {
+    const longError = "Reconnecting... 2/5 (unexpected status 502: " + "<html>".repeat(150) + ")";
+    const noMessage = vi.fn<ExecFn>(async () => ({
+      stdout: [JSON.stringify({ type: "error", message: longError }), JSON.stringify({ type: "turn.completed", usage: {} })].join("\n"),
+      stderr: "",
+      code: 0,
+    }));
+    const r = await runBridge({ cli: "codex", system: "S", user: "U", execFn: noMessage });
+    expect(r.text).toBe("");
+    await expect(makeAccountCompactor({ execFn: noMessage })({ modelId: "gpt-6-luna@high", maskedProbe: "P", prompt: "S" })).rejects.toThrow(/too short/);
+  });
+
+  it("a codex safeguard reroute is reported and the calibration skips it", async () => {
+    const brief = "1) DECISIONS " + "r".repeat(800);
+    const rerouted = vi.fn<ExecFn>(async () => ({
+      stdout: [
+        JSON.stringify({ type: "item.completed", item: { id: "i0", type: "error", message: "model rerouted: gpt-6-astra -> gpt-6.1-sol (HighRiskCyberActivity)" } }),
+        JSON.stringify({ type: "item.completed", item: { id: "i1", type: "agent_message", text: brief } }),
+        JSON.stringify({ type: "turn.completed", usage: {} }),
+      ].join("\n"),
+      stderr: "",
+      code: 0,
+    }));
+    const r = await runBridge({ cli: "codex", system: "S", user: "U", model: "gpt-6-astra", execFn: rerouted });
+    expect(r).toMatchObject({ text: brief, finishReason: "stop", modelsUsed: ["gpt-6.1-sol"], modelsReported: ["gpt-6-astra", "gpt-6.1-sol"] });
+    await expect(makeAccountCompactor({ execFn: rerouted })({ modelId: "gpt-6-astra@high", maskedProbe: "P", prompt: "S" })).rejects.toThrow(/model fallback/);
+    // a plain codex warning item does not count as a reroute
+    const warning = vi.fn<ExecFn>(async () => ({
+      stdout: [JSON.stringify({ type: "item.completed", item: { type: "error", message: "some warning" } }), JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: brief } })].join("\n"),
+      stderr: "",
+      code: 0,
+    }));
+    await expect(makeAccountCompactor({ execFn: warning })({ modelId: "gpt-6-astra@high", maskedProbe: "P", prompt: "S" })).resolves.toMatchObject({ brief });
+  });
+
+  it("claude JSON with a non-zero exit is an error result even without is_error", async () => {
+    const exec = vi.fn<ExecFn>(async () => ({ stdout: JSON.stringify({ result: "x".repeat(800), subtype: "success", is_error: false }), stderr: "", code: 1 }));
+    expect((await runBridge({ cli: "claude", system: "S", user: "U", execFn: exec })).finishReason).toBe("error");
   });
 
   it("claude non-JSON output with a non-zero exit is an error result", async () => {
