@@ -130,6 +130,7 @@ describe("resolveProfile — Claude Opus 5.5 ids", () => {
     "anthropic.claude-opus-5-5", // Amazon Bedrock
     "us.anthropic.claude-opus-5-5", // Bedrock regional inference profile
     "global.anthropic.claude-opus-5-5", // Bedrock global inference profile
+    "us-gov.anthropic.claude-opus-5-5", // Bedrock AWS GovCloud
   ])("%s → claude-opus-5-5", (id) => {
     expect(resolveProfile(id).id).toBe("claude-opus-5-5");
   });
@@ -339,6 +340,13 @@ describe("effectiveCost", () => {
 /* ------------------------------------------------------------------ */
 
 describe("detectEcosystem", () => {
+  it("normalises provider-prefixed host ids (Bedrock) before detecting the ecosystem", () => {
+    expect(detectEcosystem({ modelId: "anthropic.claude-opus-5-5" })).toBe("anthropic");
+    expect(detectEcosystem({ modelId: "us.anthropic.claude-opus-5-5" })).toBe("anthropic");
+    expect(detectEcosystem({ modelId: "global.anthropic.claude-opus-5-5" })).toBe("anthropic");
+    expect(detectEcosystem({ modelId: "openai/gpt-6.1-sol" })).toBe("openai");
+  });
+
   it("maps host signals to the right ecosystem", () => {
     expect(detectEcosystem({ modelId: "claude-opus-4-8" })).toBe("anthropic");
     expect(detectEcosystem({ provider: "bedrock" })).toBe("anthropic");

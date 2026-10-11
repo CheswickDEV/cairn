@@ -58,7 +58,7 @@ export function computeStatus(input: StatuslineInput, profiles: ModelProfile[] =
   const profile = resolveProfile(input.model?.id, profiles);
   const cw = input.context_window ?? {};
   // Surface cap = the host-reported window (e.g. 200k in Claude Code); ADR-0003.
-  const win = activeWindow(profile, { surfaceCap: cw.context_window_size ?? cw.total_tokens });
+  const win = activeWindow(profile, { surfaceCap: cw.context_window_size || cw.total_tokens }); // 0 = not reported
   // Prefer explicit input-token counts (incl. cache); fall back to used_percentage of the window.
   const tokenSum = cw.total_input_tokens || inputTokens(cw.current_usage) || inputTokens(cw);
   const usedTokens =

@@ -272,8 +272,9 @@ PROFILES.forEach((p) => ModelProfile.parse(p));
 
 /**
  * Current vendor models (official model overviews, October 2026) that have no full profile yet. Only
- * the context window and max output are sourced; pricing (incl. long-context surcharges), quality
- * zones and summarizer fidelity are not profiled. These entries are NEVER summarizer or calibration
+ * the context window and max output are sourced; pricing (incl. long-context surcharges) and summarizer
+ * fidelity are not profiled - their price/threshold fields are placeholders - and the zones are the
+ * shared provisional house values. These entries are NEVER summarizer or calibration
  * candidates - selection and calibration read PROFILES only. They exist so `resolveProfile` gives the
  * statusline/context_status the right window instead of the 128k generic fallback. Promote an entry
  * to PROFILES (with sourced pricing) when its model gets full support.
@@ -317,13 +318,14 @@ export const CONTEXT_ONLY_PROFILES: ModelProfile[] = CONTEXT_ONLY_MODELS.map((m)
 /**
  * Normalise a host-reported model id: strip real-world decorations that break exact matching -
  * a trailing `[1m]`/`(…)` (Claude Code's 1M-context suffix), an `@effort` variant, and a
- * provider/region prefix like `us.anthropic.` / `global.anthropic.` / `openai/` (Bedrock/Vertex). Lower-cased.
+ * provider/region prefix like `us.anthropic.` / `global.anthropic.` / `us-gov.anthropic.` / `openai/`
+ * (Bedrock/Vertex). Lower-cased.
  */
 export function normalizeModelId(id: string): string {
   let s = id.trim().toLowerCase();
   s = s.replace(/[[(][^\])]*[\])]\s*$/, ""); // trailing "[1m]" / "(…)"
   s = s.replace(/@[^@]*$/, ""); // trailing "@effort"
-  s = s.replace(/^(?:(?:[a-z]{2,4}|global)\.)?(?:anthropic|openai|google|meta|bedrock|vertex)[./]/, ""); // provider/region prefix
+  s = s.replace(/^(?:(?:[a-z]{2,4}|global|us-gov)\.)?(?:anthropic|openai|google|meta|bedrock|vertex)[./]/, ""); // provider/region prefix
   return s.trim();
 }
 
@@ -475,7 +477,7 @@ export interface HostSignal {
 }
 
 export function detectEcosystem(h: HostSignal): Ecosystem {
-  const id = (h.modelId ?? "").toLowerCase();
+  const id = normalizeModelId(h.modelId ?? ""); // so Bedrock ids like `anthropic.claude-opus-5-5` count as Claude
   const prov = (h.provider ?? "").toLowerCase();
   if (prov === "ollama" || prov === "lmstudio" || id.startsWith("ollama")) return "local";
   if (id.startsWith("claude") || prov === "anthropic" || prov === "bedrock") return "anthropic";
