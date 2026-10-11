@@ -447,8 +447,8 @@ fallback; also in the array form `verbose` output takes), whose text is the erro
 claude output with a non-zero exit; and for Codex a `turn.failed` event, an `error` event that no
 `turn.completed` follows (codex also reports retried stream errors as `error`), or a non-zero exit,
 whose text is at most a partial answer. A failed Codex run without an answer makes the bridge call fail,
-with Codex's error message (which it writes to stdout only) as the reason: the latest `turn.failed`
-message or `error` message that no `turn.completed` follows, else stderr. `modelUsage` keys are the Anthropic
+with Codex's error message (which it writes to stdout only) as the reason: the latest non-empty
+`turn.failed` message or `error` message that no `turn.completed` follows, else stderr. `modelUsage` keys are the Anthropic
 model ids Claude Code resolved, not what it sent upstream, so a redirect (`modelOverrides`, a gateway
 behind `ANTHROPIC_BASE_URL`) stays invisible to this check. `codex exec --json` names no model, except
 for a safeguard reroute, which it reports as an error item `model rerouted: <from> -> <to>`; such a run

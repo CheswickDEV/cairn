@@ -34,7 +34,8 @@ independent reviews). See ADR-0012.
     user or plugin hooks (`disableAllHooks`; managed hooks, built-in mods, hooks of managed-forced plugins
     and a managed `disableAllHooks: false` still apply).
   - Calibration skips a brief or review unless the requested model alone produced output (claude
-    `modelUsage`; without any reported output the listed models decide), e.g. after a `fallbackModel` swap
+    `modelUsage`; without any reported output the listed models decide; a result without `modelUsage`,
+    which Claude Code 2.1.296 always sends, is not checked), e.g. after a `fallbackModel` swap
     or the automatic switch after a refusal, instead of crediting it to the requested id. It also skips
     error results: claude `is_error` (e.g. a refusal mid-stream, also in `verbose` array output), whose
     text is the error message, and for Codex a `turn.failed` event, an `error` event without a following
