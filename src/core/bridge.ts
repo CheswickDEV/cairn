@@ -82,6 +82,16 @@ function systemFor(request: ModelCallRequest, lang: Lang): string {
 const SAFE_MODEL = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
 /** Effort tier must be a bare lowercase word (low|medium|high|xhigh|max) - no arg/config injection. */
 const SAFE_EFFORT = /^[a-z]+$/;
+/** Set for every claude child, in its environment and via `--settings` (ADR-0012): no CLAUDE.md or auto
+ *  memory in a compaction/review, no claude.ai connectors (fetched for a logged-in subscription). */
+const CLAUDE_ISOLATION_ENV = { CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1", ENABLE_CLAUDEAI_MCP_SERVERS: "false" } as const;
+
+/** Codex context `--ignore-user-config` still loads (ADR-0012): the skills catalog ($CODEX_HOME/skills,
+ *  ~/.agents/skills, bundled), a project AGENTS.md in the shared tmpdir cwd, and the ChatGPT apps
+ *  connector. `-c` overrides outrank the user layer. $CODEX_HOME/AGENTS.md has no switch in codex
+ *  0.162 and still reaches the model. */
+const CODEX_ISOLATION_OVERRIDES = ["skills.include_instructions=false", "project_doc_max_bytes=0", "features.apps=false"] as const;
+
 /** The levels Claude Code documents for `--effort` / CLAUDE_CODE_EFFORT_LEVEL; only these are pinned. */
 const CLAUDE_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
 
@@ -223,8 +233,9 @@ export interface RunBridgeInput {
 
 /**
  * Generic hardened CLI call on the subscription session (used by both compaction and review).
- * Same security posture everywhere: claude with ALL tools disabled + no permission bypass; codex
- * read-only sandbox, ignore-user-config, ephemeral; neutral cwd. Returns the RAW model text.
+ * Same security posture everywhere: claude with ALL tools disabled (built-in and MCP) + no permission
+ * bypass, no CLAUDE.md, connectors or transcript; codex read-only sandbox, ignore-user-config, ephemeral,
+ * no skills catalog, project AGENTS.md or apps; neutral cwd. Returns the RAW model text.
  */
 export async function runBridge(input: RunBridgeInput): Promise<ModelCallResult> {
   const exec = input.execFn ?? defaultExec;
@@ -246,6 +257,14 @@ export async function runBridge(input: RunBridgeInput): Promise<ModelCallResult>
       "",
       "--permission-mode",
       "default",
+      // Context isolation (ADR-0012): `--tools ""` covers built-in tools only, so user-scope and plugin MCP
+      // servers would start and offer their tools. `--strict-mcp-config` without `--mcp-config` loads none,
+      // and the deny rule removes any MCP tool that still reaches the call.
+      "--strict-mcp-config",
+      "--disallowedTools",
+      "mcp__*",
+      // A compaction or review is no session to resume: no transcript under ~/.claude/projects.
+      "--no-session-persistence",
     ];
     if (model && SAFE_MODEL.test(model)) args.push("--model", model);
     if (effort && SAFE_EFFORT.test(effort)) args.push("--effort", effort);
@@ -255,11 +274,11 @@ export async function runBridge(input: RunBridgeInput): Promise<ModelCallResult>
     const pinned = effort && CLAUDE_EFFORTS.has(effort) ? effort : undefined;
     // No user/plugin hooks in a pure compaction/review call: a prompt or agent hook runs its own model,
     // which `modelUsage` would then report as a second answering model (managed hooks still run).
-    const settings = { disableAllHooks: true, ...(pinned ? { env: { CLAUDE_CODE_EFFORT_LEVEL: pinned } } : {}) };
+    const env: Record<string, string> = { ...CLAUDE_ISOLATION_ENV, ...(pinned ? { CLAUDE_CODE_EFFORT_LEVEL: pinned } : {}) };
+    const settings = { disableAllHooks: true, disableClaudeAiConnectors: true, env };
     args.push("--settings", JSON.stringify(settings));
     // The neutral cwd is the shared tmpdir: never load project/local settings (hooks, env, effort caps) from it.
     args.push("--setting-sources", "user");
-    const env = pinned ? { CLAUDE_CODE_EFFORT_LEVEL: pinned } : undefined;
     const { stdout, stderr, code } = await exec("claude", args, { stdin: user, timeoutMs, cwd, env });
     if (code !== 0 && !stdout.trim()) throw new Error(`claude bridge failed (code ${code}): ${stderr.slice(0, 300)}`);
     try {
@@ -298,6 +317,7 @@ export async function runBridge(input: RunBridgeInput): Promise<ModelCallResult>
   ];
   if (model && SAFE_MODEL.test(model)) args.push("--model", model);
   if (effort && SAFE_EFFORT.test(effort)) args.push("-c", `model_reasoning_effort=${effort}`);
+  for (const override of CODEX_ISOLATION_OVERRIDES) args.push("-c", override);
   const { stdout, stderr, code } = await exec("codex", args, { stdin: `${system}\n\n${user}`, timeoutMs, cwd });
   const text = parseCodexJsonl(stdout);
   const failed = code !== 0 || codexRunFailed(stdout);

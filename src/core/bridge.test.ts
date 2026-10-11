@@ -91,6 +91,46 @@ describe("bridgeCompact — codex exec (hardened)", () => {
   });
 });
 
+describe("context isolation (ADR-0012)", () => {
+  const claudeExec = () => vi.fn<ExecFn>(async () => ({ stdout: JSON.stringify({ result: "1) DECISIONS" }), stderr: "", code: 0 }));
+
+  it("claude: no MCP server or MCP tool, no transcript", async () => {
+    const exec = claudeExec();
+    await bridgeCompact({ cli: "claude", request: req, execFn: exec });
+    const args = exec.mock.calls[0][1];
+    // `--tools ""` covers built-in tools only; strict mode without `--mcp-config` loads no MCP server
+    expect(args).toContain("--strict-mcp-config");
+    expect(args).not.toContain("--mcp-config");
+    expect(args[args.indexOf("--disallowedTools") + 1]).toBe("mcp__*");
+    expect(args).toContain("--no-session-persistence");
+  });
+
+  it("claude: no CLAUDE.md and no claude.ai connectors, in the child env and via --settings, also without an effort", async () => {
+    const isolation = { CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1", ENABLE_CLAUDEAI_MCP_SERVERS: "false" };
+    for (const effort of [undefined, "high"]) {
+      const exec = claudeExec();
+      await bridgeCompact({ cli: "claude", request: req, effort, execFn: exec });
+      const [, args, opts] = exec.mock.calls[0];
+      expect(opts.env).toMatchObject(isolation);
+      const settings = JSON.parse(args[args.indexOf("--settings") + 1]);
+      expect(settings.disableClaudeAiConnectors).toBe(true);
+      expect(settings.env).toMatchObject(isolation);
+    }
+  });
+
+  it("codex: no skills catalog, no project AGENTS.md from the tmpdir cwd, no apps connector", async () => {
+    const jsonl = JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "1) DECISIONS" } });
+    const exec = vi.fn<ExecFn>(async () => ({ stdout: jsonl, stderr: "", code: 0 }));
+    await bridgeCompact({ cli: "codex", request: req, effort: "high", execFn: exec });
+    const args = exec.mock.calls[0][1];
+    const overrides = args.flatMap((a, i) => (a === "-c" ? [args[i + 1]] : []));
+    expect(overrides).toEqual(
+      expect.arrayContaining(["skills.include_instructions=false", "project_doc_max_bytes=0", "features.apps=false"]),
+    );
+    expect(overrides).toContain("model_reasoning_effort=high");
+  });
+});
+
 describe("effort injection", () => {
   it("claude: passes --effort <level>", async () => {
     const exec = vi.fn<ExecFn>(async () => ({ stdout: JSON.stringify({ result: "1) DECISIONS" }), stderr: "", code: 0 }));

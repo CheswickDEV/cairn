@@ -457,6 +457,35 @@ Codex may drop that notice under backpressure (it is not a guaranteed notificati
 best-effort. A Codex error message never becomes the answer text. The product bridge does not check the
 model.
 
+**Context isolation.** A bridge call (compaction, calibration brief or review) should see only its
+system prompt and its input. Two independent reviews ran Claude Code 2.1.296 offline against a mock API
+and read the Codex `rust-v0.162.1` source. They found gaps the earlier flags left open, all of them
+older than this ADR:
+- `--tools ""` disables built-in tools only. User-scope and plugin MCP servers started on every call.
+  Their tools went to the model and ran under a matching allow rule.
+- The user's `~/.claude/CLAUDE.md` was injected, and every call left a session transcript.
+- For Codex, `--ignore-user-config` skips only `config.toml`. Still loaded: `$CODEX_HOME/AGENTS.md`,
+  the skills catalog (`$CODEX_HOME/skills`, `~/.agents/skills`, bundled skills) and a project
+  `AGENTS.md` in the cwd.
+
+The claude bridge now passes:
+- `--strict-mcp-config` without `--mcp-config`, so no MCP server starts;
+- `--disallowedTools mcp__*`;
+- `--no-session-persistence`;
+- `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` and `ENABLE_CLAUDEAI_MCP_SERVERS=false`, set both in the child's
+  environment and in the `--settings` `env`;
+- `disableClaudeAiConnectors: true`, also in `--settings`.
+
+The codex bridge adds `-c skills.include_instructions=false`, `-c project_doc_max_bytes=0` and
+`-c features.apps=false`.
+
+Limits:
+- Codex 0.162 has no switch for `$CODEX_HOME/AGENTS.md`. A global AGENTS.md, which Cairn's installer
+  appends to, still reaches every Codex call.
+- Managed settings and managed MCP stay out of Cairn's reach. The deny rule still removes MCP tools.
+- The claude.ai connectors and the ChatGPT apps connector exist only with a subscription login, and
+  the offline tests could not observe them. Their switches follow the vendor docs and the Codex source.
+
 In the product, bridge mode always passes `--effort high` / `model_reasoning_effort=high`. API mode
 sends Anthropic's `output_config.effort` or OpenAI's `reasoning_effort` (Chat Completions) as `high` for
 ids that resolve to a pool model (including dated, prefixed or `-codex` variants), and raises the output

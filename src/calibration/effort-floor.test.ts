@@ -78,6 +78,8 @@ describe("account compactor: effort floor before any CLI call", () => {
 });
 
 describe("CLAUDE_CODE_EFFORT_LEVEL cannot override the requested effort", () => {
+  const ISOLATION_ENV = { CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1", ENABLE_CLAUDEAI_MCP_SERVERS: "false" };
+
   // Claude Code: the env var takes precedence over `--effort`, so the bridge pins it to the requested tier.
   it("compactor, reviewer and product bridge set it to `high` for the claude child", async () => {
     const compactor = claudeOk();
@@ -86,7 +88,8 @@ describe("CLAUDE_CODE_EFFORT_LEVEL cannot override the requested effort", () => 
     await makeModelReviewer({ execFn: reviewer })({ authorModelId: "gpt-6-luna@high", reviewerModelId: "claude-fable-5-1", brief: "B", groundTruth: GT });
     const bridge = claudeOk();
     await productBridge("claude", "en", bridge)({ prompt: "x", maxTokens: 100, model: "claude-sonnet-5-5" });
-    for (const exec of [compactor, reviewer, bridge]) expect(exec.mock.calls[0][2].env).toEqual({ CLAUDE_CODE_EFFORT_LEVEL: "high" });
+    // Besides the effort pin the child env carries the context isolation (ADR-0012), see bridge.test.ts.
+    for (const exec of [compactor, reviewer, bridge]) expect(exec.mock.calls[0][2].env).toEqual({ ...ISOLATION_ENV, CLAUDE_CODE_EFFORT_LEVEL: "high" });
   });
 
   it("bridge calls run without user/plugin hooks (a prompt hook would add a second answering model)", async () => {
@@ -100,7 +103,11 @@ describe("CLAUDE_CODE_EFFORT_LEVEL cannot override the requested effort", () => 
     const exec = claudeOk();
     await runBridge({ cli: "claude", system: "S", user: "U", model: "claude-opus-5-5", effort: "high", execFn: exec });
     const args = exec.mock.calls[0][1];
-    expect(JSON.parse(args[args.indexOf("--settings") + 1])).toEqual({ disableAllHooks: true, env: { CLAUDE_CODE_EFFORT_LEVEL: "high" } });
+    expect(JSON.parse(args[args.indexOf("--settings") + 1])).toEqual({
+      disableAllHooks: true,
+      disableClaudeAiConnectors: true,
+      env: { ...ISOLATION_ENV, CLAUDE_CODE_EFFORT_LEVEL: "high" },
+    });
     // project/local settings from the shared tmpdir cwd (hooks, env, caps) are never loaded
     expect(args[args.indexOf("--setting-sources") + 1]).toBe("user");
   });
@@ -109,8 +116,9 @@ describe("CLAUDE_CODE_EFFORT_LEVEL cannot override the requested effort", () => 
     const exec = claudeOk();
     await runBridge({ cli: "claude", system: "S", user: "U", effort: "foo", execFn: exec });
     const [, args, opts] = exec.mock.calls[0];
-    expect(JSON.parse(args[args.indexOf("--settings") + 1])).toEqual({ disableAllHooks: true }); // no env pin
-    expect(opts.env).toBeUndefined();
+    // no effort pin; only the context isolation (ADR-0012)
+    expect(JSON.parse(args[args.indexOf("--settings") + 1])).toEqual({ disableAllHooks: true, disableClaudeAiConnectors: true, env: ISOLATION_ENV });
+    expect(opts.env).toEqual(ISOLATION_ENV);
     const codex = codexOk();
     await runBridge({ cli: "codex", system: "S", user: "U", effort: "high", execFn: codex });
     expect(codex.mock.calls[0][2].env).toBeUndefined();
