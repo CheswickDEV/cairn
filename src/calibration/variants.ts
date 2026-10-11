@@ -16,12 +16,11 @@ export function cliFor(ecosystem: CalibEcosystem): BridgeCli {
   return ecosystem === "anthropic" ? "claude" : "codex";
 }
 
-/** Map a profile id to the name the CLI actually accepts: Anthropic family alias (opus/sonnet/…),
- *  OpenAI id as-is. Invalid names simply fail the bridge call → variant skipped + logged. */
-export function cliModelName(baseModelId: string, ecosystem: CalibEcosystem): string {
-  if (ecosystem === "anthropic") {
-    for (const fam of ["opus", "sonnet", "haiku", "fable"]) if (baseModelId.includes(fam)) return fam;
-  }
+/** Map a profile id to the CLI's `--model` value: the full, pinned model id for both CLIs. Claude Code's
+ *  family aliases (`opus`/`sonnet`/`haiku`) move to the newest model (`opus` = Opus 5.5), so an alias
+ *  would calibrate - and peer-review with - a different model than the profile names. Invalid names
+ *  simply fail the bridge call → variant skipped + logged. */
+export function cliModelName(baseModelId: string): string {
   return baseModelId;
 }
 

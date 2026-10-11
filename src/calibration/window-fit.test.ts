@@ -18,6 +18,13 @@ describe("window-fit (ADR-0003/0004)", () => {
     expect(probeFitsModel("claude-haiku-4-5-20251001", 100_000)).toBe(true);
   });
 
+  it("Opus 5.5 gets the 1M bridge window (fits the 400k high-fill probe, not 800k)", () => {
+    expect(probeFitsModel("claude-opus-5-5", 400_000)).toBe(true);
+    expect(probeFitsModel("claude-opus-5-5", 800_000)).toBe(false);
+    const { fit } = partitionByWindow(["claude-opus-5-5@max", "claude-sonnet-4-6@high"], 400_000, PROFILES, (id) => parseVariant(id).baseModelId);
+    expect(fit).toEqual(["claude-opus-5-5@max"]);
+  });
+
   it("partitions candidate variants by window fit, with reasons", () => {
     const cands = ["claude-opus-4-8@high", "claude-sonnet-4-6@high", "claude-haiku-4-5-20251001@high"];
     const { fit, excluded } = partitionByWindow(cands, 400_000, PROFILES, (id) => parseVariant(id).baseModelId);

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { variantId, parseVariant, buildVariants, DEFAULT_EFFORTS } from "./variants.js";
+import { variantId, parseVariant, buildVariants, cliModelName, DEFAULT_EFFORTS } from "./variants.js";
 import { mapWithConcurrency } from "./concurrency.js";
-import { PROFILES } from "../core/model-profiles.js";
+import { PROFILES, CONTEXT_ONLY_PROFILES } from "../core/model-profiles.js";
 
 describe("variants", () => {
   it("encodes/parses modelId@effort round-trip (model ids may contain dashes/dots)", () => {
@@ -25,6 +25,26 @@ describe("variants", () => {
     const v = buildVariants({ ecosystems: ["anthropic"], efforts: { anthropic: ["high"] } });
     expect(v.every((x) => x.ecosystem === "anthropic" && x.effort === "high")).toBe(true);
     expect(v.some((x) => x.baseModelId === "claude-opus-4-8")).toBe(true);
+  });
+});
+
+describe("variants — Claude Opus 5.5", () => {
+  it("calibrates Opus 5.5 at every default Anthropic effort tier", () => {
+    const v = buildVariants({ ecosystems: ["anthropic"] }).filter((x) => x.baseModelId === "claude-opus-5-5");
+    expect(v.map((x) => x.effort)).toEqual(DEFAULT_EFFORTS.anthropic);
+  });
+
+  it("context-only entries are never calibration candidates", () => {
+    const bases = new Set(buildVariants().map((x) => x.baseModelId));
+    for (const p of CONTEXT_ONLY_PROFILES) expect(bases.has(p.id)).toBe(false);
+  });
+
+  it("cliModelName passes the full pinned id (aliases would move to the newest model)", () => {
+    expect(cliModelName("claude-opus-5-5")).toBe("claude-opus-5-5");
+    expect(cliModelName("claude-opus-4-8")).toBe("claude-opus-4-8");
+    expect(cliModelName("claude-sonnet-4-6")).toBe("claude-sonnet-4-6");
+    expect(cliModelName("claude-haiku-4-5-20251001")).toBe("claude-haiku-4-5-20251001");
+    expect(cliModelName("gpt-5.5")).toBe("gpt-5.5");
   });
 });
 

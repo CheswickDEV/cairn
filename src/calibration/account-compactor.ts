@@ -32,7 +32,7 @@ export function makeAccountCompactor(opts: AccountCompactorOptions = {}): Compac
         systemPrompt: prompt, // the 7-bucket prompt
         prompt: maskedProbe, // verbatim-masked probe on stdin
         maxTokens: opts.maxTokens ?? 4096,
-        model: cliModelName(baseModelId, ecosystem),
+        model: cliModelName(baseModelId),
       },
       execFn: opts.execFn,
       timeoutMs: opts.timeoutMs,

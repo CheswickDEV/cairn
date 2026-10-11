@@ -31,6 +31,10 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 const LARGE_VARIANTS = [
+  "claude-opus-5-5@medium", // Opus 5.5's API default effort
+  "claude-opus-5-5@high",
+  "claude-opus-5-5@xhigh",
+  "claude-opus-5-5@max",
   "claude-opus-4-8@high",
   "claude-opus-4-8@xhigh",
   "claude-opus-4-8@max",
@@ -39,7 +43,7 @@ const LARGE_VARIANTS = [
   "claude-haiku-4-5-20251001@high",
   "claude-haiku-4-5-20251001@xhigh",
 ];
-const LARGE_REVIEWER_POOL = ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5-20251001", "gpt-5.5", "gpt-5.4"];
+const LARGE_REVIEWER_POOL = ["claude-opus-5-5", "claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5-20251001", "gpt-5.5", "gpt-5.4"];
 
 function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);

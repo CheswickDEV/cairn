@@ -91,7 +91,7 @@ export function makeModelReviewer(opts: ModelReviewerOptions = {}): Reviewer {
       cli: cliFor(ecosystem),
       system: REVIEW_SYSTEM,
       user: buildReviewUser(brief, groundTruth),
-      model: cliModelName(baseModelId, ecosystem),
+      model: cliModelName(baseModelId),
       effort: opts.effort ?? "high",
       execFn: opts.execFn,
       timeoutMs: opts.timeoutMs,
