@@ -350,17 +350,21 @@ Accepted. Extends ADR-0003/0004/0005; zone fractions, selection and the fidelity
 Claude Opus 5.5 gets a full profile (window, max output and prices from Anthropic's docs) and
 joins selection and calibration. Until a live calibration run measures it, it is uncalibrated
 and ranks on the Opus seed prior (0.92), so it never displaces a calibrated pick on a guess.
-Every other current model in the Anthropic and OpenAI model overviews gets a context-only
-entry: documented window and max output, nothing else. `resolveProfile` uses these entries, so
+Every other current model gets a context-only entry: documented window and max output, nothing
+else. Current means Anthropic's current lineup (models overview), OpenAI's flagship models (API
+models overview) and GPT-6 Sol, Codex's replacement for GPT-5.5. `resolveProfile` uses these entries, so
 the statusline and `context_status` show the real window instead of the 128K generic fallback.
 Selection and calibration never use them because they have no sourced price and no fidelity.
 An entry becomes a full profile when its model gets full support.
 
 Id resolution treats only real snapshot dates (`yyyymmdd`, `yyyy-mm-dd`) as an omitted suffix.
-A version step such as `claude-opus-5` (Opus 5) therefore never resolves to `claude-opus-5-5`.
+A version step such as `claude-opus-5` (Opus 5) therefore never resolves to `claude-opus-5-5`,
+and `claude-opus-4` (Opus 4, 200K) no longer borrows the 1M Opus 4.8 profile.
 The Claude Code statusline reads the window from the documented `context_window.context_window_size`
-and usage from `total_input_tokens`/`current_usage`; the legacy shape is still accepted.
+and usage from `total_input_tokens`/`current_usage`; the legacy shape is still accepted. For a model
+without a profile, the generic 128K is a placeholder rather than a model maximum, so a host-reported
+window replaces it in `min(model_max, surface_cap, user_override)`. Without a host window it stays 128K.
 
 Calibration passes the full model id to `claude --model`. Claude Code's family aliases move to
-the newest model (`opus` = Opus 5.5), so an alias would calibrate one model under another
+the newest model (`opus` = Opus 5.5 on the Anthropic API), so an alias would calibrate one model under another
 model's name, and would let a model peer-review itself under a different label.
