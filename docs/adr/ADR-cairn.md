@@ -511,7 +511,7 @@ Limits:
     The exception is an allow rule from the system layer (`/etc/codex/rules`), which still bypasses
     the sandbox.
   - web search (`web.run`, cached mode, on by default);
-  - image generation for a paid ChatGPT plan.
+  - image generation, except on the Free plan.
   Web search and image generation are backend calls outside the sandbox and outside Cairn's count.
 - With the skills catalog off, a `$<skill>` mention in the input still makes Codex inject that skill's
   SKILL.md, for example `$cairn-handoff` in a transcript being compacted. The calibration probes
@@ -565,10 +565,19 @@ records:
 - for a real run only, the first non-empty line of `claude --version` and `codex --version`. A dry
   run starts neither CLI.
 
-A CLI that exits before reading its whole prompt no longer crashes the run. Writing such a prompt fails
-with `EPIPE` once the prompt exceeds the pipe buffer, as the 1.6 MB high-fill probe always does.
-`defaultExec` records that failure and fails the call, even if the CLI exited with 0, because an answer
+A CLI that exits before reading its whole prompt no longer crashes the run. Node gets `EPIPE` in two
+cases:
+- the unread part of the prompt exceeds the stdin buffer, a socket pair of about 128–150 KiB here. The
+  1.6 MB high-fill probe always does.
+- the CLI exited before the write.
+
+`defaultExec` records that error and fails the call, even if the CLI exited with 0, because an answer
 to a truncated prompt is no answer. The run keeps its artifact.
+
+Limits:
+- A CLI that leaves less than the buffer unread and exits with 0 goes unnoticed. claude and codex read
+  their whole prompt.
+- The product handoff still stores a failed bridge call's answer (open point above).
 
 `--dry-run` resolves the live configuration on the fixture
 compactor and heuristic reviewer and prints the call count: 49 for the single probe (7 briefs + 42
@@ -581,8 +590,10 @@ and the 800K default fits no model). Bridge windows:
   2026-10-11. All three rollouts report this `model_context_window`, Codex's usable 95 % of the
   catalog's 272,000 in codex 0.162.1. It is a client-side value, not a test of the server limit. In the
   same rollouts `turn_context` names the requested model and effort `high`.
-- Codex compacts on its own from 244,800 (90 %) mid-turn, i.e. only once the model has called a
-  tool. A fresh call starts below every threshold.
+- Codex compacts on its own from 244,800 (90 %) mid-turn whenever it continues a turn: after a tool
+  call, an incomplete response or `end_turn: false`. A fresh call starts below every threshold.
+- A system or cloud config, which `--ignore-user-config` does not skip, could add post-turn compaction
+  or a lower limit. The bridge pins neither.
 
 **Decision basis.** The model decision uses the golden-set mean (5 probes), including its verbosity. The
 earlier precedent of keeping the single-probe score for cross-profile comparability (GPT-5.4) is not

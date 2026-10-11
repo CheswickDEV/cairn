@@ -65,17 +65,21 @@ export const defaultExec: ExecFn = (cmd, args, opts) =>
     });
     child.on("close", (code) => {
       clearTimeout(timer);
-      // A CLI that did not take the whole prompt answered something else: never a success, even with exit 0.
+      // The prompt was not fully written (see the stdin handler): never a success, even with exit 0. The note
+      // goes first, so a caller that keeps only the start of stderr still sees it.
       if (stdinError) {
-        resolve({ stdout, stderr: `${stderr}\n[cairn] prompt not fully written to ${cmd}: ${stdinError}`, code: code || 1 });
+        const note = `[cairn] prompt not fully written to ${cmd}: ${stdinError}`;
+        resolve({ stdout, stderr: stderr ? `${note}\n${stderr}` : note, code: code === 0 ? 1 : (code ?? -1) });
         return;
       }
       resolve({ stdout, stderr, code: code ?? -1 });
     });
     if (opts.stdin != null) {
       // A CLI that exits before reading all of stdin (e.g. a startup failure) fails the write with EPIPE once the
-      // prompt exceeds the pipe buffer. Unhandled, that error would crash the whole process and a calibration
-      // run would lose its artifact; it is recorded instead and makes the call fail (see "close").
+      // unread part exceeds the stdin buffer (a socket pair, ~128-150 KiB on Linux), or when it exited before the
+      // write. Unhandled, that error would crash the whole process and a calibration run would lose its
+      // artifact; it is recorded instead and makes the call fail (see "close"). A truncation that fits in the
+      // buffer stays unnoticed; claude and codex read their whole prompt.
       child.stdin.on("error", (e: NodeJS.ErrnoException) => {
         stdinError = e.code ?? e.message;
       });
@@ -103,10 +107,11 @@ const CLAUDE_ISOLATION_ENV = { CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1", ENABLE_CLAUD
  *  $CODEX_HOME/skills, ~/.agents/skills, bundled), a project AGENTS.md in the shared tmpdir cwd, the
  *  ChatGPT apps connector, and the multi-agent tools (`spawn_agent` …, which would start further model
  *  calls; `features.multi_agent_v2` from any config layer would bring them back, hence both switches).
- *  `-c` overrides outrank the user, system and cloud layers (Codex's managed_config.toml and requirements
- *  still win). Codex 0.162 has no switch for $CODEX_HOME/AGENTS.override.md or AGENTS.md, a `$<skill>`
- *  mention in the input still injects that skill, and its own tools stay: exec/shell in the read-only
- *  sandbox, plus web search and image generation as backend calls Cairn does not count. */
+ *  `-c` overrides outrank the user, project, system and cloud layers (Codex's managed_config.toml, also via
+ *  MDM, and requirements pins still win). Codex 0.162 has no switch for $CODEX_HOME/AGENTS.override.md or
+ *  AGENTS.md, a `$<skill>` mention in the input still injects that skill, and its own tools stay: exec/shell
+ *  in the read-only sandbox (a system allow rule in /etc/codex/rules still bypasses it), plus web search and
+ *  image generation (not on the Free plan) as backend calls Cairn does not count. */
 const CODEX_ISOLATION_OVERRIDES = [
   "skills.include_instructions=false",
   "project_doc_max_bytes=0",

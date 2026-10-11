@@ -24,8 +24,9 @@ describe("defaultExec", () => {
     const readOnce = "process.stdin.once('data', () => { process.stdout.write('answer'); process.exit(0); })";
     const r = await defaultExec(process.execPath, ["-e", readOnce], { stdin: BIG, timeoutMs: 20_000 });
     expect(r.stdout).toBe("answer");
-    expect(r.code).not.toBe(0);
-    expect(r.stderr).toMatch(/prompt not fully written/);
+    expect(r.code).toBe(1);
+    // first, so a caller that keeps only the start of stderr still sees it
+    expect(r.stderr).toMatch(/^\[cairn\] prompt not fully written/);
   });
 
   it("a CLI that reads the whole prompt keeps its exit code and output", async () => {

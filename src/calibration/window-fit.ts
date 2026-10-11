@@ -13,7 +13,8 @@
  *  bridge-measured). For GPT-6 via Codex the window Codex applies was read from real runs (ADR-0012 stage
  *  4b', 2026-10-11): the rollout's `model_context_window` is 258400 for all three, Codex's usable share
  *  (95 %) of the catalog's 272000 in codex 0.162.1 - a client-side value, not a server load test. Codex
- *  compacts on its own from 244800 (90 %) mid-turn, i.e. only once the model has called a tool.
+ *  compacts on its own from 244800 (90 %) mid-turn whenever it continues a turn (after a tool call, an
+ *  incomplete response or end_turn: false); a fresh call starts below every threshold.
  *
  * So we pre-filter candidates whose effective window can't hold the probe - instead of wasting a
  * call that returns "Prompt is too long".
@@ -25,8 +26,8 @@ import type { ModelProfile } from "../core/model-profiles.js";
 export const REQUEST_INFLATION = 1.7;
 
 /**
- * Effective SUBSCRIPTION-CLI windows, distinct from the profiles' API maxima. GPT-6 via Codex is
- * measured; the Claude 5.x values follow Claude Code's documented default and are not yet measured.
+ * Effective SUBSCRIPTION-CLI windows, distinct from the profiles' API maxima. GPT-6 via Codex is the
+ * window Codex reports (4b'); the Claude 5.x values follow Claude Code's documented default, not measured.
  */
 export const BRIDGE_WINDOWS: Record<string, number> = {
   // Not yet bridge-measured: Claude Code runs Fable 5.1, Sonnet 5.5, Haiku 5.5 and Opus 4.7 and later with

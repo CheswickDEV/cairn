@@ -72,14 +72,16 @@ independent reviews). See ADR-0012.
   - Codex: no skills catalog, no project AGENTS.md from the tmpdir cwd and no ChatGPT apps connector
     (`-c skills.include_instructions=false`, `project_doc_max_bytes=0`, `features.apps=false`).
   - Codex: no multi-agent tools (`-c agents.enabled=false`, `features.multi_agent_v2=false`). They
-    could start further, uncounted model calls.
+    could start further, uncounted model calls. A managed config or a requirements pin can still turn
+    them on.
   - Codex: no user or project execpolicy rules (`--ignore-rules`). With them, a command matching an
     allow rule ran outside the read-only sandbox. System rules (`/etc/codex/rules`) still load.
   - Limits:
     - Codex 0.162 still loads `$CODEX_HOME/AGENTS.override.md` or `AGENTS.md`.
     - A `$<skill>` mention in the input still injects that skill; the calibration probes contain none.
-    - Codex keeps its exec/shell tools (read-only sandbox), web search and image generation (backend
-      calls Cairn does not count).
+    - Codex keeps its exec/shell tools, in the read-only sandbox unless a system allow rule matches.
+    - Codex keeps web search and image generation (not on the Free plan). These are backend calls
+      Cairn does not count.
 - **Full reviewer matrix**: every brief is reviewed by all six other pool models, never by its own model
   (was: the 2–3 strongest foreign models). `CAIRN_CALIB_REVIEWER_POOL` entries are normalised to base ids;
   `CAIRN_CALIB_REVIEWERS` must be a positive integer (a non-number used to mean zero reviewers).
@@ -94,9 +96,11 @@ independent reviews). See ADR-0012.
     `provenance` block records the commit of the code's own checkout, the dirty flag and the Node
     version; real runs add the `claude` and `codex` versions.
   - A CLI that exits before reading its whole prompt no longer crashes the caller. Before, an unhandled
-    stdin `EPIPE` ended the process whenever the prompt exceeded the pipe buffer, so a calibration run
-    lost its artifact; this was existing behavior, also in the product bridge. Such a call now fails,
-    even with exit 0, because its answer would be to a truncated prompt.
+    stdin `EPIPE` ended the process whenever the unread part exceeded the stdin buffer, which the 1.6 MB
+    high-fill probe always does, so a calibration run lost its artifact. This was existing behavior, also
+    in the product bridge.
+  - Such a call now fails, even with exit 0, because its answer would be to a truncated prompt. A
+    truncation that fits in the buffer stays undetected.
 - **Bridge windows**: Claude Fable 5.1, Sonnet 5.5 and Haiku 5.5 at 1M (Claude Code default); GPT-6 via
   Codex at 258,400, the window Codex applies. It was read from real runs on 2026-10-11 (stage 4b'): Codex's
   usable 95 % of the catalog's 272,000 in codex 0.162.1. It is not a server load test.

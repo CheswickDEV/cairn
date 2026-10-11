@@ -1,4 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { collectProvenance, collectsCliVersions, gitNeutralEnv, PACKAGE_ROOT, type RunCommand } from "./provenance.js";
 
@@ -60,8 +64,51 @@ describe("run provenance (ADR-0012)", () => {
   });
 
   it("git runs without variables that would point it at another repository", () => {
-    const env = gitNeutralEnv({ PATH: "/bin", GIT_DIR: "/other/.git", GIT_WORK_TREE: "/other", GIT_INDEX_FILE: "/x" });
+    const env = gitNeutralEnv({
+      PATH: "/bin",
+      GIT_DIR: "/other/.git",
+      GIT_WORK_TREE: "/other",
+      GIT_INDEX_FILE: "/x",
+      GIT_COMMON_DIR: "/other/.git",
+      GIT_OBJECT_DIRECTORY: "/other/.git/objects",
+    });
     expect(env).toEqual({ PATH: "/bin" });
+  });
+
+  const hasGit = (() => {
+    try {
+      execFileSync("git", ["--version"], { stdio: "ignore", env: gitNeutralEnv() });
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+
+  it.skipIf(!hasGit)("with the real git, an exported GIT_DIR of another repo does not change the recorded commit", () => {
+    const git = (cwd: string, ...a: string[]) =>
+      execFileSync("git", ["-c", "user.email=t@example.invalid", "-c", "user.name=t", ...a], {
+        cwd,
+        encoding: "utf8",
+        env: gitNeutralEnv(),
+      }).trim();
+    const mkRepo = () => {
+      const dir = mkdtempSync(join(tmpdir(), "cairn-prov-"));
+      git(dir, "init", "-q");
+      git(dir, "commit", "-q", "--allow-empty", "-m", "x");
+      return dir;
+    };
+    const ours = mkRepo();
+    const foreign = mkRepo();
+    const head = git(ours, "rev-parse", "HEAD");
+    vi.stubEnv("GIT_DIR", join(foreign, ".git"));
+    vi.stubEnv("GIT_WORK_TREE", foreign);
+    try {
+      const p = collectProvenance({ live: false, root: ours });
+      expect(p.commit).toBe(head);
+      expect(p.dirty).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("status output beyond the exec buffer counts as dirty; any other failure is unknown", () => {

@@ -30,7 +30,8 @@ export interface RunProvenance {
 export type RunCommand = (cmd: string, args: string[]) => string;
 
 /** The environment without the variables that point git at another repository: an exported `GIT_DIR`
- *  (as in a git hook) would otherwise win over `git -C`. */
+ *  (as in some git hooks) would otherwise win over `git -C`. Used for every command here, the `--version`
+ *  calls included (harmless for them). */
 export function gitNeutralEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const out = { ...env };
   for (const k of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY"]) delete out[k];
