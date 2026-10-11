@@ -254,13 +254,19 @@ PROFILES.forEach((p) => ModelProfile.parse(p));
 /* Context zones (ADR-0003)                                            */
 /* ------------------------------------------------------------------ */
 
-/** Effective working window = the smallest of model max, surface cap, and any user override. */
+/** A usable window value: finite and positive (a missing, zero or overflowing host field is ignored). */
+function usableWindow(n: number | null | undefined): number | undefined {
+  return n != null && Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+/** Effective working window = the smallest of model max, surface cap, and any user override. For an
+ *  unknown model the generic 128k is a placeholder, not a model max, so an explicit window wins. */
 export function activeWindow(p: ModelProfile, opts: { surfaceCap?: number; userOverride?: number } = {}): number {
-  return Math.min(
-    p.context.window,
-    opts.surfaceCap ?? Infinity,
-    opts.userOverride ?? Infinity,
-  );
+  const surfaceCap = usableWindow(opts.surfaceCap);
+  const userOverride = usableWindow(opts.userOverride);
+  const explicit = surfaceCap != null || userOverride != null;
+  const modelMax = p.id === GENERIC_FALLBACK.id && explicit ? Infinity : p.context.window;
+  return Math.min(modelMax, surfaceCap ?? Infinity, userOverride ?? Infinity);
 }
 
 export interface ZoneBoundaries {

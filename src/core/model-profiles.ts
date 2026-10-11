@@ -317,13 +317,13 @@ export const CONTEXT_ONLY_PROFILES: ModelProfile[] = CONTEXT_ONLY_MODELS.map((m)
 /**
  * Normalise a host-reported model id: strip real-world decorations that break exact matching -
  * a trailing `[1m]`/`(…)` (Claude Code's 1M-context suffix), an `@effort` variant, and a
- * provider/region prefix like `us.anthropic.` / `openai/` (Bedrock/Vertex). Lower-cased.
+ * provider/region prefix like `us.anthropic.` / `global.anthropic.` / `openai/` (Bedrock/Vertex). Lower-cased.
  */
 export function normalizeModelId(id: string): string {
   let s = id.trim().toLowerCase();
   s = s.replace(/[[(][^\])]*[\])]\s*$/, ""); // trailing "[1m]" / "(…)"
   s = s.replace(/@[^@]*$/, ""); // trailing "@effort"
-  s = s.replace(/^(?:[a-z]{2,4}\.)?(?:anthropic|openai|google|meta|bedrock|vertex)[./]/, ""); // provider/region prefix
+  s = s.replace(/^(?:(?:[a-z]{2,4}|global)\.)?(?:anthropic|openai|google|meta|bedrock|vertex)[./]/, ""); // provider/region prefix
   return s.trim();
 }
 
@@ -397,15 +397,19 @@ export const FIDELITY_FLOOR = 0.85;
 /* Context zones (ADR-0003)                                            */
 /* ------------------------------------------------------------------ */
 
+/** A usable window value: finite and positive (a missing, zero or overflowing host field is ignored). */
+function usableWindow(n: number | null | undefined): number | undefined {
+  return n != null && Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
 /** Effective working window = the smallest of model max, surface cap, and any user override. For an
- *  unknown model the generic 128k is a placeholder, not a model max, so a host-reported window wins. */
+ *  unknown model the generic 128k is a placeholder, not a model max, so an explicit window wins. */
 export function activeWindow(p: ModelProfile, opts: { surfaceCap?: number; userOverride?: number } = {}): number {
-  const modelMax = p.id === GENERIC_FALLBACK.id && opts.surfaceCap != null ? Infinity : p.context.window;
-  return Math.min(
-    modelMax,
-    opts.surfaceCap ?? Infinity,
-    opts.userOverride ?? Infinity,
-  );
+  const surfaceCap = usableWindow(opts.surfaceCap);
+  const userOverride = usableWindow(opts.userOverride);
+  const explicit = surfaceCap != null || userOverride != null;
+  const modelMax = p.id === GENERIC_FALLBACK.id && explicit ? Infinity : p.context.window;
+  return Math.min(modelMax, surfaceCap ?? Infinity, userOverride ?? Infinity);
 }
 
 export interface ZoneBoundaries {

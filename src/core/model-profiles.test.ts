@@ -129,6 +129,7 @@ describe("resolveProfile — Claude Opus 5.5 ids", () => {
     "claude-opus-5-5@medium",
     "anthropic.claude-opus-5-5", // Amazon Bedrock
     "us.anthropic.claude-opus-5-5", // Bedrock regional inference profile
+    "global.anthropic.claude-opus-5-5", // Bedrock global inference profile
   ])("%s → claude-opus-5-5", (id) => {
     expect(resolveProfile(id).id).toBe("claude-opus-5-5");
   });
@@ -177,6 +178,11 @@ describe("resolveProfile — every current Anthropic and OpenAI model gets its d
 
   it("uses the vendor-profile zone fractions, not the conservative generic ones", () => {
     for (const p of CONTEXT_ONLY_PROFILES) expect(p.qualityZone).toEqual({ greenPct: 0.4, yellowPct: 0.7, provisional: true });
+  });
+
+  it("strips Bedrock's `global.` prefix (legacy integration ids such as global.anthropic.claude-opus-4-6-v1)", () => {
+    expect(resolveProfile("global.anthropic.claude-sonnet-4-6").id).toBe("claude-sonnet-4-6");
+    expect(resolveProfile("global.anthropic.claude-haiku-4-5-20251001-v1:0").id).toBe("claude-haiku-4-5-20251001");
   });
 
   it("tolerates host decorations on the new ids", () => {
@@ -236,7 +242,16 @@ describe("activeWindow", () => {
     expect(activeWindow(GENERIC_FALLBACK, { surfaceCap: 1_000_000 })).toBe(1_000_000);
     expect(activeWindow(GENERIC_FALLBACK, { surfaceCap: 64_000 })).toBe(64_000);
     expect(activeWindow(GENERIC_FALLBACK, { surfaceCap: 1_000_000, userOverride: 150_000 })).toBe(150_000);
-    expect(activeWindow(GENERIC_FALLBACK, { userOverride: 150_000 })).toBe(128_000);
+    // a user override is an explicit window too
+    expect(activeWindow(GENERIC_FALLBACK, { userOverride: 500_000 })).toBe(500_000);
+    expect(activeWindow(GENERIC_FALLBACK, { userOverride: 50_000 })).toBe(50_000);
+  });
+
+  it("ignores missing, zero and non-finite window values", () => {
+    for (const bad of [0, -1, Infinity, Number.NaN]) {
+      expect(activeWindow(GENERIC_FALLBACK, { surfaceCap: bad })).toBe(128_000);
+      expect(activeWindow(opus, { surfaceCap: bad, userOverride: bad })).toBe(1_000_000);
+    }
   });
 
   it("takes the smallest of model max, surface cap and user override", () => {

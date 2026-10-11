@@ -122,6 +122,9 @@ describe("statusline — Claude Code's documented context_window fields", () => 
     const s = computeStatus({ model: { id: "claude-opus-5" }, context_window: { context_window_size: 1_000_000, total_input_tokens: 300_000 } });
     expect(s.modelId).toBe("generic:unknown");
     expect(s.window).toBe(1_000_000);
+    // an overflowing host value (JSON 1e309 → Infinity) is ignored, not taken as an infinite window
+    const inf = computeStatus({ model: { id: "claude-opus-5" }, context_window: { context_window_size: 1e309, used_percentage: 30 } });
+    expect(inf.window).toBe(128_000);
   });
 
   it.each([
