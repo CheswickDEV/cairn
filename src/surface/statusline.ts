@@ -3,8 +3,8 @@
  *
  * Consumes the statusline JSON Claude Code pipes on stdin (`model.id`, `context_window.*`) and
  * computes the quality zone relative to the ACTIVE window (`min(model_max, surface_cap)` - here
- * the host's `context_window.total_tokens` is the surface cap). Pure; the bin wrapper just does
- * stdin→render→stdout.
+ * the host's `context_window.context_window_size` is the surface cap). Pure; the bin wrapper just
+ * does stdin→render→stdout.
  */
 
 import {
@@ -18,17 +18,32 @@ import {
 } from "../core/model-profiles.js";
 import { t, type Lang } from "../i18n/index.js";
 
+interface TokenCounts {
+  input_tokens?: number;
+  cache_read_input_tokens?: number;
+  cache_creation_input_tokens?: number;
+  output_tokens?: number;
+}
+
 export interface StatuslineInput {
   model?: { id?: string; display_name?: string };
-  context_window?: {
-    used_percentage?: number;
+  context_window?: TokenCounts & {
+    /** Claude Code: maximum context window of the session (the surface cap). */
+    context_window_size?: number;
+    /** Claude Code: input + cache-creation + cache-read tokens currently in the window. */
+    total_input_tokens?: number;
+    /** Claude Code: the same counts per component (null before the first API call and after /compact). */
+    current_usage?: TokenCounts | null;
+    used_percentage?: number | null;
+    /** Legacy shape (also built by the Codex rollout adapter): window + top-level token counts. */
     total_tokens?: number;
-    input_tokens?: number;
-    cache_read_input_tokens?: number;
-    cache_creation_input_tokens?: number;
-    output_tokens?: number;
   };
   workspace?: { current_dir?: string };
+}
+
+/** Input tokens in the window (fresh + cache reads + cache writes); output tokens don't count. */
+function inputTokens(c: TokenCounts | null | undefined): number {
+  return (c?.input_tokens ?? 0) + (c?.cache_read_input_tokens ?? 0) + (c?.cache_creation_input_tokens ?? 0);
 }
 
 export interface StatusComputation {
@@ -43,10 +58,9 @@ export function computeStatus(input: StatuslineInput, profiles: ModelProfile[] =
   const profile = resolveProfile(input.model?.id, profiles);
   const cw = input.context_window ?? {};
   // Surface cap = the host-reported window (e.g. 200k in Claude Code); ADR-0003.
-  const win = activeWindow(profile, { surfaceCap: cw.total_tokens });
+  const win = activeWindow(profile, { surfaceCap: cw.context_window_size ?? cw.total_tokens });
   // Prefer explicit input-token counts (incl. cache); fall back to used_percentage of the window.
-  const tokenSum =
-    (cw.input_tokens ?? 0) + (cw.cache_read_input_tokens ?? 0) + (cw.cache_creation_input_tokens ?? 0);
+  const tokenSum = cw.total_input_tokens || inputTokens(cw.current_usage) || inputTokens(cw);
   const usedTokens =
     tokenSum > 0 ? tokenSum : cw.used_percentage != null ? Math.round((cw.used_percentage / 100) * win) : 0;
   const b = zoneBoundaries(profile, win);

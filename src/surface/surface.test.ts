@@ -63,6 +63,65 @@ describe("statusline (ADR-0003, surface-relative)", () => {
   });
 });
 
+describe("statusline — Claude Code's documented context_window fields", () => {
+  // https://code.claude.com/docs/en/statusline: context_window_size, total_input_tokens, current_usage.
+  it("uses context_window_size as the surface cap and total_input_tokens as usage", () => {
+    const s = computeStatus({
+      model: { id: "claude-opus-5-5", display_name: "Opus" },
+      context_window: {
+        context_window_size: 200_000,
+        total_input_tokens: 90_000,
+        used_percentage: 45,
+        current_usage: { input_tokens: 80_000, output_tokens: 1_200, cache_creation_input_tokens: 5_000, cache_read_input_tokens: 5_000 },
+      },
+    });
+    expect(s.modelId).toBe("claude-opus-5-5");
+    expect(s.window).toBe(200_000);
+    expect(s.usedTokens).toBe(90_000);
+    expect(s.zone).toBe("yellow"); // > 80k (40 % of 200k)
+  });
+
+  it("Opus 5.5 at its native 1M window", () => {
+    const line = renderStatusline({
+      model: { id: "claude-opus-5-5", display_name: "Opus" },
+      context_window: { context_window_size: 1_000_000, total_input_tokens: 58_880, used_percentage: 6 },
+    });
+    expect(line).toBe("🟢 6% ctx · Opus");
+    expect(computeStatus({ model: { id: "claude-opus-5-5" }, context_window: { context_window_size: 1_000_000 } }).window).toBe(1_000_000);
+  });
+
+  it("sums current_usage input components (not output) when total_input_tokens is absent", () => {
+    const s = computeStatus({
+      model: { id: "claude-opus-5-5" },
+      context_window: {
+        context_window_size: 1_000_000,
+        current_usage: { input_tokens: 300_000, output_tokens: 9_999, cache_creation_input_tokens: 50_000, cache_read_input_tokens: 100_000 },
+      },
+    });
+    expect(s.usedTokens).toBe(450_000);
+    expect(s.zone).toBe("yellow");
+  });
+
+  it("falls back to used_percentage before the first API call (counts 0, current_usage null)", () => {
+    const s = computeStatus({
+      model: { id: "claude-sonnet-5-5" },
+      context_window: { context_window_size: 1_000_000, total_input_tokens: 0, current_usage: null, used_percentage: 75 },
+    });
+    expect(s.window).toBe(1_000_000);
+    expect(s.usedTokens).toBe(750_000);
+    expect(s.zone).toBe("red");
+  });
+
+  it.each([
+    ["claude-fable-5-1", 1_000_000],
+    ["claude-opus-5-5", 1_000_000],
+    ["claude-sonnet-5-5", 1_000_000],
+    ["claude-haiku-5-5", 1_000_000],
+  ])("%s without a host window → its documented %i window", (id, window) => {
+    expect(computeStatus({ model: { id }, context_window: { used_percentage: 10 } }).window).toBe(window);
+  });
+});
+
 describe("session-start re-inject", () => {
   it("formats accepted+open decisions (excludes superseded) as additionalContext", () => {
     const s = store();
