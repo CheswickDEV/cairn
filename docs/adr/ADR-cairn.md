@@ -537,7 +537,11 @@ output adds verbosity, spread and the spread warning per probe. That allows a bi
 family's mean score from its own family against the mean from the other family.
 
 **Runs and artifacts.** Artifacts are named `<date>T<time>Z-<mode>[-golden|-large].json` and never
-overwritten (a taken name gets `-2`, `-3`, …). `--dry-run` resolves the live configuration on the fixture
+overwritten (a taken name gets `-2`, `-3`, …). They keep each scored brief and the ids of the
+must-survive items the deterministic check missed (`missingMustSurvive`, the same matching as
+`computeRecall`). A paid run can then be checked again without rerunning it. A `provenance` block
+records the commit, whether tracked files differed from it, the Node version and, for a real run
+only, the first line of `claude --version` and `codex --version`. A dry run starts neither CLI. `--dry-run` resolves the live configuration on the fixture
 compactor and heuristic reviewer and prints the call count: 49 for the single probe (7 briefs + 42
 reviews), 245 for the golden set (35 + 210), 28 for the high-fill probe at
 `CAIRN_CALIB_PROBE_TOKENS=400000` (4 Claude briefs + 24 reviews; GPT-6 does not fit Codex's estimated

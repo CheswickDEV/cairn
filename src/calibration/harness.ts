@@ -14,6 +14,7 @@ import { mapWithConcurrency } from "./concurrency.js";
 import {
   assignReviewers,
   computeRecall,
+  missingMustSurvive,
   computeVerbatimScore,
   type Reviewer,
   type RubricScore,
@@ -126,6 +127,8 @@ export async function runCalibration(input: RunCalibrationInput): Promise<Calibr
       outputTokens: run.outputTokens,
       reviewers: reviews.map((r) => r.reviewerModelId), // who actually scored, not who was assigned
       retainedAllMustSurvive: computeRecall(run.brief, gt) === 1 && verbatim === 1,
+      missingMustSurvive: missingMustSurvive(run.brief, gt),
+      brief: run.brief,
       reviews,
     };
     const note = highSpreadWarning

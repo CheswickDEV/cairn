@@ -7,7 +7,7 @@
  * offline/test reviewer (`heuristicReviewer`) is deterministic.
  */
 
-import type { GroundTruth } from "./ground-truth.js";
+import type { GroundTruth, GtItem } from "./ground-truth.js";
 
 /** Reviewer-judged criteria (verbatim is computed separately by string compare). */
 export interface ReviewerScore {
@@ -29,13 +29,21 @@ export type Reviewer = (input: {
 
 /* --------------------------- deterministic metrics --------------------------- */
 
+/** An `exact` item must appear byte-exact; any other item as its full text, case-insensitive. */
+function survives(brief: string, it: GtItem): boolean {
+  return it.exact ? brief.includes(it.text) : brief.toLowerCase().includes(it.text.toLowerCase());
+}
+
 export function computeRecall(brief: string, gt: GroundTruth): number {
   const items = gt.mustSurvive;
   if (!items.length) return 1;
-  const hit = items.filter((it) =>
-    it.exact ? brief.includes(it.text) : brief.toLowerCase().includes(it.text.toLowerCase()),
-  ).length;
+  const hit = items.filter((it) => survives(brief, it)).length;
   return hit / items.length;
+}
+
+/** Ids of the must-survive items `computeRecall` does not find in the brief (same matching). */
+export function missingMustSurvive(brief: string, gt: GroundTruth): string[] {
+  return gt.mustSurvive.filter((it) => !survives(brief, it)).map((it) => it.id);
 }
 
 /** HARD verbatim check: byte-exact presence of every `exact` must-survive item. */

@@ -48,4 +48,16 @@ describe("golden set (multi-probe aggregation)", () => {
   it("is deterministic", async () => {
     expect(await offlineGolden()).toEqual(await offlineGolden());
   });
+
+  it("keeps each probe's brief and missed must-survive ids (ADR-0012)", async () => {
+    const res = await offlineGolden();
+    for (const m of res.perModel) {
+      for (const p of m.perProbe) {
+        expect(typeof p.brief).toBe("string");
+        expect(p.brief!.length).toBeGreaterThan(0);
+        expect(Array.isArray(p.missingMustSurvive)).toBe(true);
+        if (p.missingMustSurvive!.length > 0) expect(p.retainedAllMustSurvive).toBe(false);
+      }
+    }
+  });
 });

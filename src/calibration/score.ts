@@ -7,6 +7,7 @@
  */
 
 import type { RubricScore } from "./review.js";
+import type { RunProvenance } from "./provenance.js";
 
 /** Recall + hallucination weighted highest - those are the expensive errors (calibration-spec §4). */
 export const RUBRIC_WEIGHTS = { recall: 0.4, hallucination: 0.3, supersession: 0.15, verbatim: 0.15 };
@@ -57,6 +58,10 @@ export interface ModelCalibration {
   /** Reviewers that actually scored this brief (a failed review is skipped + logged, not listed). */
   reviewers: string[];
   retainedAllMustSurvive: boolean;
+  /** Ids of the must-survive items the deterministic check did not find (`missingMustSurvive`). */
+  missingMustSurvive?: string[];
+  /** The brief as scored, so a paid run can be checked again without rerunning it (ADR-0012). */
+  brief?: string;
   /** Per-review records for the analysis (ADR-0012). Optional so hand-built records stay valid. */
   reviews?: ReviewRecord[];
 }
@@ -77,4 +82,6 @@ export interface CalibrationArtifact {
   /** Lowest fidelity among briefs that retained ALL must-survive items; null if none did. */
   floorProposal: number | null;
   notes: string[];
+  /** Code and CLI versions behind the run (set by the CLI). */
+  provenance?: RunProvenance;
 }

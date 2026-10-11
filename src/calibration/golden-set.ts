@@ -10,6 +10,7 @@ import type { Compactor } from "./runner.js";
 import type { Reviewer } from "./review.js";
 import { runCalibration } from "./harness.js";
 import { median, type ReviewRecord } from "./score.js";
+import type { RunProvenance } from "./provenance.js";
 import { loadProbeContext, loadGroundTruth, loadExactSpans } from "./fixtures.js";
 import { GOLDEN2_PROBE, GOLDEN2_GROUND_TRUTH, GOLDEN2_EXACT_SPANS } from "./golden-probe-2.js";
 import { GOLDEN3_PROBE, GOLDEN3_GROUND_TRUTH, GOLDEN3_EXACT_SPANS } from "./golden-probe-3.js";
@@ -46,6 +47,10 @@ export interface GoldenProbeResult {
   highSpreadWarning: boolean;
   outputTokens: number;
   retainedAllMustSurvive: boolean;
+  /** Ids of the must-survive items the deterministic check did not find. */
+  missingMustSurvive?: string[];
+  /** The brief as scored (ADR-0012). */
+  brief?: string;
   reviewers: string[];
   reviews: ReviewRecord[];
 }
@@ -71,6 +76,8 @@ export interface GoldenResult {
   probes: string[];
   perModel: GoldenModelResult[];
   floorProposal: number | null;
+  /** Code and CLI versions behind the run (set by the CLI). */
+  provenance?: RunProvenance;
 }
 
 export interface RunGoldenSetInput {
@@ -129,6 +136,8 @@ export async function runGoldenSet(input: RunGoldenSetInput): Promise<GoldenResu
         highSpreadWarning: m.highSpreadWarning,
         outputTokens: m.outputTokens,
         retainedAllMustSurvive: m.retainedAllMustSurvive,
+        ...(m.missingMustSurvive ? { missingMustSurvive: m.missingMustSurvive } : {}),
+        ...(m.brief !== undefined ? { brief: m.brief } : {}),
         reviewers: m.reviewers,
         reviews: m.reviews ?? [],
       });

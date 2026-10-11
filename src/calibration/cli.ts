@@ -30,6 +30,7 @@ import { makeModelReviewer } from "./model-reviewer.js";
 import { buildLargeProbe, LARGE_GROUND_TRUTH } from "./large-probe.js";
 import { runGoldenSet, goldenProbes } from "./golden-set.js";
 import { resolveCalibConfig, assertCalibPreflight, artifactSuffix, type CalibConfig } from "./calib-config.js";
+import { collectProvenance } from "./provenance.js";
 import type { GroundTruth } from "./ground-truth.js";
 import type { Compactor } from "./runner.js";
 import type { Reviewer } from "./review.js";
@@ -88,6 +89,8 @@ async function main(): Promise<void> {
   const calls: CallCount = { compactions: 0, reviews: 0 };
   const { makeCompactor, reviewer } = seams(cfg, calls);
   const suffix = artifactSuffix(now, cfg.mode, cfg.probe);
+  // Commit always; CLI versions only for a real run (a dry run must not start claude or codex).
+  const provenance = collectProvenance({ live: cfg.mode === "real" });
   const skips: string[] = [];
   const onSkip = (label: string, err: unknown) => {
     const msg = err instanceof Error ? err.message : String(err);
@@ -117,7 +120,7 @@ async function main(): Promise<void> {
       date,
       onSkip,
     });
-    const gpath = persistArtifact(RESULTS_DIR, res, suffix);
+    const gpath = persistArtifact(RESULTS_DIR, { ...res, provenance }, suffix);
     out.write(`\nWrote ${gpath} (skipped ${skips.length})\n\nPer model (mean over ${res.probes.length} probes):\n`);
     for (const m of [...res.perModel].sort((a, b) => b.meanFidelity - a.meanFidelity)) {
       const pp = m.perProbe.map((p) => `${p.label}=${p.fidelity.toFixed(3)}`).join("  ");
@@ -143,7 +146,7 @@ async function main(): Promise<void> {
       date,
       groundTruth: gt,
     });
-    const path = persistArtifact(RESULTS_DIR, artifact, suffix);
+    const path = persistArtifact(RESULTS_DIR, { ...artifact, provenance }, suffix);
     const updated = applyCalibration(PROFILES, artifact);
     out.write(`Cairn calibration (OFFLINE/fixture mode) — ${date}\n`);
     out.write(`Wrote versioned artifact: ${path}\n`);
@@ -209,7 +212,7 @@ async function main(): Promise<void> {
     onSkip,
   });
 
-  const path = persistArtifact(RESULTS_DIR, artifact, suffix);
+  const path = persistArtifact(RESULTS_DIR, { ...artifact, provenance }, suffix);
   out.write(`\nWrote versioned artifact: ${path}\n`);
   out.write(`Scored variants: ${artifact.models.length}/${candidates.length} (skipped ${skips.length})\n\n`);
   out.write(`Per (model × effort):\n`);

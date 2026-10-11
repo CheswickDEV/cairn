@@ -9,6 +9,7 @@ import {
   assignReviewers,
   computeRecall,
   computeVerbatimScore,
+  missingMustSurvive,
   type Reviewer,
 } from "./review.js";
 import { applyCalibration, persistArtifact } from "./writer.js";
@@ -201,5 +202,27 @@ describe("deterministic recall/verbatim metrics (real fixtures)", () => {
   it("computeRecall counts present must-survive items", () => {
     expect(computeRecall("nichts Relevantes", GT)).toBe(0);
     expect(computeRecall(allTexts, GT)).toBe(1);
+  });
+
+  it("missingMustSurvive names exactly the items computeRecall misses (same matching)", () => {
+    expect(missingMustSurvive(allTexts, GT)).toEqual([]);
+    expect(missingMustSurvive("nichts Relevantes", GT)).toEqual(GT.mustSurvive.map((i) => i.id));
+    // A paraphrase (here: the final period dropped) is a miss for a non-exact item.
+    const first = GT.mustSurvive.find((i) => !i.exact)!;
+    const brief = allTexts.replace(first.text, first.text.replace(/\.$/, ""));
+    expect(missingMustSurvive(brief, GT)).toEqual([first.id]);
+    expect(computeRecall(brief, GT)).toBe(1 - 1 / GT.mustSurvive.length);
+  });
+});
+
+describe("artifact keeps what a later check needs (ADR-0012)", () => {
+  it("stores each brief and the must-survive ids it misses", async () => {
+    const art = await offlineRun();
+    for (const m of art.models) {
+      expect(typeof m.brief).toBe("string");
+      expect(m.brief!.length).toBeGreaterThan(0);
+      expect(m.missingMustSurvive).toEqual(missingMustSurvive(m.brief!, GT));
+      expect(m.retainedAllMustSurvive).toBe(m.missingMustSurvive!.length === 0 && computeVerbatimScore(m.brief!, GT) === 1);
+    }
   });
 });

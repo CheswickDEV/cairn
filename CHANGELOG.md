@@ -83,6 +83,9 @@ independent reviews). See ADR-0012.
     offline and live runs wrote the same `<date>.json`.
   - Artifacts keep every review (reviewer, rubric, fidelity), list only reviewers that actually scored and
     record the reviewer effort. The golden output adds verbosity, spread and the spread warning per probe.
+  - Artifacts also keep each brief and the must-survive ids the deterministic check missed. A
+    `provenance` block records commit, dirty flag and Node version; real runs add the `claude` and
+    `codex` versions.
 - **Bridge windows**: Claude Fable 5.1, Sonnet 5.5 and Haiku 5.5 at 1M (Claude Code default); GPT-6 via
   Codex at 258,400 (conservative estimate; Codex documents no window).
 - **`host_status`** suggests GPT-6.1 Sol (Codex's recommended model) instead of the retiring GPT-5.5.
