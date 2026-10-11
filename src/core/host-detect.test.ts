@@ -30,7 +30,8 @@ describe("detectHostStatus", () => {
     // English is the default recommendation language.
     expect(r.recommendation).toContain("claude signed in");
     expect(r.recommendation).toContain("codex not found");
-    expect(r.recommendation).toContain("GPT-5.5");
+    // ADR-0012: Codex's recommended model, not the retiring GPT-5.5.
+    expect(r.recommendation).toContain("GPT-6.1 Sol");
   });
 
   it("renders the recommendation in German when lang = 'de'", () => {
@@ -41,7 +42,7 @@ describe("detectHostStatus", () => {
     );
     expect(r.recommendation).toContain("claude angemeldet");
     expect(r.recommendation).toContain("codex nicht gefunden");
-    expect(r.recommendation).toContain("GPT-5.5");
+    expect(r.recommendation).toContain("GPT-6.1 Sol"); // ADR-0012
   });
 
   it("recommends Claude Opus 5.5 when the claude CLI is missing", () => {

@@ -41,9 +41,11 @@ const LOGIN_EVIDENCE: Record<HostCli, (home: string) => string[]> = {
   codex: (home) => [join(home, ".codex", "auth.json"), join(home, ".codex", "config.toml")],
 };
 
+/** The model to suggest per CLI. Codex: its recommended GPT-6.1 Sol (GPT-5.5 leaves Codex 2026-10-14; Codex
+ *  names GPT-6 Sol as that model's direct replacement - both hold, see ADR-0012). */
 const ALT_MODEL: Record<HostCli, string> = {
   claude: "Claude Opus 5.5",
-  codex: "GPT-5.5",
+  codex: "GPT-6.1 Sol",
 };
 
 export function detectHostStatus(probe: HostProbe, lang: Lang = "en", env: Env = process.env): HostStatusReport {

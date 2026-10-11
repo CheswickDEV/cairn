@@ -28,16 +28,24 @@ describe("makeAccountCompactor", () => {
     expect(r.brief).toBe("1) DECISIONS x");
   });
 
+  // ADR-0012: `@medium` is below the effort floor and now throws (see the next test), so this runs at `@high`.
   it("Opus 5.5 and Opus 4.8 reach the CLI as different pinned models", async () => {
     const exec = vi.fn<ExecFn>(async () => ({ stdout: JSON.stringify({ result: "1) DECISIONS z" }), stderr: "", code: 0 }));
     const c = makeAccountCompactor({ execFn: exec, minBriefTokens: 0 });
-    await c({ modelId: "claude-opus-5-5@medium", maskedProbe: "PROBE", prompt: "SYS" });
-    await c({ modelId: "claude-opus-4-8@medium", maskedProbe: "PROBE", prompt: "SYS" });
+    await c({ modelId: "claude-opus-5-5@high", maskedProbe: "PROBE", prompt: "SYS" });
+    await c({ modelId: "claude-opus-4-8@high", maskedProbe: "PROBE", prompt: "SYS" });
     const models = exec.mock.calls.map(([, args]) => args[args.indexOf("--model") + 1]);
     expect(models).toEqual(["claude-opus-5-5", "claude-opus-4-8"]);
     const [cmd, args] = exec.mock.calls[0];
     expect(cmd).toBe("claude");
-    expect(args[args.indexOf("--effort") + 1]).toBe("medium");
+    expect(args[args.indexOf("--effort") + 1]).toBe("high");
+  });
+
+  it("a `@medium` variant throws before any CLI call (effort floor, ADR-0012)", async () => {
+    const exec = vi.fn<ExecFn>(async () => ({ stdout: JSON.stringify({ result: "1) DECISIONS z" }), stderr: "", code: 0 }));
+    const c = makeAccountCompactor({ execFn: exec, minBriefTokens: 0 });
+    await expect(c({ modelId: "claude-opus-5-5@medium", maskedProbe: "PROBE", prompt: "SYS" })).rejects.toThrow(/below the 'high' minimum/);
+    expect(exec).not.toHaveBeenCalled();
   });
 
   it("openai variant → codex with model id + reasoning-effort config", async () => {

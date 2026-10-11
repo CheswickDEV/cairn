@@ -1,14 +1,14 @@
 /**
  * Cairn - real peer-review reviewer (ADR-0005). A foreign model scores a brief against the ground
  * truth, BLIND (no author id), returning strict JSON {recall, hallucination, supersession} ∈ 0..1.
- * Verbatim is NOT judged here (hard string match in score.ts). Reviewers run at a fixed effort for
- * consistent judgment. Uses the generic `runBridge` (no compaction directive). Injectable execFn.
+ * Verbatim is NOT judged here (hard string match in score.ts). Reviewers run at exactly `high` for
+ * consistent judgment (ADR-0012). Uses the generic `runBridge` (no compaction directive). Injectable execFn.
  */
 
 import { runBridge, type ExecFn } from "../core/bridge.js";
 import { PROFILES } from "../core/model-profiles.js";
 import { clamp01 } from "./score.js";
-import { parseVariant, cliFor, cliModelName, type CalibEcosystem } from "./variants.js";
+import { parseVariant, cliFor, cliModelName, assertExactEffort, CALIB_EFFORT, type CalibEcosystem } from "./variants.js";
 import type { Reviewer, ReviewerScore } from "./review.js";
 import type { GroundTruth } from "./ground-truth.js";
 
@@ -75,11 +75,13 @@ export function parseReviewerScore(text: string): ReviewerScore | null {
 export interface ModelReviewerOptions {
   execFn?: ExecFn;
   timeoutMs?: number;
-  /** Fixed reviewer effort for consistent judgment (default "high"). */
+  /** Fixed reviewer effort for consistent judgment: must be exactly "high" (the default, ADR-0012). */
   effort?: string;
 }
 
 export function makeModelReviewer(opts: ModelReviewerOptions = {}): Reviewer {
+  // Checked when the reviewer is created, so a wrong effort aborts before any review call (ADR-0012).
+  const effort = assertExactEffort(opts.effort ?? CALIB_EFFORT, CALIB_EFFORT, "reviewer");
   return async ({ reviewerModelId, brief, groundTruth }) => {
     const { baseModelId } = parseVariant(reviewerModelId);
     const profile = PROFILES.find((p) => p.id === baseModelId);
@@ -92,7 +94,7 @@ export function makeModelReviewer(opts: ModelReviewerOptions = {}): Reviewer {
       system: REVIEW_SYSTEM,
       user: buildReviewUser(brief, groundTruth),
       model: cliModelName(baseModelId),
-      effort: opts.effort ?? "high",
+      effort,
       execFn: opts.execFn,
       timeoutMs: opts.timeoutMs,
     });

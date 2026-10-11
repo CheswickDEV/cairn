@@ -93,18 +93,21 @@ describe("handoff tool (account mode, ADR-0006)", () => {
     expect(r.modelId?.startsWith("gpt")).toBe(false);
   });
 
+  // ADR-0012: Haiku 4.5 is suspended - as the only reachable model the pool would be empty and the test would
+  // pass for the wrong reason. Haiku 5.5 is the weak pool model now; the reason must be the floor.
   it("red zone with only a weak reachable model → verbatim-fallback (ADR-0004)", async () => {
     const { deps: d } = deps();
     const r = await runHandoff(
       {
         brief,
-        host: { modelId: "claude-haiku-4-5-20251001" },
+        host: { modelId: "claude-haiku-5-5" },
         sourceZone: "red",
-        fidelityFloor: 0.95, // red +0.10 → 1.05; even calibrated Haiku (0.980) can't clear it → verbatim
+        fidelityFloor: 0.95, // red +0.10 → 1.05; Haiku 5.5 (provisional 0.70) can't clear it → verbatim
       },
-      { ...d, reachable: async (p) => p.id === "claude-haiku-4-5-20251001" },
+      { ...d, reachable: async (p) => p.id === "claude-haiku-5-5" },
     );
     expect(r.selectionKind).toBe("verbatim-fallback");
+    expect(r.reason).toContain("below effective floor");
   });
 
   it("reports required verbatim the host failed to preserve byte-exact", async () => {

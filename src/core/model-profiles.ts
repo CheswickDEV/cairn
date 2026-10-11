@@ -10,8 +10,9 @@
  *   - `context_status` tool  -> uses activeWindow() + zoneBoundaries() + classifyZone()
  *   - `handoff` tool         -> uses selectSummarizer() to pick the model (or verbatim)
  *
- * Pricing/context values are sourced (June 2026; Claude Opus 5.5 and the context-only entries for the
- * other current vendor models: October 2026). Quality zones are PROVISIONAL house values (no vendor %);
+ * Pricing/context values are sourced (October 2026 for the summarizer pool - Claude Fable 5.1, Opus 5.5,
+ * Sonnet 5.5, Haiku 5.5, GPT-6 Astra, GPT-6.1 Sol, GPT-6 Luna - and the context-only gpt-6-sol; June 2026
+ * for the suspended earlier generation). Quality zones are PROVISIONAL house values (no vendor %);
  * replace with benchmarks when available.
  * `fidelityScore` / `verbosityCoeff` are NOT vendor-derivable -> calibrate via golden-set (ADR-0005).
  *
@@ -97,13 +98,34 @@ export const ModelProfile = z.object({
 export type ModelProfile = z.infer<typeof ModelProfile>;
 
 /* ------------------------------------------------------------------ */
-/* Seed data - June 2026 standard set                                  */
+/* Seed data - October 2026 pool + the suspended June 2026 set         */
 /* ------------------------------------------------------------------ */
 
 const VENDOR = (label: string, url: string, date: string) => ({ label, url, date });
 
+/** Note suffix for the earlier generation (ADR-0012): never selected, calibrated or used as reviewer,
+ *  but still resolvable so the statusline/context_status keep the right window. */
+const SUSPENDED_2026_10 = "suspended 2026-10: focus on the current generation (ADR-0012); measured values kept as history.";
+
 export const PROFILES: ModelProfile[] = [
-  // ---- Anthropic ----
+  // ---- Anthropic: summarizer pool (ADR-0012) ----
+  {
+    id: "claude-fable-5-1",
+    displayName: "Claude Fable 5.1",
+    ecosystem: "anthropic",
+    status: "active",
+    isPro: false,
+    price: { inputPerMTok: 10, outputPerMTok: 50, cacheReadPerMTok: 0.25, batchInputPerMTok: 5, batchOutputPerMTok: 25 },
+    context: { window: 1_000_000, maxOutput: 128_000, stdThreshold: null, surcharge: null }, // flat across 1M
+    qualityZone: { greenPct: 0.40, yellowPct: 0.70, provisional: true }, // inherits 1M house values
+    summarizer: { fidelityScore: null, verbosityCoeff: 1.0, provisionalFidelity: 0.93, calibrated: false },
+    sources: [
+      VENDOR("Anthropic Claude Fable 5.1 model page", "https://platform.claude.com/docs/en/models/fable-5-1/overview", "2026-10"),
+      VENDOR("Anthropic pricing docs", "https://platform.claude.com/docs/en/about-claude/pricing", "2026-10"),
+    ],
+    notes: "Flat pricing across the full 1M; cache reads 0.025x base input. Default effort 'high' (API and Claude Code). " +
+      "Uncalibrated: provisionalFidelity 0.93 is a house prior until the golden-set run (ADR-0012).",
+  },
   {
     id: "claude-opus-5-5",
     displayName: "Claude Opus 5.5",
@@ -123,63 +145,160 @@ export const PROFILES: ModelProfile[] = [
       "prior (0.92, as Opus 4.8 before its run) until `npm run calibrate -- --real` measures it.",
   },
   {
+    id: "claude-sonnet-5-5",
+    displayName: "Claude Sonnet 5.5",
+    ecosystem: "anthropic",
+    status: "active",
+    isPro: false,
+    price: { inputPerMTok: 2, outputPerMTok: 10, cacheReadPerMTok: 0.1, batchInputPerMTok: 1, batchOutputPerMTok: 5 },
+    context: { window: 1_000_000, maxOutput: 128_000, stdThreshold: null, surcharge: null }, // flat across 1M
+    qualityZone: { greenPct: 0.40, yellowPct: 0.70, provisional: true }, // inherits 1M house values
+    summarizer: { fidelityScore: null, verbosityCoeff: 1.0, provisionalFidelity: 0.85, calibrated: false },
+    sources: [
+      VENDOR("Anthropic Claude Sonnet 5.5 model page", "https://platform.claude.com/docs/en/models/sonnet-5-5/overview", "2026-10"),
+      VENDOR("Anthropic pricing docs", "https://platform.claude.com/docs/en/about-claude/pricing", "2026-10"),
+    ],
+    notes: "Flat pricing across the full 1M; cache reads 0.05x base input. Default effort 'high' on the API but 'medium' " +
+      "in Claude Code. Uncalibrated: provisionalFidelity 0.85 is the Sonnet seed prior until the golden-set run (ADR-0012).",
+  },
+  {
+    id: "claude-haiku-5-5",
+    displayName: "Claude Haiku 5.5",
+    ecosystem: "anthropic",
+    status: "active",
+    isPro: false,
+    price: { inputPerMTok: 0.1, outputPerMTok: 0.5, cacheReadPerMTok: 0.01, batchInputPerMTok: 0.05, batchOutputPerMTok: 0.25 },
+    // Prompts over 100,000 tokens: the whole request at 5x ($0.50/$2.50, Batch $0.25/$1.25, cache reads $0.05).
+    context: { window: 1_000_000, maxOutput: 128_000, stdThreshold: 100_000, surcharge: { inputMult: 5, outputMult: 5 } },
+    qualityZone: { greenPct: 0.40, yellowPct: 0.70, provisional: true }, // inherits 1M house values
+    summarizer: { fidelityScore: null, verbosityCoeff: 1.0, provisionalFidelity: 0.70, calibrated: false },
+    sources: [
+      VENDOR("Anthropic Claude Haiku 5.5 model page", "https://platform.claude.com/docs/en/models/haiku-5-5/overview", "2026-10"),
+      VENDOR("Anthropic pricing docs", "https://platform.claude.com/docs/en/about-claude/pricing", "2026-10"),
+    ],
+    notes: "The only current Claude model with a long-context tier: a request over 100,000 prompt tokens (cache reads and " +
+      "writes included) pays 5x on input, output and cache, Batch too. Default effort 'medium'. Uncalibrated: " +
+      "provisionalFidelity 0.70 is the Haiku seed prior until the golden-set run (ADR-0012).",
+  },
+
+  // ---- Anthropic: suspended earlier generation ----
+  {
     id: "claude-opus-4-8",
     displayName: "Claude Opus 4.8",
     ecosystem: "anthropic",
-    status: "active",
+    status: "suspended",
     isPro: false,
     price: { inputPerMTok: 5, outputPerMTok: 25, cacheReadPerMTok: 0.5, batchInputPerMTok: 2.5, batchOutputPerMTok: 12.5 },
     context: { window: 1_000_000, maxOutput: 128_000, stdThreshold: null, surcharge: null }, // flat across 1M
     qualityZone: { greenPct: 0.40, yellowPct: 0.70, provisional: true },
     summarizer: { fidelityScore: 0.966, verbosityCoeff: 0.96, provisionalFidelity: 0.92, calibrated: true, calibrationDate: "2026-06-22", confidence: 0.98, effort: "max" },
     sources: [VENDOR("Anthropic pricing docs", "https://platform.claude.com/docs/en/about-claude/pricing", "2026-06")],
-    notes: "Flat pricing across full 1M (no >200k surcharge, unlike 4.6/4.7). Effort defaults to 'high'.",
+    notes: "Flat pricing across full 1M (no >200k surcharge, unlike 4.6/4.7). Effort defaults to 'high'. " + SUSPENDED_2026_10,
   },
   {
     id: "claude-sonnet-4-6",
     displayName: "Claude Sonnet 4.6",
     ecosystem: "anthropic",
-    status: "active",
+    status: "suspended",
     isPro: false,
     price: { inputPerMTok: 3, outputPerMTok: 15, batchInputPerMTok: 1.5, batchOutputPerMTok: 7.5 },
     context: { window: 1_000_000, maxOutput: 128_000, stdThreshold: null, surcharge: null },
     qualityZone: { greenPct: 0.40, yellowPct: 0.70, provisional: true }, // inherits 1M house values
     summarizer: { fidelityScore: 0.974, verbosityCoeff: 0.97, provisionalFidelity: 0.85, calibrated: true, calibrationDate: "2026-06-22", confidence: 0.98, effort: "high" },
     sources: [VENDOR("Anthropic pricing docs", "https://platform.claude.com/docs/en/about-claude/pricing", "2026-06")],
+    notes: SUSPENDED_2026_10,
   },
   {
     id: "claude-haiku-4-5-20251001",
     displayName: "Claude Haiku 4.5",
     ecosystem: "anthropic",
-    status: "active",
+    status: "suspended",
     isPro: false,
     price: { inputPerMTok: 1, outputPerMTok: 5, batchInputPerMTok: 0.5, batchOutputPerMTok: 2.5 },
     context: { window: 200_000, maxOutput: 64_000, stdThreshold: null, surcharge: null },
     qualityZone: { greenPct: 0.40, yellowPct: 0.70, provisional: true }, // same % inherited to 200k window
     summarizer: { fidelityScore: 0.980, verbosityCoeff: 0.78, provisionalFidelity: 0.70, calibrated: true, calibrationDate: "2026-06-22", confidence: 0.98, effort: "xhigh" },
     sources: [VENDOR("Anthropic pricing docs", "https://platform.claude.com/docs/en/about-claude/pricing", "2026-06")],
-    notes: "Cheapest, but small-model + complex 7-bucket prompt is the risk case — must clear floor before use as default.",
+    notes: "Cheapest, but small-model + complex 7-bucket prompt is the risk case — must clear floor before use as default. " +
+      "Anthropic: retirement not sooner than 2026-10-15. " + SUSPENDED_2026_10,
   },
   {
     id: "claude-fable-5",
     displayName: "Claude Fable 5",
     ecosystem: "anthropic",
-    status: "suspended", // currently offline per export-control directive
+    status: "suspended", // Anthropic lists it as legacy (still available); suspended here, superseded by Fable 5.1
     isPro: false,
     price: { inputPerMTok: 10, outputPerMTok: 50 },
     context: { window: 1_000_000, maxOutput: 128_000, stdThreshold: null, surcharge: null },
     qualityZone: { greenPct: 0.40, yellowPct: 0.70, provisional: true },
     summarizer: { fidelityScore: null, verbosityCoeff: 1.0, provisionalFidelity: 0.93, calibrated: false },
     sources: [VENDOR("Anthropic pricing review", "https://www.anthropic.com/news/fable-mythos-access", "2026-06")],
-    notes: "Known but currently unavailable. Placeholder entry; not selectable while status=suspended.",
+    notes: "Anthropic lists it as a legacy model (still available; retirement not sooner than 2027-06-09). Superseded by " +
+      "Fable 5.1 and kept suspended (ADR-0012): never selected, calibrated or used as reviewer.",
   },
 
-  // ---- OpenAI ----
+  // ---- OpenAI: summarizer pool (ADR-0012) ----
+  // Above 272K input tokens the whole request costs 2x input (and cache) and 1.5x output - Batch included.
+  {
+    id: "gpt-6-astra",
+    displayName: "GPT-6 Astra",
+    ecosystem: "openai",
+    status: "active",
+    isPro: false,
+    price: { inputPerMTok: 10, outputPerMTok: 50, cacheReadPerMTok: 1, batchInputPerMTok: 5, batchOutputPerMTok: 25 },
+    context: { window: 1_050_000, maxOutput: 128_000, stdThreshold: 272_000, surcharge: { inputMult: 2, outputMult: 1.5 } },
+    qualityZone: { greenPct: 0.40, yellowPct: 0.70, provisional: true },
+    summarizer: { fidelityScore: null, verbosityCoeff: 1.0, provisionalFidelity: 0.93, calibrated: false },
+    sources: [
+      VENDOR("OpenAI GPT-6 Astra model docs", "https://developers.openai.com/api/docs/models/gpt-6-astra", "2026-10"),
+      VENDOR("OpenAI API pricing (Batch)", "https://developers.openai.com/api/docs/pricing", "2026-10"),
+    ],
+    notes: "Max input 922,000 of the 1,050,000 window. Reasoning effort low..max; the default is not documented, so Cairn " +
+      "always sets it. Codex: off by default on Enterprise/Edu. Uncalibrated: provisionalFidelity 0.93 is a house prior " +
+      "until the golden-set run (ADR-0012).",
+  },
+  {
+    id: "gpt-6.1-sol",
+    displayName: "GPT-6.1 Sol",
+    ecosystem: "openai",
+    status: "active",
+    isPro: false,
+    price: { inputPerMTok: 2, outputPerMTok: 10, cacheReadPerMTok: 0.1, batchInputPerMTok: 1, batchOutputPerMTok: 5 },
+    context: { window: 1_050_000, maxOutput: 128_000, stdThreshold: 272_000, surcharge: { inputMult: 2, outputMult: 1.5 } },
+    qualityZone: { greenPct: 0.40, yellowPct: 0.70, provisional: true },
+    summarizer: { fidelityScore: null, verbosityCoeff: 1.0, provisionalFidelity: 0.92, calibrated: false },
+    sources: [
+      VENDOR("OpenAI GPT-6.1 Sol model docs", "https://developers.openai.com/api/docs/models/gpt-6.1-sol", "2026-10"),
+      VENDOR("OpenAI API pricing (Batch)", "https://developers.openai.com/api/docs/pricing", "2026-10"),
+    ],
+    notes: "Max input 922,000 of the 1,050,000 window; cache reads 0.05x base input. Reasoning effort low..max, default " +
+      "'medium'. Codex's recommended model (`codex exec -m gpt-6.1-sol`). Uncalibrated: provisionalFidelity 0.92 is a " +
+      "house prior until the golden-set run (ADR-0012).",
+  },
+  {
+    id: "gpt-6-luna",
+    displayName: "GPT-6 Luna",
+    ecosystem: "openai",
+    status: "active",
+    isPro: false,
+    price: { inputPerMTok: 0.1, outputPerMTok: 0.5, cacheReadPerMTok: 0.01, batchInputPerMTok: 0.05, batchOutputPerMTok: 0.25 },
+    context: { window: 1_050_000, maxOutput: 128_000, stdThreshold: 272_000, surcharge: { inputMult: 2, outputMult: 1.5 } },
+    qualityZone: { greenPct: 0.40, yellowPct: 0.70, provisional: true },
+    summarizer: { fidelityScore: null, verbosityCoeff: 1.0, provisionalFidelity: 0.70, calibrated: false },
+    sources: [
+      VENDOR("OpenAI GPT-6 Luna model docs", "https://developers.openai.com/api/docs/models/gpt-6-luna", "2026-10"),
+      VENDOR("OpenAI API pricing (Batch)", "https://developers.openai.com/api/docs/pricing", "2026-10"),
+    ],
+    notes: "Max input 922,000 of the 1,050,000 window. Reasoning effort none, low..max, default 'medium'. Uncalibrated: " +
+      "provisionalFidelity 0.70 is a house prior until the golden-set run (ADR-0012).",
+  },
+
+  // ---- OpenAI: suspended earlier generation ----
   {
     id: "gpt-5.5",
     displayName: "GPT-5.5",
     ecosystem: "openai",
-    status: "active",
+    status: "suspended",
     isPro: false,
     price: { inputPerMTok: 5, outputPerMTok: 30, cacheReadPerMTok: 0.5, batchInputPerMTok: 2.5, batchOutputPerMTok: 15 },
     context: { window: 1_050_000, maxOutput: 128_000, stdThreshold: 272_000, surcharge: { inputMult: 2, outputMult: 1.5 } },
@@ -189,13 +308,13 @@ export const PROFILES: ModelProfile[] = [
       VENDOR("OpenAI model docs", "https://developers.openai.com/api/docs/models/gpt-5.5", "2026-06"),
       VENDOR("OpenAI model docs (1,050,000 context window)", "https://developers.openai.com/api/docs/models/gpt-5.5", "2026-10"),
     ],
-    notes: "Reasoning effort (none/low/medium/high/xhigh) does NOT change per-token price — token-volume lever only. Codex surface windows are plan/client dependent; current rollout telemetry observed 258400, so pass the host-reported surfaceCap.",
+    notes: "Reasoning effort (none/low/medium/high/xhigh) does NOT change per-token price — token-volume lever only. Codex surface windows are plan/client dependent; current rollout telemetry observed 258400, so pass the host-reported surfaceCap. GPT-5.5 leaves ChatGPT/Codex on 2026-10-14 (the OpenAI API keeps it). " + SUSPENDED_2026_10,
   },
   {
     id: "gpt-5.5-pro",
     displayName: "GPT-5.5 Pro",
     ecosystem: "openai",
-    status: "active",
+    status: "suspended",
     isPro: true,
     price: { inputPerMTok: 30, outputPerMTok: 180 },
     context: { window: 1_050_000, maxOutput: 128_000, stdThreshold: 272_000, surcharge: { inputMult: 2, outputMult: 1.5 } },
@@ -205,32 +324,33 @@ export const PROFILES: ModelProfile[] = [
       VENDOR("OpenAI / model-drop reporting", "https://developers.openai.com/api/docs/models/gpt-5.5", "2026-06"),
       VENDOR("OpenAI model docs (1,050,000 context window)", "https://developers.openai.com/api/docs/models/gpt-5.5-pro", "2026-10"),
     ],
-    notes: "Separate model id, 6x the standard rate. Covers consumer 'pro standard'/'pro erweitert'. Tiebreaker should avoid unless fidelity gap is real.",
+    notes: "Separate model id, 6x the standard rate. Covers consumer 'pro standard'/'pro erweitert'. Tiebreaker should avoid unless fidelity gap is real. " + SUSPENDED_2026_10,
   },
   {
     id: "gpt-5.4",
     displayName: "GPT-5.4",
     ecosystem: "openai",
-    status: "active",
+    status: "suspended",
     isPro: false,
     price: { inputPerMTok: 2.5, outputPerMTok: 15, batchInputPerMTok: 1.25, batchOutputPerMTok: 7.5 },
     context: { window: 1_050_000, maxOutput: 128_000, stdThreshold: 272_000, surcharge: { inputMult: 2, outputMult: 1 } },
     qualityZone: { greenPct: 0.40, yellowPct: 0.70, provisional: true },
     summarizer: { fidelityScore: 0.973, verbosityCoeff: 1.16, provisionalFidelity: 0.82, calibrated: true, calibrationDate: "2026-06-22", confidence: 0.98, effort: "high" },
     sources: [VENDOR("GPT-5.4 API guide", "https://www.nxcode.io/resources/news/gpt-5-4-api-developer-guide-reasoning-computer-use-2026", "2026-03")],
-    notes: "Output surcharge multiplier above 272k not clearly documented; set to 1 (input doubles). Verify before relying on long-ctx output cost. Effort 'high': the 5-probe golden set (2026-06-22) showed high ≥ xhigh (0.989 vs 0.984, within the ADR-0002 band) AND high is cheaper — strictly dominant. fidelityScore kept on the single-probe calibration basis for cross-profile comparability.",
+    notes: "Output surcharge multiplier above 272k not clearly documented; set to 1 (input doubles). Verify before relying on long-ctx output cost. Effort 'high': the 5-probe golden set (2026-06-22) showed high ≥ xhigh (0.989 vs 0.984, within the ADR-0002 band) AND high is cheaper — strictly dominant. fidelityScore kept on the single-probe calibration basis for cross-profile comparability. " + SUSPENDED_2026_10,
   },
   {
     id: "gpt-5.4-pro",
     displayName: "GPT-5.4 Pro",
     ecosystem: "openai",
-    status: "active",
+    status: "suspended",
     isPro: true,
     price: { inputPerMTok: 30, outputPerMTok: 180 },
     context: { window: 1_050_000, maxOutput: 128_000, stdThreshold: 272_000, surcharge: { inputMult: 2, outputMult: 1 } },
     qualityZone: { greenPct: 0.40, yellowPct: 0.70, provisional: true },
     summarizer: { fidelityScore: null, verbosityCoeff: 1.0, provisionalFidelity: 0.83, calibrated: false },
     sources: [VENDOR("GPT-5.4 API guide", "https://www.nxcode.io/resources/news/gpt-5-4-api-developer-guide-reasoning-computer-use-2026", "2026-03")],
+    notes: SUSPENDED_2026_10,
   },
 
   // ---- Local / universal fallback ----
@@ -266,18 +386,25 @@ export const GENERIC_FALLBACK: ModelProfile = ModelProfile.parse({
 // Validate all seed data against the schema at load time.
 PROFILES.forEach((p) => ModelProfile.parse(p));
 
+/** The summarizer pool (ADR-0012): the active Anthropic/OpenAI full profiles, i.e. the current generation.
+ *  Suspended profiles and the context-only entries are never part of it. */
+export function summarizerPool(profiles: ModelProfile[] = PROFILES): ModelProfile[] {
+  return profiles.filter((p) => p.status === "active" && (p.ecosystem === "anthropic" || p.ecosystem === "openai"));
+}
+
 /* ------------------------------------------------------------------ */
 /* Context-only entries - current vendor models without a full profile */
 /* ------------------------------------------------------------------ */
 
 /**
- * Current vendor models (official model overviews, October 2026) that have no full profile yet. Only
+ * Current vendor models (official model overviews, October 2026) outside the summarizer pool. Only
  * the context window and max output are sourced; pricing (incl. long-context surcharges) and summarizer
  * fidelity are not profiled - their price/threshold fields are placeholders - and the zones are the
  * shared provisional house values. These entries are NEVER summarizer or calibration
  * candidates - selection and calibration read PROFILES only. They exist so `resolveProfile` gives the
  * statusline/context_status the right window instead of the 128k generic fallback. Promote an entry
- * to PROFILES (with sourced pricing) when its model gets full support.
+ * to PROFILES (with sourced pricing) when its model gets full support. Since ADR-0012 the six pool
+ * models are full profiles; only gpt-6-sol remains here.
  */
 interface ContextOnlyModel {
   id: string;
@@ -289,16 +416,8 @@ interface ContextOnlyModel {
 }
 
 const CONTEXT_ONLY_MODELS: ContextOnlyModel[] = [
-  // Anthropic current lineup (Claude Opus 5.5 has a full profile): 1M context, 128k max output each.
-  { id: "claude-fable-5-1", displayName: "Claude Fable 5.1", ecosystem: "anthropic", window: 1_000_000, maxOutput: 128_000, url: "https://platform.claude.com/docs/en/models/fable-5-1/overview" },
-  { id: "claude-sonnet-5-5", displayName: "Claude Sonnet 5.5", ecosystem: "anthropic", window: 1_000_000, maxOutput: 128_000, url: "https://platform.claude.com/docs/en/models/sonnet-5-5/overview" },
-  { id: "claude-haiku-5-5", displayName: "Claude Haiku 5.5", ecosystem: "anthropic", window: 1_000_000, maxOutput: 128_000, url: "https://platform.claude.com/docs/en/models/haiku-5-5/overview" },
-  // OpenAI models overview's flagship ("featured" in its .md export) models, plus gpt-6-sol (Codex's
-  // replacement for the retiring gpt-5.5):
-  // 1,050,000 context window (max input 922,000), 128,000 max output each.
-  { id: "gpt-6-astra", displayName: "GPT-6 Astra", ecosystem: "openai", window: 1_050_000, maxOutput: 128_000, url: "https://developers.openai.com/api/docs/models/gpt-6-astra" },
-  { id: "gpt-6.1-sol", displayName: "GPT-6.1 Sol", ecosystem: "openai", window: 1_050_000, maxOutput: 128_000, url: "https://developers.openai.com/api/docs/models/gpt-6.1-sol" },
-  { id: "gpt-6-luna", displayName: "GPT-6 Luna", ecosystem: "openai", window: 1_050_000, maxOutput: 128_000, url: "https://developers.openai.com/api/docs/models/gpt-6-luna" },
+  // gpt-6-sol: Codex's replacement for the retiring gpt-5.5 on Plus/Pro/Business/Enterprise/Edu plans, not in
+  // the summarizer pool (its successor GPT-6.1 Sol is). 1,050,000 context window (max input 922,000), 128,000 max output.
   { id: "gpt-6-sol", displayName: "GPT-6 Sol", ecosystem: "openai", window: 1_050_000, maxOutput: 128_000, url: "https://developers.openai.com/api/docs/models/gpt-6-sol" },
 ];
 

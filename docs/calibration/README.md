@@ -12,7 +12,7 @@ Spec/rubric: `../calibration-spec.md`.
 2. `verbosityCoeff` = output tokens of the brief / median over all candidates (objective).
 3. Score the brief against `ground-truth.json`:
    - **verbatim** items (`exact: true`): hard string comparison, pass/fail — no reviewer.
-   - **recall / supersession / hallucination**: blind peer-review (≥2 strongest available third-party models, no self-review).
+   - **recall / supersession / hallucination**: blind peer-review by every other pool model (full matrix, effort `high`, no self-review; ADR-0012).
 4. `fidelityScore` = weighted mean (`scoring.weights`), averaged over reviewers; spread as `confidence`.
 
 ## Covered Test Cases

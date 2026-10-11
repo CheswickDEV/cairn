@@ -317,16 +317,20 @@ used as is.
 
 | Coverage | Models |
 |---|---|
-| Full profile: window, prices, summarizer selection, calibration | Claude Opus 5.5 · Claude Opus 4.8 · Claude Sonnet 4.6 · Claude Haiku 4.5 · GPT-5.5 · GPT-5.5 Pro · GPT-5.4 · GPT-5.4 Pro |
-| Context-only entry: documented window and max output | Claude Fable 5.1 · Claude Sonnet 5.5 · Claude Haiku 5.5 (1M) · GPT-6 Astra · GPT-6.1 Sol · GPT-6 Luna · GPT-6 Sol (1,050,000) |
-| Other profiles | Claude Fable 5 (profile status `suspended`: never selected) · Ollama (local fallback) |
+| Summarizer pool: full profile (window, prices), summarizer selection, calibration | Claude Fable 5.1 · Claude Opus 5.5 · Claude Sonnet 5.5 · Claude Haiku 5.5 (1M) · GPT-6 Astra · GPT-6.1 Sol · GPT-6 Luna (1,050,000) |
+| Suspended full profile: window only, never selected, calibrated or used as reviewer | Claude Opus 4.8 · Claude Sonnet 4.6 · Claude Haiku 4.5 · Claude Fable 5 · GPT-5.5 · GPT-5.5 Pro · GPT-5.4 · GPT-5.4 Pro |
+| Context-only entry: documented window and max output | GPT-6 Sol (1,050,000) |
+| Other profiles | Ollama (local fallback) |
 | Generic fallback (host-reported window, else 128K; zones at 50/70 %) | Any id that matches none of the above |
 
 These decorations resolve to the base entry: `[1m]`, `@effort`, provider and region prefixes (`anthropic.`,
 `us.`/`eu.`/`global.`/`us-gov.anthropic.`, `openai/`), dated snapshots, and suffixes after a `-`, `.` or `:`
 separator such as `-codex`. The longest known id wins, so `gpt-5.5-pro` stays GPT-5.5 Pro.
 
-Claude Opus 5.5 is not calibrated yet; `npm run calibrate -- --real` measures it on your account.
+The pool models are not calibrated yet (ADR-0012). Until then they rank on house priors: Claude hosts get
+Claude Opus 5.5 and Codex hosts GPT-6.1 Sol in the green and yellow zones, and the red zone falls back to
+verbatim. `npm run calibrate -- --dry-run --golden` shows how many model calls a live run makes;
+`npm run calibrate -- --real --golden` measures all seven at effort `high` on your accounts.
 
 ---
 

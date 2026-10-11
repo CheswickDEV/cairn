@@ -47,10 +47,21 @@ export function applyCalibration(profiles: ModelProfile[], artifact: Calibration
   });
 }
 
-/** Write the versioned artifact to `<dir>/<date><nameSuffix>.json`; returns the path. */
-export function persistArtifact(dir: string, artifact: CalibrationArtifact, nameSuffix = ""): string {
+/**
+ * Write the versioned artifact to `<dir>/<date><nameSuffix>.json` and return the path. It never
+ * overwrites: if the name is taken (offline and live runs used to share `<date>.json`), it writes
+ * `<date><nameSuffix>-2.json`, `-3`, … instead, so a paid run is neither lost nor replaced.
+ */
+export function persistArtifact<T extends { date: string }>(dir: string, artifact: T, nameSuffix = ""): string {
   mkdirSync(dir, { recursive: true });
-  const path = join(dir, `${artifact.date}${nameSuffix}.json`);
-  writeFileSync(path, JSON.stringify(artifact, null, 2) + "\n", "utf8");
-  return path;
+  const body = JSON.stringify(artifact, null, 2) + "\n";
+  for (let n = 1; ; n++) {
+    const path = join(dir, `${artifact.date}${nameSuffix}${n === 1 ? "" : `-${n}`}.json`);
+    try {
+      writeFileSync(path, body, { encoding: "utf8", flag: "wx" }); // wx: fail instead of overwrite
+      return path;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+    }
+  }
 }

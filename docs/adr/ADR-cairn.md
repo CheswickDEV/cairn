@@ -15,6 +15,7 @@
 | 0005 | Calibration of fidelityScore/verbosityCoeff via a fixed probe context + model peer-review | Accepted |
 | 0006 | Condensation via the host agent's account session, not via API keys | Accepted |
 | 0007 | Handoff trigger and continuation flow | Invocation/hooks superseded by ADR-0010 |
+| 0012 | Summarizer pool = current generation; calibration at effort `high` with a full reviewer matrix | Accepted |
 
 ---
 
@@ -153,7 +154,7 @@ Accepted
 - Positive: closes the last hand-wave spot — the quality-first selection and the floor stand on measured data.
 - Positive: the same `provisional → calibrated` mechanism as for price/zone data; consistent data maintenance.
 - Positive: delivers the prompt iteration that Anthropic requires anyway ("tune on complex traces") as a by-product.
-- Negative: reviewer bias — stronger models may favor their own style. Mitigation: ≥2 reviewers per brief, averaging, record the spread as a confidence measure.
+- Negative: reviewer bias — stronger models may favor their own style. Mitigation: several foreign reviewers per brief (since ADR-0012 the full matrix: every other pool model), averaging, record the spread as a confidence measure.
 - Negative: ongoing maintenance effort (re-run per model/price update) and the cost of the calibration calls.
 
 ### Follow-Up
@@ -375,3 +376,81 @@ maps a full id to the provider's id on Bedrock, Google Cloud and Mantle where th
 that version. A pinned id that cannot run
 (e.g. a Foundry deployment neither named after the model nor mapped by `modelOverrides`) fails, and the variant is skipped and logged
 rather than mislabeled.
+
+---
+
+## ADR-0012 — Summarizer pool = current generation; calibration at effort `high` with a full reviewer matrix (2026-10-11)
+
+Accepted. Extends ADR-0004/0005/0011. Selection rules, zones and the fidelity floor value are unchanged;
+the reviewer rule of ADR-0005 (≥2 strongest foreign reviewers) becomes a full matrix.
+
+**Context.** Until now the calibrated pick on Claude hosts was Claude Haiku 4.5. Anthropic dates its
+retirement "not sooner than October 15, 2026". GPT-5.5 leaves ChatGPT and Codex on 2026-10-14 (the
+OpenAI API keeps it); GPT-5.4 left Codex with ChatGPT sign-in on 2026-08-31. Claude Opus 5.5 was the only
+full profile of the current generation, and it was uncalibrated.
+
+**Pool.** The summarizer pool is exactly the current generation, as full profiles sourced from the vendor
+docs on 2026-10-11 and checked by two independent reviews: Claude Fable 5.1, Opus 5.5, Sonnet 5.5 and
+Haiku 5.5 on Claude hosts; GPT-6 Astra, GPT-6.1 Sol and GPT-6 Luna on Codex hosts. Haiku 5.5 is the only
+Claude model with a long-context tier: a request over 100,000 prompt tokens pays 5x on everything, Batch
+included (`stdThreshold: 100_000`, surcharge 5/5). The GPT-6 models follow GPT-5.5's rule: above 272K input
+tokens 2x input and 1.5x output for the whole request, Batch included. `gpt-6-sol` stays a context-only
+entry.
+
+**Suspended.** Opus 4.8, Sonnet 4.6, Haiku 4.5, GPT-5.5, GPT-5.5 Pro, GPT-5.4 and GPT-5.4 Pro are
+`suspended`, and Fable 5 stays suspended (Anthropic lists it as a legacy model, still available). Their
+measured values stay as history. They still resolve, so the statusline and `context_status` keep the
+right window (Opus 4.8 1M, Haiku 4.5 200K, GPT-5.5 1,050,000), but they are never selected, calibrated
+or used as reviewers.
+
+**Until the calibration lands.** The new profiles start uncalibrated with house priors: Fable 5.1 0.93,
+Opus 5.5 0.92, Sonnet 5.5 0.85, Haiku 5.5 0.70, GPT-6 Astra 0.93, GPT-6.1 Sol 0.92, GPT-6 Luna 0.70. With
+the 0.85 floor this gives, on purpose: Claude hosts pick Opus 5.5 in green and yellow (Fable 5.1 shares
+the 0.02 band, Opus is cheaper), Codex hosts pick GPT-6.1 Sol; in red (floor 0.95) both fall back to
+verbatim. `runHandoff` assumes red when no zone is given, so until then every handoff without a zone
+reports verbatim. In account mode that is informational only; the brief is stored anyway.
+
+**Effort.** Every model is calibrated at exactly `high`, and no calibration or bridge call runs below it.
+The bridge silently drops an effort it does not accept, and the CLI then uses its default: `medium` for
+Opus, Sonnet and Haiku 5.5 in Claude Code, and GPT-6 Astra's default is not documented. So the floor is
+enforced before the call, in four places: `buildVariants`; the account compactor right after
+`parseVariant` (a violation becomes a logged skip without a call); `makeModelReviewer` when the reviewer
+is created (exactly `high`); and the CLI's live paths (`resolveCalibConfig` + pre-flight: candidates
+exactly `high`, reviewers exactly `high`, pool models only, suspended ids rejected). `parseVariant` and
+`runBridge` stay generic, so offline paths keep working.
+In the product, bridge mode always passes `--effort high` / `model_reasoning_effort=high`. API mode
+sends Anthropic's `output_config.effort` or OpenAI's `reasoning_effort` (Chat Completions) as `high` for
+pool models; a suspended or unknown model keeps its provider default, because it may reject the field.
+Sampling mode cannot set an effort: MCP `sampling/createMessage` has no such field (and the 2026-07-28
+spec deprecates sampling), so the client's defaults apply. Claude Code also clamps `--effort` to an
+Enterprise admin cap, silently with `json` output; the bridge cannot detect that.
+
+**Reviewers.** All seven pool models review, at exactly `high`, and each brief is scored by the six
+others (k = pool − 1); a model never reviews its own brief. Pool entries are normalised to base ids, so
+`x@high` cannot slip past the self-review filter, and the single-probe run passes the full pool
+explicitly instead of deriving it from the briefs that succeeded. Artifacts keep every review (reviewer,
+rubric, fidelity), list only reviewers that actually scored, and record `reviewerEffort`; the golden
+output adds verbosity, spread and the spread warning per probe. That allows a bias check: a model
+family's mean score from its own family against the mean from the other family.
+
+**Runs and artifacts.** Artifacts are named `<date>T<time>Z-<mode>[-golden|-large].json` and never
+overwritten (a taken name gets `-2`, `-3`, …). `--dry-run` resolves the live configuration on the fixture
+compactor and heuristic reviewer and prints the call count: 49 for the single probe (7 briefs + 42
+reviews), 245 for the golden set (35 + 210), 28 for the 400K high-fill probe (4 Claude briefs + 24
+reviews; GPT-6 does not fit Codex's estimated window). Bridge windows: Claude Fable 5.1, Sonnet 5.5 and
+Haiku 5.5 at 1M (Claude Code's documented default, not yet bridge-measured); GPT-6 via Codex at 258,400, a
+conservative estimate because the Codex docs name no window.
+
+**Decision basis.** The model decision uses the golden-set mean (5 probes), including its verbosity. The
+earlier precedent of keeping the single-probe score for cross-profile comparability (GPT-5.4) is not
+needed here, because all seven models are measured in the same run.
+
+**Codex alternative.** `host_status` now suggests GPT-6.1 Sol for Codex. ADR-0011 names GPT-6 Sol: that is
+Codex's direct replacement for the retiring GPT-5.5 on Plus, Pro, Business, Enterprise and Edu plans.
+GPT-6.1 Sol is the model the Codex models page recommends (`codex exec -m gpt-6.1-sol`). Both statements
+hold.
+
+**Follow-up.** Live calibration in stages, each only after explicit approval: 4b single probe, optional
+4b' measurement of the GPT-6 Codex window, 4c golden set, optional 4d high-fill. Then write the measured
+`fidelityScore`, `verbosityCoeff`, `confidence`, `effort: "high"` and date into the profiles; the fidelity
+floor changes only after the user signs it off.

@@ -24,7 +24,8 @@ describe("variants", () => {
   it("respects an ecosystem filter and custom efforts", () => {
     const v = buildVariants({ ecosystems: ["anthropic"], efforts: { anthropic: ["high"] } });
     expect(v.every((x) => x.ecosystem === "anthropic" && x.effort === "high")).toBe(true);
-    expect(v.some((x) => x.baseModelId === "claude-opus-4-8")).toBe(true);
+    // ADR-0012: Opus 4.8 is suspended (never a candidate); Opus 5.5 is a pool model.
+    expect(v.some((x) => x.baseModelId === "claude-opus-5-5")).toBe(true);
   });
 });
 

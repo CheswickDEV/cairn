@@ -3,13 +3,18 @@
  * Cairn - calibration CLI (`npm run calibrate`).
  *
  * Default = OFFLINE/fixture mode: deterministic compactor + heuristic reviewer, no egress;
- * reproducible artifact under calibration/results/<date>.json.
+ * reproducible artifact under calibration/results/.
  *
- * `--real` = LIVE cross-ecosystem calibration over the account sessions: every (model × effort)
- * variant compacts the probe (`claude -p --effort …` / `codex exec -c model_reasoning_effort=…`),
- * then ≥2 strongest FOREIGN base models peer-review each brief (blind). Unreachable variants are
- * logged + skipped. Writes the artifact + floor proposal; it does NOT flip the source profiles
- * (the floor needs manual sign-off, ADR-0005).
+ * `--real` = LIVE cross-ecosystem calibration over the account sessions (ADR-0012): every pool model
+ * compacts the probe at exactly `high` (`claude -p --effort high` / `codex exec -c
+ * model_reasoning_effort=high`), then all OTHER pool models peer-review each brief (blind, full matrix,
+ * reviewers at exactly `high`). Unreachable variants are logged + skipped. Writes the artifact + floor
+ * proposal; it does NOT flip the source profiles (the floor needs manual sign-off, ADR-0005).
+ *
+ * `--dry-run` = the live configuration (candidates, reviewer pool, efforts) on the fixture compactor and
+ * the heuristic reviewer: no egress; prints how many model calls `--real` would make.
+ *
+ * Artifacts: `calibration/results/<date>T<time>Z-<mode>[-golden|-large].json`, never overwritten.
  */
 
 import { PROFILES } from "../core/model-profiles.js";
@@ -19,123 +24,126 @@ import { loadGroundTruth, loadProbeContext } from "./fixtures.js";
 import { partitionByWindow } from "./window-fit.js";
 import { runCalibration } from "./harness.js";
 import { applyCalibration, persistArtifact, bestPerBaseModel } from "./writer.js";
-import { buildVariants, parseVariant, type CalibEcosystem } from "./variants.js";
+import { parseVariant } from "./variants.js";
 import { makeAccountCompactor } from "./account-compactor.js";
 import { makeModelReviewer } from "./model-reviewer.js";
 import { buildLargeProbe, LARGE_GROUND_TRUTH } from "./large-probe.js";
 import { runGoldenSet, goldenProbes } from "./golden-set.js";
+import { resolveCalibConfig, assertCalibPreflight, artifactSuffix, type CalibConfig } from "./calib-config.js";
 import type { GroundTruth } from "./ground-truth.js";
 import type { Compactor } from "./runner.js";
 import type { Reviewer } from "./review.js";
-import { writeFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
 
-const LARGE_VARIANTS = [
-  "claude-opus-5-5@medium", // Opus 5.5's API default effort
-  "claude-opus-5-5@high",
-  "claude-opus-5-5@xhigh",
-  "claude-opus-5-5@max",
-  "claude-opus-4-8@high",
-  "claude-opus-4-8@xhigh",
-  "claude-opus-4-8@max",
-  "claude-sonnet-4-6@high",
-  "claude-sonnet-4-6@xhigh",
-  "claude-haiku-4-5-20251001@high",
-  "claude-haiku-4-5-20251001@xhigh",
-];
-const LARGE_REVIEWER_POOL = ["claude-opus-5-5", "claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5-20251001", "gpt-5.5", "gpt-5.4"];
+const RESULTS_DIR = "calibration/results";
 
 function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-function envEfforts(name: string): string[] | undefined {
-  const raw = process.env[name];
-  return raw ? raw.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
+interface CallCount {
+  compactions: number;
+  reviews: number;
+}
+
+/** The compactor/reviewer seams for the mode: real bridge calls, or fixtures (offline / dry run).
+ *  Every call is counted, so a dry run reports what `--real` would spend. */
+function seams(cfg: CalibConfig, calls: CallCount): { makeCompactor: (g: GroundTruth) => Compactor; reviewer: Reviewer } {
+  const real = cfg.mode === "real";
+  const account = real ? makeAccountCompactor({ timeoutMs: cfg.timeoutMs, maxTokens: cfg.maxTokens }) : undefined;
+  const base: Reviewer = real ? makeModelReviewer({ effort: cfg.reviewerEffort, timeoutMs: cfg.timeoutMs }) : heuristicReviewer;
+  return {
+    makeCompactor: (g) => {
+      const c = account ?? makeFixtureCompactor(g);
+      return (req) => {
+        calls.compactions++;
+        return c(req);
+      };
+    },
+    reviewer: (req) => {
+      calls.reviews++;
+      return base(req);
+    },
+  };
+}
+
+function modeLabel(cfg: CalibConfig): string {
+  return cfg.mode === "real" ? "LIVE" : cfg.mode === "dry-run" ? "DRY RUN, no egress" : "OFFLINE/fixture";
+}
+
+function writeCallSummary(out: NodeJS.WriteStream, cfg: CalibConfig, calls: CallCount): void {
+  if (cfg.mode === "offline") return;
+  const total = calls.compactions + calls.reviews;
+  const what = cfg.mode === "dry-run" ? "A --real run would make" : "Model calls made";
+  out.write(`${what}: ${total} (${calls.compactions} briefs + ${calls.reviews} reviews)\n`);
 }
 
 async function main(): Promise<void> {
-  const real = process.argv.includes("--real");
+  const now = new Date();
+  const date = isoDate(now);
   const out = process.stdout;
-  const date = isoDate(new Date());
-  const gt = loadGroundTruth();
+  // Validates candidates, reviewer pool and efforts (ADR-0012); throws before any model call.
+  const cfg = resolveCalibConfig(process.env, process.argv);
+  const live = cfg.mode !== "offline";
+  if (live) assertCalibPreflight(cfg);
+  const calls: CallCount = { compactions: 0, reviews: 0 };
+  const { makeCompactor, reviewer } = seams(cfg, calls);
+  const suffix = artifactSuffix(now, cfg.mode, cfg.probe);
+  const skips: string[] = [];
+  const onSkip = (label: string, err: unknown) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    skips.push(`${label}: ${msg.slice(0, 120)}`);
+    process.stderr.write(`  ⏭ skip ${label}: ${msg.slice(0, 120)}\n`);
+  };
+  const configLine = () =>
+    `Candidates: ${cfg.candidates.length} (${cfg.candidates.join(", ")})\n` +
+    `Reviewer pool: ${cfg.reviewerPool?.join(", ")}; ${cfg.reviewersPerBrief} reviewers per brief at effort ` +
+    `'${cfg.reviewerEffort}'. Concurrency ${cfg.concurrency}, timeout ${cfg.timeoutMs}ms.\n`;
 
   // ---- GOLDEN SET (multi-probe) ----
-  if (process.argv.includes("--golden")) {
+  if (cfg.probe === "golden") {
     const probes = goldenProbes();
-    const reviewerEffort = process.env.CAIRN_CALIB_REVIEWER_EFFORT ?? "high";
-    const explicit = envEfforts("CAIRN_CALIB_VARIANTS");
-    let candidates: string[];
-    let makeCompactor: (g: GroundTruth) => Compactor;
-    let reviewer: Reviewer;
-    let reviewerPool: string[] | undefined;
-    let reviewersPerBrief: number;
-    let concurrency: number;
-
-    if (real) {
-      const variants = buildVariants({
-        ecosystems: ["anthropic", "openai"],
-        efforts: { anthropic: envEfforts("CAIRN_CALIB_EFFORTS_ANTHROPIC"), openai: envEfforts("CAIRN_CALIB_EFFORTS_OPENAI") },
-      });
-      candidates = explicit ?? variants.map((v) => v.id);
-      const timeoutMs = Number(process.env.CAIRN_CALIB_TIMEOUT_MS ?? 120_000);
-      const maxTokens = Number(process.env.CAIRN_CALIB_MAXTOK ?? 4096);
-      makeCompactor = () => makeAccountCompactor({ timeoutMs, maxTokens });
-      reviewer = makeModelReviewer({ effort: reviewerEffort, timeoutMs });
-      reviewerPool = envEfforts("CAIRN_CALIB_REVIEWER_POOL") ?? LARGE_REVIEWER_POOL;
-      reviewersPerBrief = Number(process.env.CAIRN_CALIB_REVIEWERS ?? 3);
-      concurrency = Number(process.env.CAIRN_CALIB_CONCURRENCY ?? 3);
-      out.write(`Cairn GOLDEN SET (LIVE) — ${date} — probes: ${probes.map((p) => p.label).join(", ")}\n`);
-    } else {
-      candidates = explicit ?? PROFILES.filter((p) => p.status === "active").map((p) => p.id);
-      makeCompactor = (g) => makeFixtureCompactor(g);
-      reviewer = heuristicReviewer;
-      reviewersPerBrief = 2;
-      concurrency = 1;
-      out.write(`Cairn GOLDEN SET (OFFLINE/fixture) — ${date} — probes: ${probes.map((p) => p.label).join(", ")}\n`);
-    }
-
-    const skips: string[] = [];
+    out.write(`Cairn GOLDEN SET (${modeLabel(cfg)}) — ${date} — probes: ${probes.map((p) => p.label).join(", ")}\n`);
+    if (live) out.write(configLine());
     const res = await runGoldenSet({
       probes,
-      candidates,
+      candidates: cfg.candidates,
       profiles: PROFILES,
       makeCompactor,
       reviewer,
-      reviewerPool,
-      reviewersPerBrief,
-      concurrency,
+      reviewerPool: cfg.reviewerPool,
+      reviewersPerBrief: cfg.reviewersPerBrief,
+      reviewerEffort: live ? cfg.reviewerEffort : undefined,
+      concurrency: cfg.concurrency,
       date,
-      onSkip: (label, err) => {
-        const m = err instanceof Error ? err.message : String(err);
-        skips.push(`${label}: ${m.slice(0, 100)}`);
-        process.stderr.write(`  ⏭ ${label}: ${m.slice(0, 100)}\n`);
-      },
+      onSkip,
     });
-
-    mkdirSync("calibration/results", { recursive: true });
-    const gpath = join("calibration/results", `${date}-golden.json`);
-    writeFileSync(gpath, JSON.stringify(res, null, 2) + "\n", "utf8");
-    out.write(`\nWrote ${gpath} (skipped ${skips.length})\n\nPer model (mean fidelity over ${res.probes.length} probes):\n`);
+    const gpath = persistArtifact(RESULTS_DIR, res, suffix);
+    out.write(`\nWrote ${gpath} (skipped ${skips.length})\n\nPer model (mean over ${res.probes.length} probes):\n`);
     for (const m of [...res.perModel].sort((a, b) => b.meanFidelity - a.meanFidelity)) {
       const pp = m.perProbe.map((p) => `${p.label}=${p.fidelity.toFixed(3)}`).join("  ");
-      out.write(`  ${m.modelId.padEnd(30)} mean=${m.meanFidelity.toFixed(3)} conf=${m.meanConfidence.toFixed(2)}  [${pp}]\n`);
+      out.write(
+        `  ${m.modelId.padEnd(30)} mean=${m.meanFidelity.toFixed(3)} conf=${m.meanConfidence.toFixed(2)} ` +
+          `verbosity=${m.meanVerbosityCoeff.toFixed(2)}${m.highSpreadWarnings ? ` ⚠high-spread×${m.highSpreadWarnings}` : ""}  [${pp}]\n`,
+      );
     }
     out.write(`\nFloor proposal (median mean-fidelity): ${res.floorProposal?.toFixed(3) ?? "n/a"} — manual sign-off.\n`);
+    writeCallSummary(out, cfg, calls);
     return;
   }
 
-  if (!real) {
-    const candidates = PROFILES.filter((p) => p.status === "active").map((p) => p.id);
+  // ---- OFFLINE single probe ----
+  if (!live) {
+    const gt = loadGroundTruth();
     const artifact = await runCalibration({
-      candidates,
+      candidates: cfg.candidates,
       profiles: PROFILES,
-      compactor: makeFixtureCompactor(gt),
-      reviewer: heuristicReviewer,
+      compactor: makeCompactor(gt),
+      reviewer,
+      reviewersPerBrief: cfg.reviewersPerBrief,
       date,
       groundTruth: gt,
     });
-    const path = persistArtifact("calibration/results", artifact);
+    const path = persistArtifact(RESULTS_DIR, artifact, suffix);
     const updated = applyCalibration(PROFILES, artifact);
     out.write(`Cairn calibration (OFFLINE/fixture mode) — ${date}\n`);
     out.write(`Wrote versioned artifact: ${path}\n`);
@@ -153,87 +161,55 @@ async function main(): Promise<void> {
     return;
   }
 
-  // ---- LIVE run ----
-  const idx = process.argv.indexOf("--probe");
-  const large = process.env.CAIRN_CALIB_PROBE === "large" || (idx >= 0 && process.argv[idx + 1] === "large");
-  const explicitVariants = envEfforts("CAIRN_CALIB_VARIANTS"); // reuse comma-split helper
-
-  const reviewerEffort = process.env.CAIRN_CALIB_REVIEWER_EFFORT ?? "high";
-  const concurrency = Number(process.env.CAIRN_CALIB_CONCURRENCY ?? (large ? 2 : 3));
-  const reviewersPerBrief = Number(process.env.CAIRN_CALIB_REVIEWERS ?? (large ? 3 : 2));
-  const timeoutMs = Number(process.env.CAIRN_CALIB_TIMEOUT_MS ?? (large ? 900_000 : 120_000));
-
-  let candidates: string[];
-  let groundTruth = gt;
+  // ---- LIVE / DRY RUN: single standard probe or high-fill probe ----
+  let groundTruth = loadGroundTruth();
   let probe: string | undefined;
   let exactSpans: string[] | undefined;
-  let reviewerPool: string[] | undefined;
-  let maxTokens = 4096;
-  let suffix = "";
-
-  if (large) {
-    const targetTokens = Number(process.env.CAIRN_CALIB_PROBE_TOKENS ?? 800_000);
+  if (cfg.probe === "large") {
+    const targetTokens = cfg.probeTokens ?? 800_000;
     const lp = buildLargeProbe(targetTokens);
     probe = lp.probe;
     exactSpans = lp.exactSpans;
     groundTruth = LARGE_GROUND_TRUTH;
-    candidates = explicitVariants ?? LARGE_VARIANTS;
-    reviewerPool = envEfforts("CAIRN_CALIB_REVIEWER_POOL") ?? LARGE_REVIEWER_POOL;
-    maxTokens = Number(process.env.CAIRN_CALIB_MAXTOK ?? 8192);
-    suffix = "-large";
-    out.write(`Cairn calibration (LIVE high-fill ~${Math.round(targetTokens / 1000)}k, Anthropic-only candidates) — ${date}\n`);
-    out.write(`Probe ≈ ${probe.length} chars (~${Math.round(probe.length / 4000)}k tok). Candidates: ${candidates.length}; reviewer pool: ${reviewerPool.join(", ")}\n`);
+    out.write(`Cairn calibration (${modeLabel(cfg)} high-fill ~${Math.round(targetTokens / 1000)}k) — ${date}\n`);
+    out.write(`Probe ≈ ${probe.length} chars (~${Math.round(probe.length / 4000)}k tok).\n`);
   } else {
-    const ecosystems = (process.env.CAIRN_CALIB_ECOSYSTEMS?.split(",").map((s) => s.trim()) as CalibEcosystem[]) ?? [
-      "anthropic",
-      "openai",
-    ];
-    const variants = buildVariants({
-      ecosystems,
-      efforts: { anthropic: envEfforts("CAIRN_CALIB_EFFORTS_ANTHROPIC"), openai: envEfforts("CAIRN_CALIB_EFFORTS_OPENAI") },
-    });
-    candidates = explicitVariants ?? variants.map((v) => v.id);
-    out.write(`Cairn calibration (LIVE cross-ecosystem) — ${date}\n`);
-    out.write(`Candidates (model×effort): ${candidates.length} | base models: ${[...new Set(variants.map((v) => v.baseModelId))].join(", ")}\n`);
+    out.write(`Cairn calibration (${modeLabel(cfg)} cross-ecosystem) — ${date}\n`);
   }
-  out.write(`Concurrency ${concurrency}, reviewer effort '${reviewerEffort}', timeout ${timeoutMs}ms. Real account calls…\n`);
+  out.write(configLine());
 
-  // Item (3): pre-exclude candidates whose effective window can't hold the probe (ADR-0003/0004) -
+  // Pre-exclude candidates whose effective bridge window can't hold the probe (ADR-0003/0004) -
   // no wasted "Prompt is too long" calls.
   const probeTokens = probe ? estimateTokens(probe) : estimateTokens(loadProbeContext());
-  const part = partitionByWindow(candidates, probeTokens, PROFILES, (id) => parseVariant(id).baseModelId);
+  const part = partitionByWindow(cfg.candidates, probeTokens, PROFILES, (id) => parseVariant(id).baseModelId);
   for (const e of part.excluded) {
     out.write(
       `  ⊘ pre-excluded ${e.id}: effective window ~${Math.round(e.window / 1000)}k < ~${Math.round(e.request / 1000)}k request\n`,
     );
   }
-  candidates = part.fit;
+  const candidates = part.fit;
   if (candidates.length === 0) {
     out.write(`No candidate fits the probe (~${Math.round(probeTokens / 1000)}k tok). Use a smaller probe.\n`);
     return;
   }
 
-  const skips: string[] = [];
   const artifact = await runCalibration({
     candidates,
     profiles: PROFILES,
-    compactor: makeAccountCompactor({ timeoutMs, maxTokens }),
-    reviewer: makeModelReviewer({ effort: reviewerEffort, timeoutMs }),
-    reviewerPool,
-    reviewersPerBrief,
-    concurrency,
+    compactor: makeCompactor(groundTruth),
+    reviewer,
+    reviewerPool: cfg.reviewerPool,
+    reviewersPerBrief: cfg.reviewersPerBrief,
+    reviewerEffort: cfg.reviewerEffort,
+    concurrency: cfg.concurrency,
     date,
     groundTruth,
     probe,
     exactSpans,
-    onSkip: (label, err) => {
-      const msg = err instanceof Error ? err.message : String(err);
-      skips.push(`${label}: ${msg.slice(0, 120)}`);
-      process.stderr.write(`  ⏭ skip ${label}: ${msg.slice(0, 120)}\n`);
-    },
+    onSkip,
   });
 
-  const path = persistArtifact("calibration/results", artifact, suffix);
+  const path = persistArtifact(RESULTS_DIR, artifact, suffix);
   out.write(`\nWrote versioned artifact: ${path}\n`);
   out.write(`Scored variants: ${artifact.models.length}/${candidates.length} (skipped ${skips.length})\n\n`);
   out.write(`Per (model × effort):\n`);
@@ -241,7 +217,7 @@ async function main(): Promise<void> {
     out.write(
       `  ${m.modelId.padEnd(30)} fidelity=${m.fidelityScore.toFixed(3)} ` +
         `verbosity=${m.verbosityCoeff.toFixed(2)} confidence=${m.confidence.toFixed(2)} ` +
-        `tokens=${m.outputTokens}${m.highSpreadWarning ? " ⚠high-spread" : ""}\n`,
+        `tokens=${m.outputTokens} reviewers=${m.reviewers.length}${m.highSpreadWarning ? " ⚠high-spread" : ""}\n`,
     );
   }
   const best = bestPerBaseModel(artifact.models);
@@ -251,6 +227,7 @@ async function main(): Promise<void> {
   }
   for (const note of artifact.notes) out.write(`${note}\n`);
   out.write(`\nFloor proposal: ${artifact.floorProposal ?? "n/a"}. Profile-Flip + Floor erst nach Sichtung (manuell).\n`);
+  writeCallSummary(out, cfg, calls);
 }
 
 main().catch((err) => {

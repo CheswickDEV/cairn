@@ -16,8 +16,8 @@ import { loadConfig } from "./core/config.js";
 import { resolveLang } from "./i18n/index.js";
 import { SqliteStore } from "./store/sqlite-store.js";
 import { serverSampler } from "./core/sampling.js";
-import { bridgeCompact } from "./core/bridge.js";
-import type { ModelCaller, ModelCallRequest } from "./core/providers.js";
+import { productBridge } from "./core/bridge.js";
+import type { ModelCaller } from "./core/providers.js";
 import { registerHostStatus } from "./tools/host_status.js";
 import { registerContextStatus } from "./tools/context_status.js";
 import { registerHandoff } from "./tools/handoff.js";
@@ -65,13 +65,10 @@ async function main(): Promise<void> {
   );
 
   // Account-session compaction seams (ADR-0006). sample is capability-gated at call time;
-  // bridge is only wired when CAIRN_BRIDGE names a sibling CLI. Neither is used in the default
-  // account mode - both go through the egress guardrail.
+  // bridge is only wired when CAIRN_BRIDGE names a sibling CLI, and always runs at effort `high`
+  // (ADR-0012). Neither is used in the default account mode - both go through the egress guardrail.
   const sample: ModelCaller = serverSampler(server);
-  const bridgeCli = config.bridgeCli;
-  const bridge: ModelCaller | undefined = bridgeCli
-    ? (req: ModelCallRequest) => bridgeCompact({ cli: bridgeCli, request: req, lang })
-    : undefined;
+  const bridge: ModelCaller | undefined = config.bridgeCli ? productBridge(config.bridgeCli, lang) : undefined;
 
   registerHostStatus(server, lang);
   registerContextStatus(server, lang);

@@ -9,7 +9,7 @@ import type { GroundTruth } from "./ground-truth.js";
 import type { Compactor } from "./runner.js";
 import type { Reviewer } from "./review.js";
 import { runCalibration } from "./harness.js";
-import { median } from "./score.js";
+import { median, type ReviewRecord } from "./score.js";
 import { loadProbeContext, loadGroundTruth, loadExactSpans } from "./fixtures.js";
 import { GOLDEN2_PROBE, GOLDEN2_GROUND_TRUTH, GOLDEN2_EXACT_SPANS } from "./golden-probe-2.js";
 import { GOLDEN3_PROBE, GOLDEN3_GROUND_TRUTH, GOLDEN3_EXACT_SPANS } from "./golden-probe-3.js";
@@ -35,18 +35,39 @@ export function goldenProbes(): GoldenProbe[] {
   ];
 }
 
+/** One probe's result for one variant. Beyond fidelity/confidence it carries what the model decision
+ *  needs (ADR-0012): verbosity, reviewer spread + warning, and every single review. */
+export interface GoldenProbeResult {
+  label: string;
+  fidelity: number;
+  confidence: number;
+  verbosityCoeff: number;
+  spread: number;
+  highSpreadWarning: boolean;
+  outputTokens: number;
+  retainedAllMustSurvive: boolean;
+  reviewers: string[];
+  reviews: ReviewRecord[];
+}
+
 export interface GoldenModelResult {
   modelId: string;
   baseModelId: string;
   effort: string;
   meanFidelity: number;
   meanConfidence: number;
+  /** Mean verbosityCoeff over the probes (each probe's coefficient is relative to that probe's median). */
+  meanVerbosityCoeff: number;
+  /** How many probes raised the high-spread warning. */
+  highSpreadWarnings: number;
   probesScored: number;
-  perProbe: { label: string; fidelity: number; confidence: number }[];
+  perProbe: GoldenProbeResult[];
 }
 
 export interface GoldenResult {
   date: string;
+  /** Effort the reviewers ran at (live runs; ADR-0012: exactly `high`). */
+  reviewerEffort?: string;
   probes: string[];
   perModel: GoldenModelResult[];
   floorProposal: number | null;
@@ -61,6 +82,7 @@ export interface RunGoldenSetInput {
   reviewer: Reviewer;
   reviewerPool?: string[];
   reviewersPerBrief?: number;
+  reviewerEffort?: string;
   concurrency?: number;
   date: string;
   now?: () => number;
@@ -82,6 +104,7 @@ export async function runGoldenSet(input: RunGoldenSetInput): Promise<GoldenResu
       reviewer: input.reviewer,
       reviewerPool: input.reviewerPool,
       reviewersPerBrief: input.reviewersPerBrief,
+      reviewerEffort: input.reviewerEffort,
       concurrency: input.concurrency,
       date: input.date,
       now: input.now,
@@ -93,8 +116,22 @@ export async function runGoldenSet(input: RunGoldenSetInput): Promise<GoldenResu
     for (const m of art.models) {
       const e =
         byVariant.get(m.modelId) ??
-        { modelId: m.modelId, baseModelId: m.baseModelId, effort: m.effort, meanFidelity: 0, meanConfidence: 0, probesScored: 0, perProbe: [] };
-      e.perProbe.push({ label: gp.label, fidelity: m.fidelityScore, confidence: m.confidence });
+        {
+          modelId: m.modelId, baseModelId: m.baseModelId, effort: m.effort,
+          meanFidelity: 0, meanConfidence: 0, meanVerbosityCoeff: 0, highSpreadWarnings: 0, probesScored: 0, perProbe: [],
+        };
+      e.perProbe.push({
+        label: gp.label,
+        fidelity: m.fidelityScore,
+        confidence: m.confidence,
+        verbosityCoeff: m.verbosityCoeff,
+        spread: m.spread,
+        highSpreadWarning: m.highSpreadWarning,
+        outputTokens: m.outputTokens,
+        retainedAllMustSurvive: m.retainedAllMustSurvive,
+        reviewers: m.reviewers,
+        reviews: m.reviews ?? [],
+      });
       byVariant.set(m.modelId, e);
     }
   }
@@ -103,11 +140,19 @@ export async function runGoldenSet(input: RunGoldenSetInput): Promise<GoldenResu
     ...e,
     meanFidelity: mean(e.perProbe.map((p) => p.fidelity)),
     meanConfidence: mean(e.perProbe.map((p) => p.confidence)),
+    meanVerbosityCoeff: mean(e.perProbe.map((p) => p.verbosityCoeff)),
+    highSpreadWarnings: e.perProbe.filter((p) => p.highSpreadWarning).length,
     probesScored: e.perProbe.length,
   }));
 
   // Floor proposal: the median mean-fidelity across models (robust central value), or null if empty.
   const floorProposal = perModel.length ? median(perModel.map((m) => m.meanFidelity)) : null;
 
-  return { date: input.date, probes: input.probes.map((p) => p.label), perModel, floorProposal };
+  return {
+    date: input.date,
+    ...(input.reviewerEffort ? { reviewerEffort: input.reviewerEffort } : {}),
+    probes: input.probes.map((p) => p.label),
+    perModel,
+    floorProposal,
+  };
 }

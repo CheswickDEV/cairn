@@ -12,6 +12,8 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
   selectSummarizer,
+  resolveProfile,
+  summarizerPool,
   FIDELITY_FLOOR,
   type HostSignal,
   type ReachabilityProbe,
@@ -91,6 +93,16 @@ export interface HandoffResult {
   egress: boolean;
 }
 
+/**
+ * Effort for a model-driven compaction (ADR-0012): `high` for a summarizer-pool model (all seven support
+ * it). A suspended, context-only or unknown model keeps its provider default, since it may reject the
+ * parameter. Only the API adapters read it; the bridge always runs at `high`, sampling cannot set it.
+ */
+export function compactionEffort(modelId: string | undefined): string | undefined {
+  const p = resolveProfile(modelId);
+  return summarizerPool().includes(p) ? "high" : undefined;
+}
+
 export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promise<HandoffResult> {
   const mode: CompactionMode = input.mode ?? "account";
   const host = input.host ?? {};
@@ -131,6 +143,7 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
         prompt: frozen.masked,
         maxTokens,
         model: host.modelId ?? "",
+        effort: compactionEffort(host.modelId),
       },
       endpointKey: input.endpointKey ?? Object.keys(deps.config.endpoints)[0],
       fetchFn: deps.fetchFn,

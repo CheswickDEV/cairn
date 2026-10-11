@@ -26,6 +26,7 @@ import {
   SPREAD_WARN,
   type CalibrationArtifact,
   type ModelCalibration,
+  type ReviewRecord,
 } from "./score.js";
 
 export interface RunCalibrationInput {
@@ -36,8 +37,11 @@ export interface RunCalibrationInput {
   /** ISO date stamped into the artifact (injected for reproducibility). */
   date: string;
   reviewersPerBrief?: number;
-  /** Base-model ids to draw reviewers from (default: the base models behind `candidates`). */
+  /** Base-model ids to draw reviewers from (default: the base models behind `candidates`). An
+   *  `@effort` suffix is stripped, so a pool entry can never review its own model's brief. */
   reviewerPool?: string[];
+  /** Effort the reviewers run at; recorded in the artifact (the reviewer seam applies it). */
+  reviewerEffort?: string;
   /** Max parallel compactions/reviews (default 1 = serial). */
   concurrency?: number;
   /** Called when a compaction or a single review is skipped (unreachable). */
@@ -82,8 +86,9 @@ export async function runCalibration(input: RunCalibrationInput): Promise<Calibr
 
   // Reviewers are BASE models (not effort variants), strongest available foreign ones - drawn only
   // from models that actually produced a real brief (so unreachable/garbage models can't review).
-  const reviewerPool =
-    input.reviewerPool ?? [...new Set(runs.map((r) => parseVariant(r.modelId).baseModelId))];
+  const reviewerPool = [
+    ...new Set((input.reviewerPool ?? runs.map((r) => r.modelId)).map((id) => parseVariant(id).baseModelId)),
+  ];
 
   const med = median(runs.map((r) => r.outputTokens));
 
@@ -93,16 +98,17 @@ export async function runCalibration(input: RunCalibrationInput): Promise<Calibr
     // No self-review even across effort tiers: exclude the author's BASE model from the pool.
     const reviewers = assignReviewers(baseModelId, reviewerPool, strengthOf, k);
     const verbatim = computeVerbatimScore(run.brief, gt);
-    const perReviewerFidelity: number[] = [];
+    const reviews: ReviewRecord[] = [];
     for (const reviewerModelId of reviewers) {
       try {
         const rs = await input.reviewer({ authorModelId: run.modelId, reviewerModelId, brief: run.brief, groundTruth: gt });
         const rubric: RubricScore = { ...rs, verbatim };
-        perReviewerFidelity.push(weightedFidelity(rubric));
+        reviews.push({ reviewerModelId, rubric, fidelity: weightedFidelity(rubric) });
       } catch (e) {
         input.onSkip?.(`review ${run.modelId} by ${reviewerModelId}`, e);
       }
     }
+    const perReviewerFidelity = reviews.map((r) => r.fidelity);
 
     const fidelityScore =
       perReviewerFidelity.reduce((a, b) => a + b, 0) / Math.max(1, perReviewerFidelity.length);
@@ -118,8 +124,9 @@ export async function runCalibration(input: RunCalibrationInput): Promise<Calibr
       spread,
       highSpreadWarning,
       outputTokens: run.outputTokens,
-      reviewers,
+      reviewers: reviews.map((r) => r.reviewerModelId), // who actually scored, not who was assigned
       retainedAllMustSurvive: computeRecall(run.brief, gt) === 1 && verbatim === 1,
+      reviews,
     };
     const note = highSpreadWarning
       ? `⚠ ${run.modelId}: hoher Reviewer-Spread ${spread.toFixed(3)} — Warnung statt stiller Übernahme.`
@@ -133,5 +140,11 @@ export async function runCalibration(input: RunCalibrationInput): Promise<Calibr
   const retained = models.filter((m) => m.retainedAllMustSurvive);
   const floorProposal = retained.length ? Math.min(...retained.map((m) => m.fidelityScore)) : null;
 
-  return { date: input.date, models, floorProposal, notes };
+  return {
+    date: input.date,
+    ...(input.reviewerEffort ? { reviewerEffort: input.reviewerEffort } : {}),
+    models,
+    floorProposal,
+    notes,
+  };
 }

@@ -199,8 +199,9 @@ describe("resolveProfile — every current Anthropic and OpenAI model gets its d
   });
 
   it("a full profile with the same id shadows the context-only entry", () => {
-    const full: ModelProfile = { ...gpt55, id: "gpt-6-astra", displayName: "GPT-6 Astra (full)" };
-    expect(resolveProfile("gpt-6-astra", [...PROFILES, full]).displayName).toBe("GPT-6 Astra (full)");
+    // ADR-0012: gpt-6-astra is a full profile now, so the fixture uses gpt-6-sol, the remaining context-only entry.
+    const full: ModelProfile = { ...gpt55, id: "gpt-6-sol", displayName: "GPT-6 Sol (full)" };
+    expect(resolveProfile("gpt-6-sol", [...PROFILES, full]).displayName).toBe("GPT-6 Sol (full)");
   });
 
   it("corrects the GPT-5.5 / GPT-5.5 Pro window to the documented 1,050,000", () => {
@@ -379,7 +380,9 @@ describe("selectSummarizer", () => {
     expect(r.model.id).toBe("claude-opus-5-5");
   });
 
-  it("red-escalation picks the cheaper sibling (gpt-5.5), NOT the 6x Pro (ADR-0002)", async () => {
+  // ADR-0012: gpt-5.5 / gpt-5.5-pro are suspended, so the OpenAI pick is now gpt-6.1-sol (Astra 0.93 and
+  // 6.1 Sol 0.92 share the band; 6.1 Sol is cheaper). The Pro case moves to a synthetic fixture.
+  it("red-escalation picks the cheaper equal-fidelity model (gpt-6.1-sol, ADR-0002)", async () => {
     const r = await selectSummarizer({
       host: { provider: "openai", modelId: "gpt-5.5" },
       sourceZone: "red", // escalate - but cost still decides within the equal-fidelity band
@@ -389,8 +392,29 @@ describe("selectSummarizer", () => {
     });
     expect(r.kind).toBe("model");
     if (r.kind !== "model") throw new Error("expected a model pick");
-    expect(r.model.id).toBe("gpt-5.5");
-    expect(r.model.id).not.toBe("gpt-5.5-pro");
+    expect(r.model.id).toBe("gpt-6.1-sol");
+  });
+
+  it("never pays 6x for a Pro sibling of equal fidelity (synthetic fixture, ADR-0002)", async () => {
+    const sol = PROVISIONAL.find((p) => p.id === "gpt-6.1-sol")!;
+    const pro: ModelProfile = {
+      ...sol,
+      id: "gpt-6.1-sol-pro",
+      displayName: "GPT-6.1 Sol Pro (synthetic)",
+      isPro: true,
+      price: { inputPerMTok: 12, outputPerMTok: 60 },
+    };
+    const r = await selectSummarizer({
+      host: { provider: "openai", modelId: "gpt-6.1-sol" },
+      sourceZone: "red",
+      cost,
+      fidelityFloor: 0.0,
+      profiles: [sol, pro],
+    });
+    expect(r.kind).toBe("model");
+    if (r.kind !== "model") throw new Error("expected a model pick");
+    expect(r.model.id).toBe("gpt-6.1-sol");
+    expect(r.model.id).not.toBe("gpt-6.1-sol-pro");
   });
 
   it("ecosystem exclusion: a Claude user is never given an OpenAI model (ADR-0004)", async () => {
@@ -407,47 +431,47 @@ describe("selectSummarizer", () => {
     expect(r.model.id.startsWith("gpt")).toBe(false);
   });
 
+  // ADR-0012: Haiku 4.5 is suspended - with it as the only reachable model the pool would be empty and the
+  // test would pass for the wrong reason. Haiku 5.5 (provisional 0.70) is the weak model now.
   it("verbatim-fallback: only a weak model reachable in RED can't clear the bumped floor (ADR-0004)", async () => {
     const r = await selectSummarizer({
-      host: { modelId: "claude-haiku-4-5-20251001" },
-      sourceZone: "red", // bumps floor 0.75 -> 0.85; Haiku's 0.70 can't clear it
+      host: { modelId: "claude-haiku-5-5" },
+      sourceZone: "red", // bumps floor 0.75 -> 0.85; Haiku 5.5's 0.70 can't clear it
       cost,
       fidelityFloor: 0.75,
       profiles: PROVISIONAL,
-      reachable: async (p) => p.id === "claude-haiku-4-5-20251001",
+      reachable: async (p) => p.id === "claude-haiku-5-5",
     });
     expect(r.kind).toBe("verbatim-fallback");
+    if (r.kind !== "verbatim-fallback") throw new Error("expected verbatim");
+    expect(r.reason).toContain("below effective floor");
   });
 });
 
 /* ------------------------------------------------------------------ */
-/* Calibrated selection (2026-06-22 cross-ecosystem run)               */
+/* Calibrated selection                                                */
 /* ------------------------------------------------------------------ */
 
 describe("selectSummarizer — calibrated seed (ADR-0002 cost tiebreak)", () => {
   const cost: CostInput = { inputTokens: 180_000, expectedBriefTokens: 6_000 };
 
-  it("Anthropic green-pick now returns HAIKU: measured fidelity ties opus/sonnet within the band → cheapest wins", async () => {
-    const r = await selectSummarizer({
-      host: { modelId: "claude-opus-4-8" },
-      sourceZone: "green",
-      cost,
-      fidelityFloor: 0.0,
-    });
-    expect(r.kind).toBe("model");
-    if (r.kind !== "model") throw new Error("expected a model pick");
-    expect(r.model.id).toBe("claude-haiku-4-5-20251001"); // calibrated 0.980, cheapest in the top band
-  });
-
+  // ADR-0012: the "Anthropic green-pick returns HAIKU" seed test is gone - Haiku 4.5 is suspended; the
+  // band + cost tiebreak is covered with synthetic calibration values in pool.test.ts.
+  // The red-zone case below now uses a synthetic calibrated pool model instead of the suspended Haiku 4.5.
   it("a calibrated model clears the 0.85 floor even in the red zone (no needless verbatim fallback)", async () => {
+    const haiku55 = PROFILES.find((p) => p.id === "claude-haiku-5-5")!;
+    const calibrated: ModelProfile = {
+      ...haiku55,
+      summarizer: { ...haiku55.summarizer, fidelityScore: 0.97, calibrated: true },
+    };
     const r = await selectSummarizer({
-      host: { modelId: "claude-haiku-4-5-20251001" },
+      host: { modelId: "claude-haiku-5-5" },
       sourceZone: "red",
       cost,
       fidelityFloor: 0.85,
-      reachable: async (p) => p.id === "claude-haiku-4-5-20251001",
+      profiles: [calibrated],
     });
-    expect(r.kind).toBe("model"); // haiku 0.980 ≥ 0.85+0.10
+    expect(r.kind).toBe("model"); // 0.97 ≥ 0.85+0.10
   });
 });
 

@@ -22,6 +22,9 @@ export interface ModelCallRequest {
   prompt: string;
   maxTokens: number;
   model: string;
+  /** Reasoning effort for the API adapters (ADR-0012): Anthropic `output_config.effort`, OpenAI
+   *  `reasoning_effort`. Unset = provider default. Sampling cannot carry it; the bridge sets its own. */
+  effort?: string;
 }
 
 export interface ModelCallResult {
@@ -62,6 +65,7 @@ export async function callAnthropic(
       max_tokens: req.maxTokens,
       ...(req.systemPrompt ? { system: req.systemPrompt } : {}),
       messages: [{ role: "user", content: req.prompt }],
+      ...(req.effort ? { output_config: { effort: req.effort } } : {}),
     }),
   });
   const json = (await res.json()) as {
@@ -92,6 +96,7 @@ export async function callOpenAICompatible(
         ...(req.systemPrompt ? [{ role: "system", content: req.systemPrompt }] : []),
         { role: "user", content: req.prompt },
       ],
+      ...(req.effort ? { reasoning_effort: req.effort } : {}), // Chat Completions spelling (Responses: reasoning.effort)
     }),
   });
   const json = (await res.json()) as {

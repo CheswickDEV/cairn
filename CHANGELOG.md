@@ -1,5 +1,46 @@
 # CHANGELOG
 
+## Unreleased — Summarizer pool on the current generation, effort `high` (2026-10-11)
+
+Sources: Anthropic models overview, model pages, pricing, model deprecations and effort docs; OpenAI
+model pages, API pricing and reasoning guide; OpenAI Codex models and config docs; Claude Code model
+configuration and CLI reference; MCP sampling specification (all read 2026-10-11, each fact checked by two
+independent reviews). See ADR-0012.
+
+- **New summarizer pool** `[CODE-IMPACTING]`: full profiles for Claude Fable 5.1 ($10/$50), Sonnet 5.5
+  ($2/$10) and Haiku 5.5 ($0.10/$0.50), and for GPT-6 Astra ($10/$50), GPT-6.1 Sol ($2/$10) and GPT-6 Luna
+  ($0.10/$0.50), next to Claude Opus 5.5. Each has its cache-read and Batch prices.
+  - Haiku 5.5: a request over 100,000 prompt tokens pays 5x on everything, Batch included.
+  - GPT-6: above 272K input tokens 2x input and 1.5x output for the whole request, Batch included.
+  - They leave the context-only list; only GPT-6 Sol remains there.
+- **Earlier generation suspended**: Claude Opus 4.8, Sonnet 4.6, Haiku 4.5 and GPT-5.5, GPT-5.5 Pro,
+  GPT-5.4, GPT-5.4 Pro (Fable 5 already was). They keep their measured values and still resolve with the
+  right window, but are never selected, calibrated or used as reviewers.
+- **Selection until the calibration** (intended): the new profiles rank on house priors. Claude hosts get
+  Opus 5.5 and Codex hosts GPT-6.1 Sol in green and yellow; red (floor 0.95) falls back to verbatim. A
+  handoff without a zone counts as red, so it reports verbatim too; account mode stores the brief anyway.
+  Before, the calibrated pick on Claude hosts was Haiku 4.5.
+- **Effort floor `high`** `[CODE-IMPACTING]`: calibration runs every model at exactly `high` (was
+  `medium`…`max`); reviewers run at exactly `high`. Checked in `buildVariants`, the account compactor (skip
+  without a call), reviewer creation and the CLI pre-flight. Before, an id without a valid effort reached
+  the CLI without `--effort` and ran the default (`medium` for Opus 5.5).
+  - Bridge mode (`CAIRN_BRIDGE`) now always passes `--effort high` / `model_reasoning_effort=high`.
+  - API mode sends `output_config.effort` (Anthropic) or `reasoning_effort` (OpenAI) as `high` for pool
+    models. Sampling mode cannot set an effort (MCP has no such field); documented as a limit.
+- **Full reviewer matrix**: every brief is reviewed by all six other pool models, never by its own model
+  (was: the 2–3 strongest foreign models). `CAIRN_CALIB_REVIEWER_POOL` entries are normalised to base ids;
+  `CAIRN_CALIB_REVIEWERS` must be a positive integer (a non-number used to mean zero reviewers).
+- **Calibration CLI**: the configuration is resolved and validated in `calib-config.ts` before any call.
+  New `--dry-run`: the live configuration on fixtures, no egress, prints the call count (single probe 49,
+  golden set 245, 400K high-fill 28).
+  - Artifacts are named `<date>T<time>Z-<mode>[-golden|-large].json` and never overwritten. Before,
+    offline and live runs wrote the same `<date>.json`.
+  - Artifacts keep every review (reviewer, rubric, fidelity), list only reviewers that actually scored and
+    record the reviewer effort. The golden output adds verbosity, spread and the spread warning per probe.
+- **Bridge windows**: Claude Fable 5.1, Sonnet 5.5 and Haiku 5.5 at 1M (Claude Code default); GPT-6 via
+  Codex at 258,400 (conservative estimate; Codex documents no window).
+- **`host_status`** suggests GPT-6.1 Sol (Codex's recommended model) instead of the retiring GPT-5.5.
+
 ## Unreleased — Claude Opus 5.5 and current-model context windows (2026-10-11)
 
 Sources: Anthropic models overview, model pages, pricing and context-window docs; OpenAI API models

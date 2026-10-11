@@ -15,7 +15,7 @@
 
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
-import type { ModelCallRequest, ModelCallResult } from "./providers.js";
+import type { ModelCaller, ModelCallRequest, ModelCallResult } from "./providers.js";
 import { t, type Lang } from "../i18n/index.js";
 
 export type BridgeCli = "claude" | "codex";
@@ -194,6 +194,15 @@ export async function runBridge(input: RunBridgeInput): Promise<ModelCallResult>
   const text = parseCodexJsonl(stdout);
   if (!text && code !== 0) throw new Error(`codex bridge failed (code ${code}): ${stderr.slice(0, 300)}`);
   return { text, truncated: false, finishReason: "stop" };
+}
+
+/** Effort of the product's bridge mode (ADR-0012): every bridged compaction runs at `high`, never the CLI
+ *  default (Claude Code runs Opus, Sonnet and Haiku 5.5 at `medium`). */
+export const PRODUCT_BRIDGE_EFFORT = "high";
+
+/** The bridge-mode caller the MCP server wires up for `CAIRN_BRIDGE`, always at PRODUCT_BRIDGE_EFFORT. */
+export function productBridge(cli: BridgeCli, lang: Lang, execFn?: ExecFn): ModelCaller {
+  return (req) => bridgeCompact({ cli, request: req, lang, effort: PRODUCT_BRIDGE_EFFORT, execFn });
 }
 
 /** Run a COMPACTION on the given CLI's subscription session (7-bucket + brief-only directive). */

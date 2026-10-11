@@ -54,12 +54,25 @@ export interface ModelCalibration {
   spread: number;
   highSpreadWarning: boolean;
   outputTokens: number;
+  /** Reviewers that actually scored this brief (a failed review is skipped + logged, not listed). */
   reviewers: string[];
   retainedAllMustSurvive: boolean;
+  /** Per-review records for the analysis (ADR-0012). Optional so hand-built records stay valid. */
+  reviews?: ReviewRecord[];
+}
+
+/** One reviewer's verdict on one brief: who scored, the rubric (incl. the hard verbatim check) and the
+ *  resulting weighted fidelity. */
+export interface ReviewRecord {
+  reviewerModelId: string;
+  rubric: RubricScore;
+  fidelity: number;
 }
 
 export interface CalibrationArtifact {
   date: string;
+  /** Effort the reviewers ran at (live runs; ADR-0012: exactly `high`). */
+  reviewerEffort?: string;
   models: ModelCalibration[];
   /** Lowest fidelity among briefs that retained ALL must-survive items; null if none did. */
   floorProposal: number | null;

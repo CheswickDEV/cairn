@@ -1,13 +1,14 @@
 /**
  * Cairn - real account-session compactor (ADR-0005/0006). Each candidate variant compacts the
- * probe on its OWN subscription via the bridge, at the variant's reasoning effort. Injectable
+ * probe on its OWN subscription via the bridge, at the variant's reasoning effort (never below
+ * `high`, ADR-0012). Injectable
  * `execFn` keeps it unit-testable; the real run uses the default spawn.
  */
 
 import { bridgeCompact, type ExecFn } from "../core/bridge.js";
 import { PROFILES } from "../core/model-profiles.js";
 import { estimateTokens, type Compactor } from "./runner.js";
-import { parseVariant, cliFor, cliModelName, type CalibEcosystem } from "./variants.js";
+import { parseVariant, cliFor, cliModelName, assertMinEffort, CALIB_EFFORT, type CalibEcosystem } from "./variants.js";
 
 export interface AccountCompactorOptions {
   execFn?: ExecFn;
@@ -20,6 +21,9 @@ export interface AccountCompactorOptions {
 export function makeAccountCompactor(opts: AccountCompactorOptions = {}): Compactor {
   return async ({ modelId, maskedProbe, prompt }) => {
     const { baseModelId, effort } = parseVariant(modelId);
+    // Effort floor (ADR-0012): an id without effort, a lower tier or a mis-cased one would reach the CLI
+    // without `--effort` and run the model default. Throwing here makes it a logged skip with no call.
+    assertMinEffort(effort, CALIB_EFFORT, `variant '${modelId}'`);
     const profile = PROFILES.find((p) => p.id === baseModelId);
     if (!profile || (profile.ecosystem !== "anthropic" && profile.ecosystem !== "openai")) {
       throw new Error(`variant '${modelId}': no bridgeable ecosystem`);

@@ -5,6 +5,10 @@
  * completion via `sampling/createMessage`. The completion executes on the USER's account/
  * subscription inside the client - Cairn holds no credentials. Gated by the client actually
  * advertising the `sampling` capability; otherwise it refuses (no silent egress).
+ *
+ * Limit (ADR-0012): `sampling/createMessage` has no effort field, so this mode cannot enforce the
+ * `high` effort floor - the client's model and effort defaults apply. (MCP spec 2026-07-28 deprecates
+ * sampling.) Use the bridge or API mode when the effort matters.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";

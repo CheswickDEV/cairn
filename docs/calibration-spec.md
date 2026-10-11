@@ -40,7 +40,7 @@ Every reachable candidate condenses the same probe context with the same 7-bucke
 
 ## 4. Peer-Review Rubric
 
-Each brief is rated by **≥2 of the strongest available third-party models**. **No self-review.** Cross-ecosystem is allowed here (offline). Rating is strict against the rubric, each 0..1:
+Each brief is rated by **every other model of the pool** (full matrix, effort `high`; ADR-0012). **No self-review.** Cross-ecosystem is allowed here (offline). Rating is strict against the rubric, each 0..1:
 
 | Criterion | Question | Source |
 |---|---|---|
@@ -60,6 +60,6 @@ Weight recall and hallucination higher (those are the expensive errors). Verbati
 
 ## 6. Bias Mitigation
 
-- ≥2 reviewers, mixed across ecosystems where possible.
+- Full reviewer matrix (ADR-0012): every other pool model reviews each brief, so every brief gets reviewers from both ecosystems. Compare a family's scores from its own family with those from the other family.
 - Reviewers receive brief + ground-truth, but **not** the author's model name (blind).
 - Re-run on every new model / price update; old scores remain versioned and preserved.
