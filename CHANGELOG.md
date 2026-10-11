@@ -59,8 +59,7 @@ independent reviews). See ADR-0012.
     error message (or stderr) as the reason.
 - **Bridge context isolation** `[CODE-IMPACTING]`: a bridge call carries far less of the user's own
   context. It still carries Codex's global AGENTS.md and any skill named with `$<skill>` (see limits
-  below), plus what the CLI itself adds: claude's identity line and environment block, Codex's base
-  instructions and environment context. These gaps are older than this release.
+  below), plus what each CLI adds itself (listed in ADR-0012). These gaps are older than this release.
   - claude: user and plugin MCP servers no longer start, and their tools are no longer offered.
     `--tools ""` covered built-in tools only; the bridge now passes `--strict-mcp-config` and
     `--disallowedTools mcp__*`.

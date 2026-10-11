@@ -101,9 +101,10 @@ export function managedMcpConfigPath(platform: NodeJS.Platform = process.platfor
   return "/etc/claude-code/managed-mcp.json";
 }
 
-/** Is a managed-mcp.json deployed? Claude Code then loads only the managed servers. When the file parses,
- *  `--strict-mcp-config` makes it exit at startup; when it does not, Claude Code 2.1.296 still keeps that
- *  exclusive control. So existence decides, not our parse (Claude Code also accepts a UTF-8 BOM).
+/** Is a managed-mcp.json deployed? Claude Code then loads only the managed set. When the file is valid
+ *  (Claude Code's own parse and schema), `--strict-mcp-config` makes it exit at startup; when it is not,
+ *  Claude Code 2.1.296 still keeps that exclusive control. So existence decides, not our parse (Claude Code
+ *  also accepts a UTF-8 BOM).
  *  OS edges are injectable for testing. */
 export function managedMcpConfigPresent(
   exists: (path: string) => boolean = existsSync,
@@ -297,7 +298,8 @@ export async function runBridge(input: RunBridgeInput): Promise<ModelCallResult>
     // child's environment AND via `--settings` (outranks user settings; managed settings still win).
     const pinned = effort && CLAUDE_EFFORTS.has(effort) ? effort : undefined;
     // No user/plugin hooks in a pure compaction/review call: a prompt or agent hook runs its own model,
-    // which `modelUsage` would then report as a second answering model (managed hooks still run).
+    // which `modelUsage` would then report as a second answering model (managed hooks, Agent SDK hooks,
+    // hooks of managed-forced plugins and built-in mods still run).
     const env: Record<string, string> = { ...CLAUDE_ISOLATION_ENV, ...(pinned ? { CLAUDE_CODE_EFFORT_LEVEL: pinned } : {}) };
     const settings = { disableAllHooks: true, disableClaudeAiConnectors: true, env };
     args.push("--settings", JSON.stringify(settings));

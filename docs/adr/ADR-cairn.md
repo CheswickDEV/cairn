@@ -461,7 +461,9 @@ model.
 system prompt and its input, plus what the CLI itself adds. For claude that is a billing header, an
 identity line and an environment block: cwd, git flag, platform, shell, OS, model and knowledge cutoff,
 token budget, date, and a note on downloaded files. For Codex it is its base instructions plus its
-permissions, collaboration-mode and environment context. Two independent reviews ran Claude Code
+permissions, collaboration-mode and environment context. Depending on account or config, Codex can add
+more: a git-attribution block (ChatGPT login with commit attribution on, no switch), memories, or
+managed developer instructions. Two independent reviews ran Claude Code
 2.1.296 offline against a mock API and read the Codex `rust-v0.162.1` source. They found gaps the
 earlier flags left open, all of them older than this ADR:
 - `--tools ""` disables built-in tools only. User-scope and plugin MCP servers started on every call.
@@ -479,7 +481,10 @@ The claude bridge now passes:
   `managed-mcp.json` exists at the documented path (`/etc/claude-code/`,
   `/Library/Application Support/ClaudeCode/`, `C:\Program Files\ClaudeCode\`). With a valid file
   Claude Code exits at startup on the flag. With an invalid one, Claude Code 2.1.296 keeps exclusive
-  control as well. Either way only managed servers load, never user or plugin servers.
+  control as well. Either way only the documented managed set loads, never user or plugin servers.
+  For an unreadable or invalid file this relies on that fail-closed behaviour of 2.1.296. Were a later
+  version to treat such a file as absent, user and plugin servers would start again, with their tools
+  still denied.
 - `--disallowedTools mcp__*`, which removes every MCP tool, but not a loaded server's instructions;
 - `--no-session-persistence`;
 - `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` and `ENABLE_CLAUDEAI_MCP_SERVERS=false`, set both in the child's
