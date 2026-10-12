@@ -47,7 +47,7 @@ independent reviews). See ADR-0012.
     decides the ecosystem when it names one, so a contradicting provider no longer sends a GPT id to
     claude either.
   - The claude bridge passes Claude Code's context variant (`claude-opus-5-5[1m]`) as `--model`; before, it
-    dropped such an id and the CLI's default wrote the brief. API mode sends the session model's id without
+    dropped such an id and the CLI's default wrote the brief. The codex bridge still drops a bracketed id. API mode sends the session model's id without
     that suffix, which is Claude Code's and no part of the API model id.
   - An API endpoint with a configured model keeps it (gateways and Azure deployments name their own
     models). Without any model id Cairn refuses the API call before egress instead of sending an empty one.
@@ -59,8 +59,9 @@ independent reviews). See ADR-0012.
     sampling client's `model`).
   - In account mode, a host that names only its provider gets the recommendation as "if the session runs
     another model", not as a claim that another model wrote the brief.
-  - No recommendation when the session model already is the selection and another model answered as a
-    fallback (the result names it in `compactedWith`), or for a gemini endpoint, which runs no pool model.
+  - No recommendation when the model asked for (the request, in sampling the hint) already is the
+    selection, even if a fallback answered (the result names it in `compactedWith`) or the answer went
+    unreported, and none for a gemini endpoint, which runs no pool model.
 - **Band rule** `[CODE-IMPACTING]`: the fidelity floor is checked over the whole top band. The cheapest
   band model that clears the zone floor is selected; verbatim only when none does. Before, only the cheapest
   band model was checked, and a miss went straight to verbatim although a stronger band model would

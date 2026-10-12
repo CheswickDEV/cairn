@@ -95,8 +95,8 @@ export interface HandoffResult {
    *  sampling client). Also the brief's `who` in the ledger. */
   compactedWith?: string;
   /** Every mode: the selected summarizer when the model that wrote the brief (the host's in account mode, else
-   *  `compactedWith`) is another one or unknown, unless the model asked for already is it (a fallback answered)
-   *  or the API endpoint's provider has no pool (gemini) (ADR-0012). */
+   *  `compactedWith`) is another one or unknown, unless the model asked for (the request, in sampling the hint)
+   *  already is it, or the API endpoint's provider has no pool (gemini) (ADR-0012). */
   recommendedModel?: string;
   storedDecisionId: string;
   verbatimHolds: number;
@@ -309,8 +309,9 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
 
   // The brief's writer: the host in account mode, else the model that compacted. If the selection names
   // another model, or the writer is unknown, recommend the selection (ADR-0012). Not when the model asked for
-  // already is the selection (a fallback answered: switching would change nothing), and not for an endpoint
-  // whose provider has no pool (gemini), where the selection names a model it cannot run.
+  // (the request, in sampling the hint) already is the selection: switching the session model would change
+  // nothing, whether a fallback answered or the answer went unreported. And not for an endpoint whose
+  // provider has no pool (gemini), where the selection names a model it cannot run.
   const isSelected = (id: string | undefined) =>
     selection.kind === "model" && !!id && resolveProfile(id).id === selection.model.id;
   const writer = mode === "account" ? host.modelId : compactedWith;

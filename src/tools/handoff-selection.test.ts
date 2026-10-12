@@ -160,6 +160,15 @@ describe("the tool text", () => {
     return (await handler!({ brief: "", source: "src", host, sourceZone: "red", mode: "bridge" })).content[0].text;
   };
 
+  it("no recommendation when the sampling hint already is the selection, even if the client names no model", async () => {
+    const sample = echo(); // reports no model: the writer is unknown
+    const r = await runHandoff(
+      { brief: "", source: "src", host: { modelId: "gpt-6.1-sol" }, sourceZone: "red", mode: "sampling" },
+      { store: store(), config: loadConfig({ CAIRN_ENABLE_MODES: "sampling" }), sample },
+    );
+    expect([sample.mock.calls[0][0].model, r.compactedWith, r.recommendedModel]).toEqual(["gpt-6.1-sol", undefined, undefined]);
+  });
+
   it("no recommendation when the session model already is the selection and a fallback answered", async () => {
     const bridge = vi.fn<ModelCaller>(async () => ({ text: "1) DECISIONS x", truncated: false, finishReason: "success", modelsUsed: ["claude-sonnet-5-5"] }));
     const r = await runHandoff(

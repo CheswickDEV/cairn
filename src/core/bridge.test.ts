@@ -93,6 +93,13 @@ describe("bridgeCompact — claude -p (hardened)", () => {
       await bridgeCompact({ cli: "claude", request: { ...req, model: bad }, execFn: e });
       expect(e.mock.calls[0][1]).not.toContain("--model");
     }
+    // Codex has no context suffix: a bracketed id is dropped there, a plain one passes.
+    const codexOut = `${JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "1) DECISIONS" } })}\n`;
+    for (const [model, passed] of [["gpt-6.1-sol[1m]", false], ["gpt-6.1-sol", true]] as const) {
+      const c = vi.fn<ExecFn>(async () => ({ stdout: codexOut, stderr: "", code: 0 }));
+      await bridgeCompact({ cli: "codex", request: { ...req, model }, execFn: c });
+      expect(c.mock.calls[0][1].includes("--model")).toBe(passed);
+    }
   });
 
   it("drops an unsafe --model value (no flag injection via host.modelId)", async () => {

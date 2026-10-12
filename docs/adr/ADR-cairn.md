@@ -116,7 +116,7 @@ Not every user has access to every model: a Claude user does not necessarily hav
 ### Decision
 The summarizer candidate pool is restricted to the host system's ecosystem and additionally filtered to credential-reachable models (capability/key probe per candidate). Cross-provider routing only with explicit org configuration. Selection pipeline: (0) detect environment → (1) filter to ecosystem → (2) check reachability → (3) rank quality-first (ADR-0002) with zone escalation (ADR-0003: red/yellow → top model, no cost downgrade) → (4) floor check. If the best available model is below the fidelity floor, the brief is delivered **verbatim instead of compressed** (lossless verbatim fallback). Ollama local is the only universal, account-free fallback and fits the locally-private approach, but must be calibrated separately.
 
-> **Correction (2026-10-12, ADR-0012):** Zone escalation is a raised floor, not a switch to the top model. The selector takes the top fidelity band (at most 0.02 below the best reachable model) and sorts it by cost; the zone raises the floor (yellow +0.05, red +0.10). The cheapest band model that clears the raised floor is selected, and the handoff goes verbatim only when no band model clears it. Cost therefore decides inside the band in every zone; a model outside the band is never chosen for its price. Until 2026-10-12 the floor was checked only on the cheapest band model, so a stronger band model was skipped in favor of verbatim. The selection does not pick the writer: the session model writes the brief in every mode (an API endpoint's configured model, or the bridge CLI's default where the session model does not run), and the selection is a recommendation (ADR-0012).
+> **Correction (2026-10-12, ADR-0012):** Zone escalation is a raised floor, not a switch to the top model. The selector takes the top fidelity band (at most 0.02 below the best reachable model) and sorts it by cost; the zone raises the floor (yellow +0.05, red +0.10). The cheapest band model that clears the raised floor is selected, and the selection falls back to verbatim only when no band model clears it. Cost therefore decides inside the band in every zone; a model outside the band is never chosen for its price. Until 2026-10-12 the floor was checked only on the cheapest band model, so a stronger band model was skipped in favor of verbatim. The selection does not pick the writer: the session model writes the brief in every mode (an API endpoint's configured model, or the bridge CLI's default where the session model does not run), and the selection is a recommendation (ADR-0012).
 
 ### Consequences
 - Positive: closes the gap "Claude user without a ChatGPT account"; never selects a model that cannot be called.
@@ -415,8 +415,9 @@ kept in the profiles as history): Fable 5.1 0.93, Opus 5.5 0.92, Sonnet 5.5 0.85
 Astra 0.93, GPT-6.1 Sol 0.92, GPT-6 Luna 0.70. With the 0.85 floor that gave Opus 5.5 / GPT-6.1 Sol in
 green and yellow and verbatim in red. The calibration below replaces it. In the sampling, bridge and API
 modes the configured caller compacts even when the selection reports "verbatim fallback" and stores the
-model's brief. That predates this ADR (a bridge test requires the call) and stays an open point; which
-model compacts is described under "Who writes the brief" (the session model).
+model's brief, and account mode stores the host's brief, so the fallback is only reported. That predates
+this ADR (a bridge test requires the call) and stays an open point; which model compacts is described
+under "Who writes the brief" (the session model).
 
 **Effort.** Every model is calibrated at exactly `high`, and Cairn never requests less for a calibration
 or bridge call. The bridge silently drops an effort it does not accept, and the CLI then uses its default:
@@ -657,7 +658,7 @@ Selection with these values:
 - Haiku 5.5 and Luna are outside the band by only 0.003 and 0.004; in run 2 alone both were inside.
 
 **Band rule (2026-10-12).** The floor is checked over the whole band: the cheapest band model that clears
-the zone floor is selected, and the handoff goes verbatim only when no band model clears it (ADR-0004,
+the zone floor is selected, and the selection falls back to verbatim only when no band model clears it (ADR-0004,
 corrected). Before, only the cheapest band model was checked.
 
 **Who writes the brief (2026-10-12).** The selection never chose the writer: in account mode the host
@@ -673,13 +674,14 @@ recommendation:
   provider does not send a GPT id to claude; an id that names none (an alias like `opus`) counts by the
   provider.
   - The claude bridge passes Claude Code's context variant (`claude-opus-5-5[1m]`) as `--model`, as Claude
-    Code accepts it. API mode sends the id without that suffix: it is Claude Code's, not part of the API
-    model id.
+    Code accepts it; the codex bridge drops a bracketed id, since Codex has no such suffix. API mode sends
+    the id without that suffix: it is Claude Code's, not part of the API model id.
   - Without a session model of its ecosystem (a Codex host with a claude bridge, or no model id given) the
     bridge passes no model, and the CLI runs its own default. For claude that is the model Claude Code
-    picks without `--model`: `ANTHROPIC_MODEL` (also from a settings `env` block), else a `model` setting
-    (managed or user settings; the bridge loads no project or local settings), else
-    `ANTHROPIC_DEFAULT_MODEL`, else the account's default, which an organization default can set. For codex
+    picks without `--model`: `ANTHROPIC_MODEL` (also from a settings `env` block), else a managed `model`
+    setting, else the user's `model` setting, else an organization default (Enterprise; one set to override
+    user selection comes before the user's setting), else `ANTHROPIC_DEFAULT_MODEL`, else the model recorded
+    on the account or the account type's default. The bridge loads no project or local settings. For codex
     it is the default without the user's `config.toml`, which the bridge ignores; a system, managed or
     project config can still set one.
   - An API endpoint without its own model and without a session model of its provider makes Cairn refuse
@@ -692,13 +694,15 @@ recommendation:
 - The selection runs in the ecosystem the brief is written in: the host's, or for bridge and API the
   CLI's or the endpoint provider's. When it names another model than the one that wrote the brief, or that
   model is unknown, the result recommends it (`recommendedModel`). It does not when the model asked for
-  already is the selection and another model answered as a fallback (the result names that one in
-  `compactedWith`; switching would change nothing), nor for an endpoint outside the pool (gemini), where the
+  (the request, in sampling the hint) already is the selection, since switching the session model would
+  change nothing: neither when another model answered as a fallback (the result names that one in
+  `compactedWith`) nor when the answer went unreported. Nor for an endpoint outside the pool (gemini), where the
   selection, made in the host's ecosystem, names a model the endpoint does not run. The tool text says how
   to get the recommended model:
   - after the session model: switch it (`/model`) and run Cairn Handoff again. When the writer is
     unknown (in account mode a host that names only its provider, in sampling a client that reports no
-    model), the line says "if the session runs another model" instead of claiming one;
+    model while the hint is not the selection or there is none), the line says "if the session runs another
+    model" instead of claiming one;
   - after an endpoint's configured model: set that endpoint to the recommended model;
   - after the bridge CLI's default: the line names the recommended model only.
 

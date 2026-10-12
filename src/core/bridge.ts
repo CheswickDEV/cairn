@@ -95,9 +95,11 @@ function systemFor(request: ModelCallRequest, lang: Lang): string {
 }
 
 /** Only pass a model name that looks like a real id (must start alphanumeric) - never let an
- *  untrusted value like "-flag" be parsed as a CLI option. A bracket suffix is Claude Code's context
- *  variant (`claude-opus-5-5[1m]`), which `--model` accepts and a session model id can carry. */
-const SAFE_MODEL = /^[A-Za-z0-9][A-Za-z0-9._:-]*(?:\[[A-Za-z0-9]+\])?$/;
+ *  untrusted value like "-flag" be parsed as a CLI option. */
+const SAFE_MODEL = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
+/** claude also takes Claude Code's context variant (`claude-opus-5-5[1m]`), which a session model id can
+ *  carry; Codex has no such suffix. */
+const SAFE_CLAUDE_MODEL = /^[A-Za-z0-9][A-Za-z0-9._:-]*(?:\[[A-Za-z0-9]+\])?$/;
 /** Effort tier must be a bare lowercase word (low|medium|high|xhigh|max) - no arg/config injection. */
 const SAFE_EFFORT = /^[a-z]+$/;
 /** Set for every claude child, in its environment and via `--settings` (ADR-0012): no CLAUDE.md or auto
@@ -319,7 +321,7 @@ export async function runBridge(input: RunBridgeInput): Promise<ModelCallResult>
     // Without `--mcp-config` strict mode loads no MCP server. Under a valid managed-mcp.json Claude Code exits
     // at startup on that flag; there only the managed servers load, and the deny rule removes their tools.
     if (!(input.managedMcp ?? managedMcpConfigPresent)()) args.push("--strict-mcp-config");
-    if (model && SAFE_MODEL.test(model)) args.push("--model", model);
+    if (model && SAFE_CLAUDE_MODEL.test(model)) args.push("--model", model);
     if (effort && SAFE_EFFORT.test(effort)) args.push("--effort", effort);
     // Effort pin (ADR-0012): CLAUDE_CODE_EFFORT_LEVEL outranks `--effort`, and a settings `env` block outranks
     // the shell, so an inherited or configured `medium` would silently win. Pin a documented level in the

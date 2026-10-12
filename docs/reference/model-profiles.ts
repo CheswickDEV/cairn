@@ -557,10 +557,9 @@ export async function selectSummarizer(input: SelectInput): Promise<SelectResult
     .sort((a, b) => effectiveCost(a, input.cost) - effectiveCost(b, input.cost));
 
   // Stage 4: fidelity floor — zone escalation RAISES the floor (harder source context demands a
-  // stronger summarizer). The cheapest band model that clears the effective floor compacts; a cheaper
-  // one below it gives way to the next band model instead of sending the handoff to verbatim
-  // (ADR-0012). Verbatim only when no band model clears it — then no reachable model does, since the
-  // band holds the best one.
+  // stronger summarizer). The cheapest band model that clears the effective floor is selected; a cheaper
+  // one below it gives way to the next band model instead of a verbatim fallback (ADR-0012). Verbatim
+  // only when no band model clears it — then no reachable model does, since the band holds the best one.
   const ESCALATION_BUMP: Record<Zone, number> = { green: 0, yellow: 0.05, red: 0.10 };
   const effectiveFloor = input.fidelityFloor + ESCALATION_BUMP[input.sourceZone];
   const chosen = topBand.find((p) => fidelityKey(p) >= effectiveFloor);
