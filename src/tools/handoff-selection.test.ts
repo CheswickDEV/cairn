@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { runHandoff } from "./handoff.js";
+import { runHandoff, registerHandoff, recommendationLine, type HandoffInput } from "./handoff.js";
 import { SqliteStore } from "../store/sqlite-store.js";
 import { loadConfig } from "../core/config.js";
 import { serverSampler } from "../core/sampling.js";
@@ -7,59 +7,61 @@ import { t } from "../i18n/index.js";
 import { EgressNotConfiguredError, runOptionalCompaction, type ModelCaller, type ModelCallResult } from "../core/providers.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
-/* ADR-0012 stage 2: the selection decides which model compacts in the optional modes, and in account
-   mode (the host wrote the brief) it becomes a recommendation. */
+/* ADR-0012: the session model writes the brief in every mode (user decision, 2026-10-12); an API endpoint's
+   configured model wins. The selection becomes a recommendation whenever it names another model. */
 
 const store = () => new SqliteStore({ path: ":memory:" });
 const echo = () => vi.fn<ModelCaller>(async (req) => ({ text: req.prompt, truncated: false, finishReason: "endTurn" }));
 
-describe("bridge mode compacts with the selected model of the bridge CLI's ecosystem", () => {
+describe("bridge mode compacts with the session model where it runs, else the CLI's default", () => {
   it.each([
-    ["claude", { modelId: "claude-sonnet-5-5" }, "claude-opus-5-5"],
-    ["claude", { modelId: "gpt-6.1-sol" }, "claude-opus-5-5"], // a Codex host with a claude bridge
-    ["codex", { modelId: "claude-opus-5-5" }, "gpt-6.1-sol"], // a Claude host with a codex bridge
-    ["codex", { modelId: "gpt-6-luna" }, "gpt-6.1-sol"],
-  ] as const)("CAIRN_BRIDGE=%s, host %o → %s", async (cli, host, expected) => {
+    ["claude", { modelId: "claude-sonnet-5-5" }, "claude-sonnet-5-5", "claude-opus-5-5"],
+    ["claude", { modelId: "claude-opus-5-5[1m]" }, "claude-opus-5-5[1m]", undefined],
+    ["claude", { modelId: "gpt-6.1-sol" }, "", "claude-opus-5-5"], // a Codex host with a claude bridge
+    ["claude", { provider: "anthropic" }, "", "claude-opus-5-5"], // session model unknown
+    ["codex", { modelId: "claude-opus-5-5" }, "", "gpt-6.1-sol"], // a Claude host with a codex bridge
+    ["codex", { modelId: "gpt-6-luna" }, "gpt-6-luna", "gpt-6.1-sol"],
+    ["codex", { modelId: "gpt-6.1-sol" }, "gpt-6.1-sol", undefined],
+  ] as const)("CAIRN_BRIDGE=%s, host %o → asks for %j, recommends %s", async (cli, host, asked, recommended) => {
     const bridge = echo();
     const r = await runHandoff(
       { brief: "", source: "src", host, sourceZone: "red", mode: "bridge" },
       { store: store(), config: loadConfig({ CAIRN_ENABLE_MODES: "bridge", CAIRN_BRIDGE: cli }), bridge },
     );
-    expect(bridge.mock.calls[0][0].model).toBe(expected);
-    expect(r.modelId).toBe(expected);
-    expect(r.compactedWith).toBe(expected);
-    expect(r.recommendedModel).toBeUndefined();
+    expect(bridge.mock.calls[0][0].model).toBe(asked);
+    expect(r.compactedWith).toBe(asked || undefined);
+    expect(r.modelId).toBe(cli === "claude" ? "claude-opus-5-5" : "gpt-6.1-sol"); // selected in the bridge's ecosystem
+    expect(r.recommendedModel).toBe(recommended);
   });
 
-  it("after a verbatim fallback it keeps a host model of the bridge's ecosystem, never a foreign one", async () => {
-    const run = async (cli: "claude" | "codex", modelId: string) => {
-      const bridge = echo();
-      const r = await runHandoff(
-        { brief: "", source: "src", host: { modelId }, sourceZone: "red", mode: "bridge", fidelityFloor: 0.99 },
-        { store: store(), config: loadConfig({ CAIRN_ENABLE_MODES: "bridge", CAIRN_BRIDGE: cli }), bridge },
-      );
-      expect(r.selectionKind).toBe("verbatim-fallback");
-      return [bridge.mock.calls[0][0].model, r.compactedWith];
-    };
-    expect(await run("claude", "claude-sonnet-5-5")).toEqual(["claude-sonnet-5-5", "claude-sonnet-5-5"]);
-    expect(await run("claude", "gpt-6.1-sol")).toEqual(["", undefined]); // the CLI's own default model
+  it("a verbatim fallback changes nothing about the model and recommends nothing", async () => {
+    const bridge = echo();
+    const r = await runHandoff(
+      { brief: "", source: "src", host: { modelId: "claude-sonnet-5-5" }, sourceZone: "red", mode: "bridge", fidelityFloor: 0.99 },
+      { store: store(), config: loadConfig({ CAIRN_ENABLE_MODES: "bridge", CAIRN_BRIDGE: "claude" }), bridge },
+    );
+    expect(r.selectionKind).toBe("verbatim-fallback");
+    expect([bridge.mock.calls[0][0].model, r.compactedWith, r.recommendedModel]).toEqual(["claude-sonnet-5-5", "claude-sonnet-5-5", undefined]);
   });
 });
 
-describe("sampling passes the selection as a model hint", () => {
-  it("the request names the selected model, and the sampler sends it as modelPreferences.hints", async () => {
+describe("sampling names the session model as the hint", () => {
+  it("the request names the host's model, and the sampler sends it as modelPreferences.hints", async () => {
     const sample = echo();
-    await runHandoff(
+    const r = await runHandoff(
       { brief: "", source: "src", host: { modelId: "claude-sonnet-5-5" }, sourceZone: "green", mode: "sampling" },
       { store: store(), config: loadConfig({ CAIRN_ENABLE_MODES: "sampling" }), sample },
     );
-    expect(sample.mock.calls[0][0].model).toBe("claude-opus-5-5");
+    expect(sample.mock.calls[0][0].model).toBe("claude-sonnet-5-5");
+    // The client named no model: the writer is unknown, so the selection is recommended.
+    expect(r.compactedWith).toBeUndefined();
+    expect(r.recommendedModel).toBe("claude-opus-5-5");
 
     const createMessage = vi.fn(async (_params: unknown) => ({ content: { type: "text", text: "x" }, stopReason: "endTurn" }));
     const server = { server: { getClientCapabilities: () => ({ sampling: {} }), createMessage } } as unknown as McpServer;
-    await serverSampler(server)({ prompt: "p", maxTokens: 10, model: "claude-opus-5-5" });
+    await serverSampler(server)({ prompt: "p", maxTokens: 10, model: "claude-sonnet-5-5" });
     expect((createMessage.mock.calls[0][0] as { modelPreferences?: unknown }).modelPreferences).toEqual({
-      hints: [{ name: "claude-opus-5-5" }],
+      hints: [{ name: "claude-sonnet-5-5" }],
     });
     await serverSampler(server)({ prompt: "p", maxTokens: 10, model: "" });
     expect(createMessage.mock.calls[1][0]).not.toHaveProperty("modelPreferences");
@@ -74,7 +76,7 @@ describe("account mode recommends the selected summarizer when another model wro
     [{ modelId: "claude-sonnet-5-5" }, "claude-opus-5-5"],
     [{ modelId: "claude-haiku-4-5-20251001" }, "claude-opus-5-5"],
     [{ modelId: "gpt-6-luna" }, "gpt-6.1-sol"],
-    [{ provider: "anthropic" }, "claude-opus-5-5"], // writer unknown
+    [{ provider: "anthropic" }, "claude-opus-5-5"], // writer unknown: recommended, worded conditionally
   ] as const)("host %o → recommends %s, no model call", async (host, expected) => {
     const r = await save(host);
     expect(r.recommendedModel).toBe(expected);
@@ -88,12 +90,81 @@ describe("account mode recommends the selected summarizer when another model wro
       expect((await save(host)).recommendedModel).toBeUndefined();
     },
   );
+});
 
-  it("the tool text names the writer and the recommended model (en, de)", () => {
-    expect(t("en").handoff.recommend({ writer: "claude-sonnet-5-5", model: "Claude Opus 5.5" })).toContain(
-      "Brief written by claude-sonnet-5-5. The most faithful summarizer here is Claude Opus 5.5",
+describe("the recommendation text follows where the writing model came from", () => {
+  it("session model known, unknown, an endpoint's model, a bridge CLI's default (en, de)", () => {
+    const en = t("en").handoff.recommend;
+    const de = t("de").handoff.recommend;
+    expect(en({ writer: "claude-sonnet-5-5", model: "Claude Opus 5.5", source: "session" })).toBe(
+      "Brief written by claude-sonnet-5-5. The most faithful summarizer here is Claude Opus 5.5: " +
+        "switch the session model (/model) and run Cairn Handoff again for the best brief.",
     );
-    expect(t("de").handoff.recommend({ model: "GPT-6.1 Sol" })).toContain("Der treueste Summarizer hier ist GPT-6.1 Sol");
+    expect(de({ model: "GPT-6.1 Sol", source: "session" })).toBe(
+      "Der treueste Summarizer hier ist GPT-6.1 Sol. Läuft die Session auf einem anderen Modell: " +
+        "wechseln (/model) und Cairn Handoff erneut ausführen, für den besten Brief.",
+    );
+    expect(en({ writer: "my-deployment", model: "GPT-6.1 Sol", source: "endpoint", endpoint: "main" })).toContain(
+      "Brief written by my-deployment, the model set for endpoint 'main'. The most faithful summarizer here is GPT-6.1 Sol: " +
+        "if that endpoint runs another model, set it to GPT-6.1 Sol",
+    );
+    expect(de({ model: "GPT-6.1 Sol", source: "cli", cli: "codex" })).toBe(
+      "Brief geschrieben von dem Standardmodell der codex-CLI, das die Bridge ohne ein Session-Modell ihres Ökosystems " +
+        "nutzt. Der treueste Summarizer hier ist GPT-6.1 Sol.",
+    );
+    for (const p of [{ source: "endpoint", writer: "w", endpoint: "e" }, { source: "cli", cli: "claude" }] as const) {
+      expect(en({ model: "M", ...p })).not.toContain("/model");
+      expect(de({ model: "M", ...p })).not.toContain("/model");
+    }
+  });
+
+  it("recommendationLine picks the variant from the mode and the configuration", async () => {
+    const line = async (input: HandoffInput, env: Record<string, string>, lang: "en" | "de" = "en") => {
+      const config = loadConfig(env);
+      const caller = echo();
+      const fetchFn = vi.fn(async () => ({ json: async () => ({ choices: [{ message: { content: "1) DECISIONS x" }, finish_reason: "stop" }] }) }));
+      const r = await runHandoff(input, { store: store(), config, bridge: caller, sample: caller, fetchFn: fetchFn as never });
+      return recommendationLine(r, input, config, lang);
+    };
+    expect(await line({ brief: "x", host: { provider: "anthropic" }, sourceZone: "green" }, {})).toMatch(
+      /^The most faithful summarizer here is Claude Opus 5\.5\. If the session runs another model/,
+    );
+    expect(await line({ brief: "x", host: { modelId: "claude-sonnet-5-5" }, sourceZone: "green" }, {}, "de")).toMatch(
+      /^Brief geschrieben von claude-sonnet-5-5\. Der treueste Summarizer hier ist Claude Opus 5\.5: Session-Modell wechseln/,
+    );
+    const bridgeEnv = { CAIRN_ENABLE_MODES: "bridge", CAIRN_BRIDGE: "codex" };
+    expect(await line({ brief: "", source: "s", host: { modelId: "claude-opus-5-5" }, sourceZone: "red", mode: "bridge" }, bridgeEnv)).toBe(
+      "Brief written by the codex CLI's default model, which the bridge uses without a session model of its ecosystem. " +
+        "The most faithful summarizer here is GPT-6.1 Sol.",
+    );
+    expect(await line({ brief: "", source: "s", host: { modelId: "gpt-6-luna" }, sourceZone: "red", mode: "bridge" }, bridgeEnv)).toMatch(
+      /^Brief written by gpt-6-luna\. The most faithful summarizer here is GPT-6\.1 Sol: switch the session model/,
+    );
+    const apiEnv = { CAIRN_ENABLE_MODES: "api", CAIRN_ENDPOINT_MAIN: "openai|https://api.example.test|KEY|my-deployment" };
+    expect(await line({ brief: "", source: "s", host: { modelId: "gpt-6-luna" }, sourceZone: "red", mode: "api" }, apiEnv)).toMatch(
+      /^Brief written by my-deployment, the model set for endpoint 'main'\./,
+    );
+    expect(await line({ brief: "", source: "s", host: { modelId: "gpt-6.1-sol" }, sourceZone: "red", mode: "sampling" }, { CAIRN_ENABLE_MODES: "sampling" })).toMatch(
+      /^The most faithful summarizer here is GPT-6\.1 Sol\. If the session runs another model/,
+    );
+  });
+});
+
+describe("the tool text", () => {
+  const toolText = async (host: { modelId?: string }) => {
+    let handler: ((args: unknown) => Promise<{ content: Array<{ text: string }> }>) | undefined;
+    const server = { registerTool: (_n: string, _d: unknown, h: typeof handler) => (handler = h) } as unknown as McpServer;
+    registerHandoff(server, { store: store(), config: loadConfig({ CAIRN_ENABLE_MODES: "bridge", CAIRN_BRIDGE: "claude" }), bridge: echo() });
+    return (await handler!({ brief: "", source: "src", host, sourceZone: "red", mode: "bridge" })).content[0].text;
+  };
+
+  it("names the writer once: in the recommendation when there is one, else as 'Compacted with'", async () => {
+    const recommended = await toolText({ modelId: "claude-sonnet-5-5" });
+    expect(recommended).toContain("Brief written by claude-sonnet-5-5. The most faithful summarizer here is Claude Opus 5.5");
+    expect(recommended).not.toContain("Compacted with");
+    const best = await toolText({ modelId: "claude-opus-5-5" });
+    expect(best).toContain("Compacted with claude-opus-5-5.");
+    expect(best).not.toContain("most faithful");
   });
 });
 
@@ -153,10 +224,11 @@ describe("API mode model fallbacks (ADR-0012)", () => {
     return { run, fetchFn, s };
   };
 
-  it("a configured endpoint model wins over the selection (a gateway or an Azure deployment names its own models)", async () => {
+  it("a configured endpoint model wins over the session model (a gateway or an Azure deployment names its own models)", async () => {
     const { run, fetchFn } = await runApi({ provider: "openai", model: "my-azure-deployment" }, "gpt-6-luna");
     const r = await run;
     expect(r.modelId).toBe("gpt-6.1-sol"); // still selected and reported
+    expect(r.recommendedModel).toBe("gpt-6.1-sol");
     const body = JSON.parse(fetchFn.mock.calls[0][1].body as string);
     expect(body.model).toBe("my-azure-deployment");
     expect(body).not.toHaveProperty("reasoning_effort"); // not a pool id: the provider default
@@ -176,8 +248,16 @@ describe("API mode model fallbacks (ADR-0012)", () => {
     expect(JSON.parse(same.fetchFn.mock.calls[0][1].body as string).reasoning_effort).toBe("high");
   });
 
+  it("an endpoint without a model uses the session model of its provider", async () => {
+    const { run, fetchFn } = await runApi({ provider: "openai" }, "gpt-6-luna");
+    const r = await run;
+    const body = JSON.parse(fetchFn.mock.calls[0][1].body as string);
+    expect([body.model, body.reasoning_effort, r.compactedWith, r.recommendedModel]).toEqual(["gpt-6-luna", "high", "gpt-6-luna", "gpt-6.1-sol"]);
+  });
+
   it("without any model id the API call is refused before egress, never sent with an empty model", async () => {
-    const { run, fetchFn, s } = await runApi({ provider: "anthropic" }, "gpt-6.1-sol", 0.99);
+    // A session model of the other provider does not run there, and the selection never fills the gap.
+    const { run, fetchFn, s } = await runApi({ provider: "anthropic" }, "gpt-6.1-sol");
     await expect(run).rejects.toThrow(EgressNotConfiguredError);
     await expect(run).rejects.toThrow(/no model for endpoint 'main'/);
     expect(fetchFn).not.toHaveBeenCalled();
@@ -203,7 +283,7 @@ describe("API mode model fallbacks (ADR-0012)", () => {
 });
 
 describe("the brief is credited to the model that answered (ADR-0012)", () => {
-  const bridgeRun = async (answer: Partial<ModelCallResult>, floor?: number, modelId = "gpt-6.1-sol") => {
+  const bridgeRun = async (answer: Partial<ModelCallResult>, modelId = "claude-opus-5-5") => {
     const s = store();
     const bridge = vi.fn<ModelCaller>(async () => ({ text: "1) DECISIONS x", truncated: false, finishReason: "success", ...answer }));
     const r = await runHandoff(
@@ -213,7 +293,6 @@ describe("the brief is credited to the model that answered (ADR-0012)", () => {
         host: { modelId },
         sourceZone: "red",
         mode: "bridge",
-        fidelityFloor: floor,
         decisions: [{ decision: "d", rationale: "r" }],
       },
       { store: s, config: loadConfig({ CAIRN_ENABLE_MODES: "bridge", CAIRN_BRIDGE: "claude" }), bridge },
@@ -232,21 +311,22 @@ describe("the brief is credited to the model that answered (ADR-0012)", () => {
     const { r, who } = await bridgeRun({ modelsUsed: ["claude-sonnet-5-5"] });
     expect(r.compactedWith).toBe("claude-sonnet-5-5");
     expect(who.find(([d]) => d !== "d")?.[1]).toBe("claude-sonnet-5-5");
-    expect(who).toContainEqual(["d", "gpt-6.1-sol"]); // the host's own structured decision
+    expect(who).toContainEqual(["d", "claude-opus-5-5"]); // the host's own structured decision
     const mixed = await bridgeRun({ modelsUsed: ["claude-opus-5-5", "claude-haiku-5-5"] });
     expect(mixed.r.compactedWith).toBe("claude-opus-5-5, claude-haiku-5-5");
   });
 
   it("the CLI's default model when nothing was requested and the CLI names it", async () => {
-    const { r } = await bridgeRun({ modelsUsed: ["claude-sonnet-5-5"] }, 0.99);
-    expect(r.selectionKind).toBe("verbatim-fallback");
+    // A Codex host with a claude bridge: its session model does not run there, so nothing is requested.
+    const { r } = await bridgeRun({ modelsUsed: ["claude-sonnet-5-5"] }, "gpt-6.1-sol");
     expect(r.compactedWith).toBe("claude-sonnet-5-5");
-    const none = await bridgeRun({}, 0.99);
+    expect(r.recommendedModel).toBe("claude-opus-5-5");
+    const none = await bridgeRun({}, "gpt-6.1-sol");
     expect(none.r.compactedWith).toBeUndefined();
     expect(none.who.every(([, w]) => w === "gpt-6.1-sol")).toBe(true); // unknown author: the host, as before
   });
 
-  it("sampling credits the client's reported model, never the hint", async () => {
+  it("sampling credits the client's reported model, never the hint alone", async () => {
     const run = async (model?: string) => {
       const s = store();
       const createMessage = vi.fn(async () => ({ content: { type: "text", text: "1) DECISIONS x" }, stopReason: "endTurn", ...(model !== undefined ? { model } : {}) }));

@@ -3,11 +3,11 @@
  *
  * DEFAULT = account mode: takes a host-produced 7-bucket brief, runs the deterministic
  * freezeVerbatim masking + validation, picks the summarizer via selectSummarizer, and PERSISTS to
- * the store. The server makes NO model call and there is NO egress in account mode; the host wrote
- * the brief, so the selection becomes a recommendation when it names another model (ADR-0012).
+ * the store. The server makes NO model call and there is NO egress in account mode.
  * Optional modes (sampling/bridge/api) only run when explicitly configured; otherwise the egress
- * guardrail refuses the call. Bridge and API compact with the selected model of the ecosystem they
- * run in (the bridge CLI's, the endpoint's provider); sampling passes it as a hint (ADR-0012).
+ * guardrail refuses the call. In every mode the session model writes the brief (an API endpoint's
+ * configured model wins), and the selection becomes a recommendation when it names another model
+ * (ADR-0012).
  */
 
 import { z } from "zod";
@@ -91,10 +91,11 @@ export interface HandoffResult {
   modelId?: string;
   reason: string;
   /** Model that compacted in an optional mode: the one(s) the caller reports as answering, else the requested
-   *  one (bridge/API: the selected or the endpoint's); absent = unknown (the CLI's default, an unreporting
+   *  one (the session model, or the endpoint's); absent = unknown (the CLI's default, an unreporting
    *  sampling client). Also the brief's `who` in the ledger. */
   compactedWith?: string;
-  /** Account mode: the selected summarizer when it is not the host model that wrote the brief (ADR-0012). */
+  /** Every mode: the selected summarizer when the model that wrote the brief (the host's in account mode, else
+   *  `compactedWith`) is another one or unknown (ADR-0012). */
   recommendedModel?: string;
   storedDecisionId: string;
   verbatimHolds: number;
@@ -133,28 +134,35 @@ function compactionEcosystem(mode: CompactionMode, config: CairnConfig, endpoint
   return undefined;
 }
 
+/** The endpoint an API-mode handoff uses: the one named, else the first configured. */
+function endpointKeyFor(input: HandoffInput, config: CairnConfig): string | undefined {
+  return input.endpointKey ?? Object.keys(config.endpoints)[0];
+}
+
+/** Where the model that writes the brief comes from (ADR-0012): the session (account mode, sampling, and
+ *  bridge/API with a host model of their ecosystem), an API endpoint's configured model, or the bridge CLI's
+ *  own default. */
+export type ModelSource = "session" | "endpoint" | "cli";
+
 /**
- * The model an optional mode asks for (ADR-0012). An API endpoint's configured model always wins: a gateway
- * or an Azure deployment names its own models. Otherwise bridge/API in a pool ecosystem: the selected
- * model; after a verbatim fallback a host model of that ecosystem, else none (the bridge CLI's default; API
- * refuses the call). Sampling cannot pick the client's model: the selected one goes as a hint. An API
- * endpoint outside the pool (gemini) without a model: the host's, as before.
+ * The model an optional mode asks for (ADR-0012): the session model writes the brief in every mode (user
+ * decision, 2026-10-12). An API endpoint's configured model wins: a gateway or an Azure deployment names its
+ * own models. Otherwise the host's model where it runs: in sampling as a hint (the client decides), in
+ * bridge/API only when it belongs to the bridge CLI's or the endpoint's ecosystem. Else none: the bridge
+ * CLI's default; API refuses the call before egress. An endpoint outside the pool (gemini) without a model:
+ * the host's, as before.
  */
-function compactionModel(
+export function compactionPlan(
   mode: CompactionMode,
-  selection: SelectResult,
   host: HostSignal,
-  target: "anthropic" | "openai" | undefined,
-  endpointModel: string | undefined,
-): string | undefined {
-  const selected = selection.kind === "model" ? selection.model.id : undefined;
-  if (mode === "sampling") return selected ?? host.modelId;
-  if (mode === "api" && endpointModel) return endpointModel;
-  if (target) {
-    if (selected) return selected;
-    return host.modelId && detectEcosystem(host) === target ? host.modelId : undefined;
-  }
-  return host.modelId;
+  config: CairnConfig,
+  endpointKey: string | undefined,
+): { model?: string; source: ModelSource } {
+  const endpointModel = mode === "api" && endpointKey ? config.endpoints[endpointKey]?.model : undefined;
+  if (endpointModel) return { model: endpointModel, source: "endpoint" };
+  const target = compactionEcosystem(mode, config, endpointKey);
+  if (!target || (host.modelId && detectEcosystem(host) === target)) return { model: host.modelId, source: "session" };
+  return { source: mode === "bridge" ? "cli" : "session" };
 }
 
 /** The model a compaction can be credited to: the one(s) the caller reports as answering (claude's
@@ -172,12 +180,12 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
   const select = deps.select ?? selectSummarizer;
   // The text a model would compact: the host brief in account mode, the raw source in the model-driven modes.
   const sourceText = mode === "account" ? input.brief : input.source ?? input.brief;
-  const endpointKey = input.endpointKey ?? Object.keys(deps.config.endpoints)[0];
-  // Bridge/API select in the ecosystem they run in, so a Codex host with a claude bridge gets a Claude model.
+  const endpointKey = endpointKeyFor(input, deps.config);
+  // Bridge/API recommend in the ecosystem they run in, so a Codex host with a claude bridge gets a Claude model.
   const target = compactionEcosystem(mode, deps.config, endpointKey);
 
-  // Quality-first selection: the compacting model in bridge/API mode, a hint in sampling, and in account
-  // mode (the host already wrote the brief) a recommendation.
+  // Quality-first selection. The session model writes the brief, so in every mode the selection is a
+  // recommendation, made in the ecosystem the brief is written in (ADR-0012).
   const selection = await select({
     host: target ? { provider: target } : host,
     // Conservative selector input when unknown, not a measured context-zone claim.
@@ -206,7 +214,7 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
   } else {
     // Effort + its larger budget only where they reach the provider: the API adapters. The bridge pins
     // `high` itself, and sampling cannot carry an effort (ADR-0012).
-    const model = compactionModel(mode, selection, host, target, endpointKey ? deps.config.endpoints[endpointKey]?.model : undefined);
+    const { model } = compactionPlan(mode, host, deps.config, endpointKey);
     // A pool model's effort only goes to its own provider: not to a gemini endpoint, and not to a model of the
     // other ecosystem behind an endpoint (an OpenAI-compatible gateway serving Claude).
     const effort = mode === "api" && target && resolveProfile(model).ecosystem === target ? compactionEffort(model) : undefined;
@@ -292,11 +300,11 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
     evidenceStored++;
   }
 
-  // Account mode: the host wrote the brief. If the selection names another model, recommend it (ADR-0012).
+  // The brief's writer: the host in account mode, else the model that compacted. If the selection names
+  // another model, or the writer is unknown, recommend the selection (ADR-0012).
+  const writer = mode === "account" ? host.modelId : compactedWith;
   const recommendedModel =
-    mode === "account" && selection.kind === "model" && resolveProfile(host.modelId).id !== selection.model.id
-      ? selection.model.id
-      : undefined;
+    selection.kind === "model" && !(writer && resolveProfile(writer).id === selection.model.id) ? selection.model.id : undefined;
 
   return {
     mode,
@@ -312,6 +320,20 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
     evidenceStored,
     egress,
   };
+}
+
+/** The tool text's recommendation (ADR-0012): who wrote the brief, the most faithful summarizer, and how to
+ *  get it there, by where the writing model came from. "" when the result recommends nothing. */
+export function recommendationLine(r: HandoffResult, input: HandoffInput, config: CairnConfig, lang: Lang): string {
+  if (!r.recommendedModel) return "";
+  const endpoint = endpointKeyFor(input, config);
+  return t(lang).handoff.recommend({
+    writer: r.mode === "account" ? input.host?.modelId : r.compactedWith,
+    model: resolveProfile(r.recommendedModel).displayName,
+    source: compactionPlan(r.mode, input.host ?? {}, config, endpoint).source,
+    cli: config.bridgeCli,
+    endpoint,
+  });
 }
 
 export function registerHandoff(server: McpServer, deps: HandoffDeps): void {
@@ -384,10 +406,9 @@ export function registerHandoff(server: McpServer, deps: HandoffDeps): void {
           : m.selVerbatim({ reason: r.reason });
       const warn =
         (r.missingRequired.length ? `\n${m.missingVerbatim({ spans: r.missingRequired.join(", ") })}` : "") +
-        (r.compactedWith ? `\n${m.compactedWith({ model: r.compactedWith })}` : "") +
-        (r.recommendedModel
-          ? `\n${m.recommend({ writer: (args as HandoffInput).host?.modelId, model: resolveProfile(r.recommendedModel).displayName })}`
-          : "");
+        // The recommendation names the writer itself.
+        (r.compactedWith && !r.recommendedModel ? `\n${m.compactedWith({ model: r.compactedWith })}` : "") +
+        (r.recommendedModel ? `\n${recommendationLine(r, args as HandoffInput, deps.config, deps.lang ?? "en")}` : "");
       const text = m.result({
         mode: r.mode,
         egress: r.egress,

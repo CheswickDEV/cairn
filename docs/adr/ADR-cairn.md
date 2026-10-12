@@ -116,7 +116,7 @@ Not every user has access to every model: a Claude user does not necessarily hav
 ### Decision
 The summarizer candidate pool is restricted to the host system's ecosystem and additionally filtered to credential-reachable models (capability/key probe per candidate). Cross-provider routing only with explicit org configuration. Selection pipeline: (0) detect environment → (1) filter to ecosystem → (2) check reachability → (3) rank quality-first (ADR-0002) with zone escalation (ADR-0003: red/yellow → top model, no cost downgrade) → (4) floor check. If the best available model is below the fidelity floor, the brief is delivered **verbatim instead of compressed** (lossless verbatim fallback). Ollama local is the only universal, account-free fallback and fits the locally-private approach, but must be calibrated separately.
 
-> **Correction (2026-10-12, ADR-0012):** Zone escalation is a raised floor, not a switch to the top model. The selector takes the top fidelity band (at most 0.02 below the best reachable model) and sorts it by cost; the zone raises the floor (yellow +0.05, red +0.10). The cheapest band model that clears the raised floor compacts, and the handoff goes verbatim only when no band model clears it. Cost therefore decides inside the band in every zone; a model outside the band is never chosen for its price. Until 2026-10-12 the floor was checked only on the cheapest band model, so a stronger band model was skipped in favor of verbatim. Which model then writes the brief depends on the mode (ADR-0012).
+> **Correction (2026-10-12, ADR-0012):** Zone escalation is a raised floor, not a switch to the top model. The selector takes the top fidelity band (at most 0.02 below the best reachable model) and sorts it by cost; the zone raises the floor (yellow +0.05, red +0.10). The cheapest band model that clears the raised floor is selected, and the handoff goes verbatim only when no band model clears it. Cost therefore decides inside the band in every zone; a model outside the band is never chosen for its price. Until 2026-10-12 the floor was checked only on the cheapest band model, so a stronger band model was skipped in favor of verbatim. The selection does not pick the writer: the session model writes the brief in every mode, and the selection is a recommendation (ADR-0012).
 
 ### Consequences
 - Positive: closes the gap "Claude user without a ChatGPT account"; never selects a model that cannot be called.
@@ -416,7 +416,7 @@ Astra 0.93, GPT-6.1 Sol 0.92, GPT-6 Luna 0.70. With the 0.85 floor that gave Opu
 green and yellow and verbatim in red. The calibration below replaces it. In the sampling, bridge and API
 modes the configured caller compacts even when the selection reports "verbatim fallback" and stores the
 model's brief. That predates this ADR (a bridge test requires the call) and stays an open point; which
-model compacts is described under "Who writes the brief".
+model compacts is described under "Who writes the brief" (the session model).
 
 **Effort.** Every model is calibrated at exactly `high`, and Cairn never requests less for a calibration
 or bridge call. The bridge silently drops an effort it does not accept, and the CLI then uses its default:
@@ -660,32 +660,49 @@ Selection with these values:
 the zone floor compacts, and the handoff goes verbatim only when no band model clears it (ADR-0004,
 corrected). Before, only the cheapest band model was checked.
 
-**Who writes the brief (2026-10-12).** Until now the selection decided nothing: in account mode the host
-writes the brief, and the optional modes passed the host's own model id to the caller. Now:
-- Bridge and API compact with the selected summarizer, at effort `high`, chosen in the ecosystem they run
-  in: the bridge CLI's (`CAIRN_BRIDGE=claude` → Claude Opus 5.5, `codex` → GPT-6.1 Sol, whatever the
-  host) or the API endpoint's provider. An endpoint with a configured model always uses it, since a gateway
-  or an Azure deployment names its own models; the selection applies only to an endpoint without one.
-  Effort `high` goes only to a pool model of the endpoint's own provider; any other model keeps its
-  provider's default.
-  After a verbatim fallback the bridge keeps a host model of its ecosystem, else the CLI's default; an API
-  endpoint keeps a host model of its provider, else Cairn refuses the call before any egress instead of
-  sending an empty model id. An endpoint outside the pool (gemini) uses its model, else the host's, and
-  gets no effort or effort budget.
+**Who writes the brief (2026-10-12).** The selection never chose the writer: in account mode the host
+writes the brief, and the optional modes passed the host's own model id to the caller. A first change let
+bridge and API compact with the selected summarizer instead; it was reverted before release (user
+decision, 2026-10-12). In every mode the session model writes the brief, and the selection is a
+recommendation:
+- Account mode makes no model call; the host writes the brief.
+- Bridge and API ask for the session model (`host.modelId`) where it runs: in the bridge CLI's ecosystem
+  (`CAIRN_BRIDGE=claude` takes a Claude id, `codex` a GPT id) or at the API endpoint's provider. An
+  endpoint with a configured model always uses it, since a gateway or an Azure deployment names its own
+  models.
+  - Without a session model of its ecosystem (a Codex host with a claude bridge, or no model id given) the
+    bridge passes no model, and the CLI runs its own default: for claude the model Claude Code picks
+    without `--model` (from its environment or the user's settings, else its built-in default); for codex
+    the default without the user's `config.toml`, which the bridge ignores (a system or managed config can
+    still set one).
+  - An API endpoint without its own model and without a session model of its provider makes Cairn refuse
+    the call before any egress instead of sending an empty model id.
+  - An endpoint outside the pool (gemini) uses its model, else the host's, and gets no effort or effort
+    budget.
+  - The bridge always runs at effort `high`; API mode sends `high` only to a pool model of the endpoint's
+    own provider, and any other model keeps its provider's default.
+- Sampling cannot choose the client's model; the session model goes along as `modelPreferences.hints`.
+- The selection runs in the ecosystem the brief is written in: the host's, or for bridge and API the
+  CLI's or the endpoint provider's. When it names another model than the one that wrote the brief, or that
+  model is unknown, the result recommends it (`recommendedModel`). The tool text then says how to get it:
+  - after the session model: switch it (`/model`) and run Cairn Handoff again. When the writer is
+    unknown (a host that names only its provider, a CLI or sampling client that reports no model), the line
+    says "if the session runs another model" instead of claiming one;
+  - after an endpoint's configured model: set that endpoint to the recommended model;
+  - after the bridge CLI's default: the line names the recommended model only.
+
+  The handoff skill passes that line on and passes the host's own model id.
 - The result names the model that compacted (`compactedWith`), and the ledger credits the brief to it
   (`who`): the model the caller reports as answering (claude's `modelUsage`, a codex reroute, the sampling
   client's `model`) when it is not the requested one, else the requested one. Unknown (the CLI's default
   without a report, a sampling client that names no model) leaves it out; the brief then stays credited to
   the host.
-- Sampling cannot choose the client's model; the selection goes along as `modelPreferences.hints`.
-- Account mode makes no model call. When the selected summarizer is not the host model that wrote the
-  brief, the result recommends it (`recommendedModel`), and the handoff skill passes that line on: switch
-  the session model (`/model`) and run Cairn Handoff again. The skill now passes the host's own model id.
-- The session model keeps writing the brief on Claude and Codex hosts alike (user decision, 2026-10-12).
-  An opt-in that read the session transcript from disk and compacted it again through the host's CLI was
-  built and removed before release: it doubled the model cost and context of every handoff, and its review
-  found a stale session id after `/clear`, `/branch` or `/resume`, a foreign Codex rollout without a cwd
-  match, Codex's 60 s tool timeout, Codex's encrypted remote compaction, provider settings bypassed, and
+- Why the session model: the user wants the model they work with to write the brief, in every mode, to
+  keep cost and context down; the recommendation still names the more faithful model. An opt-in that read
+  the session transcript from disk and compacted it again through the host's CLI was also built and
+  removed before release: it doubled the model cost and context of every handoff, and its review found a
+  stale session id after `/clear`, `/branch` or `/resume`, a foreign Codex rollout without a cwd match,
+  Codex's 60 s tool timeout, Codex's encrypted remote compaction, provider settings bypassed, and
   transcript content (tool output, web pages) steering a child with a shell and web search. Switching the
   model by hand gives the same brief with the context the session already holds.
 
@@ -760,4 +777,6 @@ the reviewer-effect correction and the key-fact check (above). Open points:
   American Express") can still meet an item, and some paraphrases (number words, "U.S.", "replicaCount:
   6", "every quarter") still miss it. Three review rounds showed that widening the keys adds look-alikes
   and narrowing them loses paraphrases; matching within one sentence would be the next step. The
-  reviewers judge these cases, and the profiles do not depend on the check.
+  reviewers judge these cases, and the profiles do not depend on the check. Decided on 2026-10-12: the
+  check stays as it is. Sentence matching pays off only together with the harder probes above, which need
+  a new paid calibration run.

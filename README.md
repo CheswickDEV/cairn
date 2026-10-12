@@ -265,10 +265,13 @@ old Cairn block/copies too; old guidance otherwise remains active in that projec
 
 | Mode | Activation | Egress through Cairn? | Use |
 |---|---|:--:|---|
-| `account` | Default | **No** | Host agent produces the brief in-session; Cairn only persists it and recommends the selected summarizer if another model wrote it. |
-| `bridge` | `CAIRN_ENABLE_MODES=bridge` | yes, local via another CLI | Condensation via the other logged-in account, with the selected summarizer of that CLI's ecosystem at effort `high`. |
-| `sampling` | `CAIRN_ENABLE_MODES=sampling` | client-dependent | MCP sampling, when the host supports it. The client picks the model; Cairn names its selection as a hint. |
-| `api` | `CAIRN_ENABLE_MODES=api` + endpoint | yes | Headless org runs with explicit credentials: the endpoint's configured model, else the selected summarizer of its provider; effort `high` for pool models of that provider (fallbacks in ADR-0012). |
+| `account` | Default | **No** | Host agent produces the brief in-session; Cairn only persists it. |
+| `bridge` | `CAIRN_ENABLE_MODES=bridge` | yes, local via another CLI | Condensation via the other logged-in account at effort `high`, with your session model if it runs in that CLI, else the CLI's default. |
+| `sampling` | `CAIRN_ENABLE_MODES=sampling` | client-dependent | MCP sampling, when the host supports it. The client picks the model; Cairn names your session model as a hint. |
+| `api` | `CAIRN_ENABLE_MODES=api` + endpoint | yes | Headless org runs with explicit credentials: the endpoint's configured model, else your session model if it belongs to that provider (else refused); effort `high` for pool models of that provider (details in ADR-0012). |
+
+In every mode the handoff result also names the most faithful summarizer (Claude Opus 5.5 or GPT-6.1 Sol,
+in the ecosystem the brief is written in), unless that model wrote the brief, and how to switch to it.
 
 Without explicit configuration, Cairn **refuses** all non-account paths.
 
