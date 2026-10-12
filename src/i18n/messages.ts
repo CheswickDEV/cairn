@@ -37,6 +37,10 @@ export interface Messages {
     selModel: (p: { model?: string; reason: string }) => string;
     selVerbatim: (p: { reason: string }) => string;
     missingVerbatim: (p: { spans: string }) => string;
+    /** Optional modes: the model Cairn asked to compact (ADR-0012). */
+    compactedWith: (p: { model: string }) => string;
+    /** Account mode: the host wrote the brief, the selection names another model (ADR-0012). */
+    recommend: (p: { writer?: string; model: string }) => string;
     result: (p: {
       mode: string;
       egress: boolean;
@@ -160,6 +164,10 @@ const EN: Messages = {
     selModel: (p) => `model ${p.model} (${p.reason})`,
     selVerbatim: (p) => `VERBATIM FALLBACK (${p.reason})`,
     missingVerbatim: (p) => `⚠ Not preserved byte-exact: ${p.spans}`,
+    compactedWith: (p) => `Compacted with ${p.model}.`,
+    recommend: (p) =>
+      `Brief written by ${p.writer ?? "the session model"}. The most faithful summarizer here is ${p.model}: ` +
+      `switch the session model (/model) and run Cairn Handoff again for the best brief.`,
     result: (p) =>
       `Handoff saved [${p.mode}, egress=${p.egress}]. Selection: ${p.selection}.\n` +
       `${p.holds} verbatim block(s), ${p.decisions} decision(s), ` +
@@ -323,6 +331,10 @@ const DE: Messages = {
     selModel: (p) => `Modell ${p.model} (${p.reason})`,
     selVerbatim: (p) => `VERBATIM-FALLBACK (${p.reason})`,
     missingVerbatim: (p) => `⚠ Nicht byte-exakt erhalten: ${p.spans}`,
+    compactedWith: (p) => `Verdichtet mit ${p.model}.`,
+    recommend: (p) =>
+      `Brief geschrieben von ${p.writer ?? "dem Session-Modell"}. Der treueste Summarizer hier ist ${p.model}: ` +
+      `Session-Modell wechseln (/model) und Cairn Handoff erneut ausführen, für den besten Brief.`,
     result: (p) =>
       `Handoff gespeichert [${p.mode}, Egress=${p.egress}]. Auswahl: ${p.selection}.\n` +
       `${p.holds} Verbatim-Block/Blöcke, ${p.decisions} Decision(s), ` +

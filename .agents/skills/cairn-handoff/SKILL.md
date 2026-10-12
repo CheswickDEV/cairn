@@ -13,10 +13,12 @@ This invocation does not enable automatic saves or resumes on later turns.
    superseded decisions), **EVIDENCE** (source references), **OPEN QUESTIONS**, **CONSTRAINTS**,
    **VERBATIM** (required exact values), **NEXT STEPS**, **DISCARDED**. Avoid repeating transcripts.
 2. Call `handoff` in default `account` mode with `brief` and the necessary `requiredVerbatim`.
-   Include structured `decisions`/`evidence` and known host/zone values when available; do not
-   call status tools merely to fill optional fields.
+   Pass your own model id as `host.modelId` when you know it, and the zone when known. Include
+   structured `decisions`/`evidence` when available; do not call status tools merely to fill
+   optional fields.
 3. Check `missingRequired`; if necessary, correct the same brief and retry. Report whether it
-   was saved and any unresolved omissions briefly.
+   was saved and any unresolved omissions briefly. If the result recommends another summarizer
+   model, pass that one line on to the user; do not switch models or retry on your own.
 
 Account mode persists locally without a model call or egress. Each new handoff supersedes the
 previous brief. A later resume or another handoff requires a new explicit user request.

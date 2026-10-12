@@ -2,10 +2,12 @@
  * `handoff` tool (ADR-0002/0004/0006).
  *
  * DEFAULT = account mode: takes a host-produced 7-bucket brief, runs the deterministic
- * freezeVerbatim masking + validation, picks the (informational) summarizer via
- * selectSummarizer, and PERSISTS to the store. The server makes NO model call and there is
- * NO egress in account mode. Optional modes (sampling/bridge/api) only run when explicitly
- * configured; otherwise the egress guardrail refuses the call.
+ * freezeVerbatim masking + validation, picks the summarizer via selectSummarizer, and PERSISTS to
+ * the store. The server makes NO model call and there is NO egress in account mode; the host wrote
+ * the brief, so the selection becomes a recommendation when it names another model (ADR-0012).
+ * Optional modes (sampling/bridge/api) only run when explicitly configured; otherwise the egress
+ * guardrail refuses the call. Bridge and API compact with the selected model of the ecosystem they
+ * run in (the bridge CLI's, the endpoint's provider); sampling passes it as a hint (ADR-0012).
  */
 
 import { z } from "zod";
@@ -14,6 +16,7 @@ import {
   selectSummarizer,
   resolveProfile,
   summarizerPool,
+  detectEcosystem,
   FIDELITY_FLOOR,
   type HostSignal,
   type ReachabilityProbe,
@@ -85,6 +88,10 @@ export interface HandoffResult {
   selectionKind: SelectResult["kind"];
   modelId?: string;
   reason: string;
+  /** Model the optional mode asked to compact (bridge/API: the selected one; absent = the caller's default). */
+  compactedWith?: string;
+  /** Account mode: the selected summarizer when it is not the host model that wrote the brief (ADR-0012). */
+  recommendedModel?: string;
   storedDecisionId: string;
   verbatimHolds: number;
   missingRequired: string[];
@@ -111,6 +118,40 @@ export function compactionEffort(modelId: string | undefined): string | undefine
  *  timeout (ADR-0012). */
 export const EFFORT_MAX_TOKENS = 32_000;
 
+/** Ecosystem of the model an optional mode runs (ADR-0012): the bridge CLI's, or an API endpoint's provider.
+ *  undefined = no pool there (a gemini endpoint) or the host's own (account, sampling). */
+function compactionEcosystem(mode: CompactionMode, config: CairnConfig, endpointKey?: string): "anthropic" | "openai" | undefined {
+  if (mode === "bridge") return config.bridgeCli === "claude" ? "anthropic" : config.bridgeCli === "codex" ? "openai" : undefined;
+  if (mode === "api") {
+    const provider = endpointKey ? config.endpoints[endpointKey]?.provider : undefined;
+    return provider === "anthropic" || provider === "openai" ? provider : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * The model an optional mode asks for (ADR-0012). Bridge/API in a pool ecosystem: the selected model; after a
+ * verbatim fallback the endpoint's default or a host model of that ecosystem, else the caller's default
+ * (undefined). Sampling cannot pick the client's model: the selected one goes as a hint. An API endpoint
+ * outside the pool (gemini): its default model, else the host's, as before.
+ */
+function compactionModel(
+  mode: CompactionMode,
+  selection: SelectResult,
+  host: HostSignal,
+  target: "anthropic" | "openai" | undefined,
+  endpointModel: string | undefined,
+): string | undefined {
+  const selected = selection.kind === "model" ? selection.model.id : undefined;
+  if (mode === "sampling") return selected ?? host.modelId;
+  if (target) {
+    if (selected) return selected;
+    if (mode === "api" && endpointModel) return endpointModel;
+    return host.modelId && detectEcosystem(host) === target ? host.modelId : undefined;
+  }
+  return endpointModel ?? host.modelId;
+}
+
 export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promise<HandoffResult> {
   const mode: CompactionMode = input.mode ?? "account";
   const host = input.host ?? {};
@@ -118,10 +159,14 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
   const select = deps.select ?? selectSummarizer;
   // The text a model would compact: the host brief in account mode, the raw source in the model-driven modes.
   const sourceText = mode === "account" ? input.brief : input.source ?? input.brief;
+  const endpointKey = input.endpointKey ?? Object.keys(deps.config.endpoints)[0];
+  // Bridge/API select in the ecosystem they run in, so a Codex host with a claude bridge gets a Claude model.
+  const target = compactionEcosystem(mode, deps.config, endpointKey);
 
-  // Quality-first selection (informational in account mode; provider choice in API mode).
+  // Quality-first selection: the compacting model in bridge/API mode, a hint in sampling, and in account
+  // mode (the host already wrote the brief) a recommendation.
   const selection = await select({
-    host,
+    host: target ? { provider: target } : host,
     // Conservative selector input when unknown, not a measured context-zone claim.
     sourceZone: input.sourceZone ?? "red",
     cost: {
@@ -142,12 +187,15 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
   // Optional modes call through the egress guardrail (throws unless explicitly configured).
   let effectiveBrief: string;
   let egress = false;
+  let compactedWith: string | undefined;
   if (mode === "account") {
     effectiveBrief = input.brief;
   } else {
     // Effort + its larger budget only where they reach the provider: the API adapters. The bridge pins
     // `high` itself, and sampling cannot carry an effort (ADR-0012).
-    const effort = mode === "api" ? compactionEffort(host.modelId) : undefined;
+    const model = compactionModel(mode, selection, host, target, endpointKey ? deps.config.endpoints[endpointKey]?.model : undefined);
+    compactedWith = model;
+    const effort = mode === "api" ? compactionEffort(model) : undefined;
     const briefTokens = dynamicMaxTokens(input.expectedBriefTokens ?? 4_096, 8_192);
     const maxTokens = effort ? Math.max(briefTokens, EFFORT_MAX_TOKENS) : briefTokens;
     const result = await runOptionalCompaction({
@@ -157,10 +205,10 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
         systemPrompt: t(lang).prompts.sevenBucket,
         prompt: frozen.masked,
         maxTokens,
-        model: host.modelId ?? "",
+        model: model ?? "",
         effort,
       },
-      endpointKey: input.endpointKey ?? Object.keys(deps.config.endpoints)[0],
+      endpointKey,
       fetchFn: deps.fetchFn,
       sample: deps.sample,
       bridge: deps.bridge,
@@ -228,11 +276,19 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
     evidenceStored++;
   }
 
+  // Account mode: the host wrote the brief. If the selection names another model, recommend it (ADR-0012).
+  const recommendedModel =
+    mode === "account" && selection.kind === "model" && resolveProfile(host.modelId).id !== selection.model.id
+      ? selection.model.id
+      : undefined;
+
   return {
     mode,
     selectionKind: selection.kind,
     modelId: selection.kind === "model" ? selection.model.id : undefined,
     reason: selection.reason,
+    ...(compactedWith ? { compactedWith } : {}),
+    ...(recommendedModel ? { recommendedModel } : {}),
     storedDecisionId: head.decisionId,
     verbatimHolds: frozen.holds.length,
     missingRequired,
@@ -292,6 +348,8 @@ export function registerHandoff(server: McpServer, deps: HandoffDeps): void {
         selectionKind: z.enum(["model", "verbatim-fallback"]),
         modelId: z.string().optional(),
         reason: z.string(),
+        compactedWith: z.string().optional(),
+        recommendedModel: z.string().optional(),
         storedDecisionId: z.string(),
         verbatimHolds: z.number(),
         missingRequired: z.array(z.string()),
@@ -308,7 +366,12 @@ export function registerHandoff(server: McpServer, deps: HandoffDeps): void {
         r.selectionKind === "model"
           ? m.selModel({ model: r.modelId, reason: r.reason })
           : m.selVerbatim({ reason: r.reason });
-      const warn = r.missingRequired.length ? `\n${m.missingVerbatim({ spans: r.missingRequired.join(", ") })}` : "";
+      const warn =
+        (r.missingRequired.length ? `\n${m.missingVerbatim({ spans: r.missingRequired.join(", ") })}` : "") +
+        (r.compactedWith ? `\n${m.compactedWith({ model: r.compactedWith })}` : "") +
+        (r.recommendedModel
+          ? `\n${m.recommend({ writer: (args as HandoffInput).host?.modelId, model: resolveProfile(r.recommendedModel).displayName })}`
+          : "");
       const text = m.result({
         mode: r.mode,
         egress: r.egress,

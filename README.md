@@ -57,7 +57,9 @@ flowchart LR
 
 The default path is **account mode**: the host agent writes the handoff brief inside your running
 Claude or Codex session. Cairn only **stores and validates** it: **no** server-side
-model call, **no** API keys, **no** egress through Cairn.
+model call, **no** API keys, **no** egress through Cairn. If your session model is not the most faithful
+summarizer (Claude Opus 5.5 on Claude, GPT-6.1 Sol on Codex), the handoff result says so, and you can
+switch the model (`/model`) and run Cairn Handoff again.
 
 ---
 
@@ -262,10 +264,10 @@ old Cairn block/copies too; old guidance otherwise remains active in that projec
 
 | Mode | Activation | Egress through Cairn? | Use |
 |---|---|:--:|---|
-| `account` | Default | **No** | Host agent produces the brief in-session; Cairn only persists it. |
-| `bridge` | `CAIRN_ENABLE_MODES=bridge` | yes, local via another CLI | Condensation via the other logged-in account. |
-| `sampling` | `CAIRN_ENABLE_MODES=sampling` | client-dependent | MCP sampling, when the host supports it. |
-| `api` | `CAIRN_ENABLE_MODES=api` + endpoint | yes | Headless org runs with explicit credentials. |
+| `account` | Default | **No** | Host agent produces the brief in-session; Cairn only persists it and recommends the selected summarizer if another model wrote it. |
+| `bridge` | `CAIRN_ENABLE_MODES=bridge` | yes, local via another CLI | Condensation via the other logged-in account, with the selected summarizer of that CLI's ecosystem at effort `high`. |
+| `sampling` | `CAIRN_ENABLE_MODES=sampling` | client-dependent | MCP sampling, when the host supports it. The client picks the model; Cairn names its selection as a hint. |
+| `api` | `CAIRN_ENABLE_MODES=api` + endpoint | yes | Headless org runs with explicit credentials, with the selected summarizer of the endpoint's provider. |
 
 Without explicit configuration, Cairn **refuses** all non-account paths.
 

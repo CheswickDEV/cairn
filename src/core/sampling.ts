@@ -26,6 +26,8 @@ export function serverSampler(server: McpServer): ModelCaller {
       messages: [{ role: "user", content: { type: "text", text: req.prompt } }],
       ...(req.systemPrompt ? { systemPrompt: req.systemPrompt } : {}),
       maxTokens: req.maxTokens,
+      // The client picks the model; Cairn can only name its selection as a hint (ADR-0012).
+      ...(req.model ? { modelPreferences: { hints: [{ name: req.model }] } } : {}),
     });
     const text = res.content.type === "text" ? res.content.text : "";
     const finishReason = res.stopReason ?? "unknown";

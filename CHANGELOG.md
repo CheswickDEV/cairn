@@ -33,6 +33,13 @@ independent reviews). See ADR-0012.
     All seven models kept every marker and every key fact in all 70 golden-set briefs. A 400K-token
     control run (4d) kept facts from the start, middle and end of the probe, but scored lower than the
     golden set; it does not feed the profiles.
+- **The selected summarizer compacts** `[CODE-IMPACTING]`: bridge and API mode compact with the
+  selection of the ecosystem they run in (the bridge CLI's or the endpoint's provider), at effort `high`,
+  and report it (`compactedWith`). Before, they passed the host's own model id, so a Sonnet session
+  compacted with Sonnet and a Codex host with a claude bridge sent a GPT id to claude; an endpoint's
+  default model went unused. Sampling names the selection as a model hint (the client decides). Account
+  mode still makes no model call; when another model wrote the brief, the result and the handoff skill
+  recommend switching to the selected summarizer (`recommendedModel`).
 - **Band rule** `[CODE-IMPACTING]`: the fidelity floor is checked over the whole top band. The cheapest
   band model that clears the zone floor compacts; verbatim only when none does. Before, only the cheapest
   band model was checked, and a miss went straight to verbatim although a stronger band model would

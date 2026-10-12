@@ -413,9 +413,9 @@ or used as reviewers.
 kept in the profiles as history): Fable 5.1 0.93, Opus 5.5 0.92, Sonnet 5.5 0.85, Haiku 5.5 0.70, GPT-6
 Astra 0.93, GPT-6.1 Sol 0.92, GPT-6 Luna 0.70. With the 0.85 floor that gave Opus 5.5 / GPT-6.1 Sol in
 green and yellow and verbatim in red. The calibration below replaces it. In the sampling, bridge and API
-modes the selection is informational: the configured caller compacts even when the selection reports
-"verbatim fallback" and stores the model's brief. That predates this ADR (a bridge test requires the
-call) and stays an open point.
+modes the configured caller compacts even when the selection reports "verbatim fallback" and stores the
+model's brief. That predates this ADR (a bridge test requires the call) and stays an open point; which
+model compacts is described under "Who writes the brief".
 
 **Effort.** Every model is calibrated at exactly `high`, and Cairn never requests less for a calibration
 or bridge call. The bridge silently drops an effort it does not accept, and the CLI then uses its default:
@@ -650,6 +650,18 @@ Selection with these values:
 **Band rule (2026-10-12).** The floor is checked over the whole band: the cheapest band model that clears
 the zone floor compacts, and the handoff goes verbatim only when no band model clears it (ADR-0004,
 corrected). Before, only the cheapest band model was checked.
+
+**Who writes the brief (2026-10-12).** Until now the selection decided nothing: in account mode the host
+writes the brief, and the optional modes passed the host's own model id to the caller. Now:
+- Bridge and API compact with the selected summarizer, at effort `high`, chosen in the ecosystem they run
+  in: the bridge CLI's (`CAIRN_BRIDGE=claude` → Claude Opus 5.5, `codex` → GPT-6.1 Sol, whatever the
+  host) or the API endpoint's provider. The result reports it (`compactedWith`). After a verbatim fallback
+  they keep the endpoint's default model or a host model of the same ecosystem, else the CLI's default;
+  an endpoint outside the pool (gemini) uses its default model, else the host's.
+- Sampling cannot choose the client's model; the selection goes along as `modelPreferences.hints`.
+- Account mode makes no model call. When the selected summarizer is not the host model that wrote the
+  brief, the result recommends it (`recommendedModel`), and the handoff skill passes that line on: switch
+  the session model (`/model`) and run Cairn Handoff again. The skill now passes the host's own model id.
 
 **Fidelity floor 0.84**, signed off by the user on 2026-10-12. Opus 5.5 (0.9596) and GPT-6.1 Sol (0.9573)
 clear even the red zone (0.84 + 0.10 = 0.94), by about 0.02, so a full context is compacted, not handed

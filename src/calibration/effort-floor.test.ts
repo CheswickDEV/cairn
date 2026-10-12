@@ -463,6 +463,8 @@ describe("product paths", () => {
     }
   });
 
+  // ADR-0012 stage 2: API mode compacts with the selected pool model, not with the host's. A legacy model is
+  // only sent when nothing is selected (verbatim fallback); it then gets no effort field.
   it("a legacy model in API mode gets no effort field and the plain brief budget", async () => {
     const config: CairnConfig = {
       enabledModes: ["account", "api"],
@@ -470,12 +472,31 @@ describe("product paths", () => {
       storePath: ":memory:",
     };
     const fetchFn = vi.fn(async () => ({ json: async () => ({ content: [{ type: "text", text: "1) DECISIONS x" }], stop_reason: "end_turn" }) }));
-    await runHandoff(
-      { brief: "", source: "src", host: { modelId: "claude-haiku-4-5-20251001" }, sourceZone: "green", mode: "api" },
+    const r = await runHandoff(
+      { brief: "", source: "src", host: { modelId: "claude-haiku-4-5-20251001" }, sourceZone: "green", mode: "api", fidelityFloor: 0.99 },
+      { store: new SqliteStore({ path: ":memory:" }), config, fetchFn: fetchFn as unknown as FetchFn },
+    );
+    expect(r.selectionKind).toBe("verbatim-fallback");
+    const sent = JSON.parse((fetchFn.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
+    expect(sent.model).toBe("claude-haiku-4-5-20251001");
+    expect(sent).not.toHaveProperty("output_config");
+    expect(sent.max_tokens).toBe(6_144); // dynamicMaxTokens(4096 × 1.5, cap 8192)
+  });
+
+  it("API mode compacts with the selected pool model at high, whatever the host model", async () => {
+    const config: CairnConfig = {
+      enabledModes: ["account", "api"],
+      endpoints: { main: { provider: "anthropic", baseUrl: "https://api.example.test", model: "claude-haiku-5-5" } },
+      storePath: ":memory:",
+    };
+    const fetchFn = vi.fn(async () => ({ json: async () => ({ content: [{ type: "text", text: "1) DECISIONS x" }], stop_reason: "end_turn" }) }));
+    const r = await runHandoff(
+      { brief: "", source: "src", host: { modelId: "claude-haiku-4-5-20251001" }, sourceZone: "red", mode: "api" },
       { store: new SqliteStore({ path: ":memory:" }), config, fetchFn: fetchFn as unknown as FetchFn },
     );
     const sent = JSON.parse((fetchFn.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
-    expect(sent).not.toHaveProperty("output_config");
-    expect(sent.max_tokens).toBe(6_144); // dynamicMaxTokens(4096 × 1.5, cap 8192)
+    expect(sent.model).toBe("claude-opus-5-5");
+    expect(sent.output_config).toEqual({ effort: "high" });
+    expect(r.compactedWith).toBe("claude-opus-5-5");
   });
 });
