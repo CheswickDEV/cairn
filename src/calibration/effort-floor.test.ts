@@ -483,10 +483,10 @@ describe("product paths", () => {
     expect(sent.max_tokens).toBe(6_144); // dynamicMaxTokens(4096 × 1.5, cap 8192)
   });
 
-  it("API mode compacts with the selected pool model at high, whatever the host model", async () => {
+  it("API mode without an endpoint model compacts with the selected pool model at high, whatever the host model", async () => {
     const config: CairnConfig = {
       enabledModes: ["account", "api"],
-      endpoints: { main: { provider: "anthropic", baseUrl: "https://api.example.test", model: "claude-haiku-5-5" } },
+      endpoints: { main: { provider: "anthropic", baseUrl: "https://api.example.test" } },
       storePath: ":memory:",
     };
     const fetchFn = vi.fn(async () => ({ json: async () => ({ content: [{ type: "text", text: "1) DECISIONS x" }], stop_reason: "end_turn" }) }));

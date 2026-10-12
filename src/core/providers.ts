@@ -32,7 +32,8 @@ export interface ModelCallResult {
   /** True when the provider stopped because it hit the output cap (truncation guard). */
   truncated: boolean;
   finishReason: string;
-  /** Bridge (claude): the model ids that produced output (`modelUsage`), when the CLI reports usage. */
+  /** The model ids that produced output, when the caller reports them: claude `modelUsage`, a codex reroute,
+   *  the sampling client's `model`. */
   modelsUsed?: string[];
   /** Bridge (claude): every model id `modelUsage` lists, with or without output. */
   modelsReported?: string[];
@@ -166,7 +167,7 @@ export interface OptionalCompactionInput {
 /**
  * THE egress guardrail. Refuses any model call unless the requested mode is NOT "account"
  * (account mode never egresses), the mode is explicitly enabled in config, AND the mode's
- * prerequisite is present (sampler / bridge CLI / configured endpoint). Any miss throws
+ * prerequisite is present (sampler / bridge CLI / configured endpoint with a model id). Any miss throws
  * EgressNotConfiguredError BEFORE any network/CLI/sampling call is made.
  */
 export async function runOptionalCompaction(input: OptionalCompactionInput): Promise<ModelCallResult> {
@@ -193,6 +194,12 @@ export async function runOptionalCompaction(input: OptionalCompactionInput): Pro
   const ep = input.endpointKey ? config.endpoints[input.endpointKey] : undefined;
   if (!ep) {
     throw new EgressNotConfiguredError(`no endpoint '${input.endpointKey ?? ""}' configured; refusing egress`);
+  }
+  // Every API needs a model id: refuse instead of sending an empty one (ADR-0012).
+  if (!input.request.model) {
+    throw new EgressNotConfiguredError(
+      `no model for endpoint '${input.endpointKey}': set its model (CAIRN_ENDPOINT_<NAME>=provider|baseUrl|apiKeyEnv|model); refusing egress`,
+    );
   }
   const fetchFn = input.fetchFn ?? fetch;
   const env = input.env ?? process.env;

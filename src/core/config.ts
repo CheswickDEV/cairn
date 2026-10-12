@@ -31,12 +31,6 @@ export interface CairnConfig {
   endpoints: Record<string, EndpointConfig>;
   /** Which sibling CLI to bridge to in `bridge` mode (CAIRN_BRIDGE=claude|codex); undefined = off. */
   bridgeCli?: "claude" | "codex";
-  /**
-   * Account mode, opt-in (CAIRN_ACCOUNT_SUMMARIZER=auto; ADR-0012): when another model wrote the brief, Cairn
-   * compacts the session transcript itself with the selected summarizer, through the host's own logged-in
-   * CLI. Default "off": account mode makes no model call.
-   */
-  accountSummarizer?: "off" | "auto";
   /** SQLite file path for the decision/evidence store. */
   storePath: string;
 }
@@ -77,7 +71,5 @@ export function loadConfig(env: Env = process.env): CairnConfig {
   const storePath = env.CAIRN_DB ?? join(homedir(), ".cairn", "cairn.sqlite");
   const bridge = env.CAIRN_BRIDGE === "claude" || env.CAIRN_BRIDGE === "codex" ? env.CAIRN_BRIDGE : undefined;
 
-  const accountSummarizer = env.CAIRN_ACCOUNT_SUMMARIZER === "auto" ? "auto" : "off";
-
-  return { enabledModes, endpoints, bridgeCli: bridge, storePath, accountSummarizer };
+  return { enabledModes, endpoints, bridgeCli: bridge, storePath };
 }

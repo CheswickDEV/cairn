@@ -4,6 +4,7 @@
  * one probe. Returns the per-model mean plus the per-probe breakdown.
  */
 
+import { createHash } from "node:crypto";
 import type { ModelProfile } from "../core/model-profiles.js";
 import type { GroundTruth } from "./ground-truth.js";
 import type { Compactor } from "./runner.js";
@@ -235,27 +236,46 @@ export interface PoolInput {
   res: GoldenResult;
 }
 
+/** JSON with sorted keys: the same for a re-serialized copy of an artifact. */
+function canonicalJson(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(canonicalJson).join(",")}]`;
+  if (v && typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    return `{${Object.keys(o).sort().map((k) => `${JSON.stringify(k)}:${canonicalJson(o[k])}`).join(",")}}`;
+  }
+  return JSON.stringify(v) ?? "null";
+}
+
 /**
- * Only runs of the same configuration pool (ADR-0012): no artifact twice, the same probes (and probe
- * contents, where recorded), the same models and the same reviewer effort. Throws naming the input.
+ * Only runs of the same configuration pool (ADR-0012): no artifact twice (by file hash, or by its results
+ * when re-serialized), the same probes (and probe contents, where recorded), the same models and the same
+ * reviewer effort. Throws naming the input; returns notes on what could not be compared.
  */
-export function checkPoolInputs(inputs: PoolInput[]): void {
+export function checkPoolInputs(inputs: PoolInput[]): string[] {
   if (inputs.length === 0) throw new Error("--pool needs at least one golden artifact");
   const first = inputs[0];
   const models = (r: GoldenResult) => r.perModel.map((m) => m.modelId).sort().join(",");
   const hashes = (r: GoldenResult) => (r as { probeInfo?: { sha256: string }[] }).probeInfo?.map((p) => p.sha256).join(",");
   const seen = new Set<string>();
+  const runs = new Map<string, string>();
+  const notes: string[] = [];
   for (const i of inputs) {
     if (!Array.isArray(i.res.perModel) || !Array.isArray(i.res.probes)) throw new Error(`${i.path}: not a golden artifact`);
     if (seen.has(i.sha256)) throw new Error(`${i.path}: the same artifact twice`);
     seen.add(i.sha256);
+    const run = createHash("sha256").update(canonicalJson(i.res.perModel)).digest("hex");
+    const twin = runs.get(run);
+    if (twin) throw new Error(`${i.path}: the same run as ${twin} (identical results)`);
+    runs.set(run, i.path);
     if (i.res.probes.join(",") !== first.res.probes.join(",")) throw new Error(`${i.path}: other probes than ${first.path}`);
     if (models(i.res) !== models(first.res)) throw new Error(`${i.path}: other models than ${first.path}`);
     if (i.res.reviewerEffort !== first.res.reviewerEffort) throw new Error(`${i.path}: other reviewer effort than ${first.path}`);
     const h = hashes(i.res);
     const h0 = hashes(first.res);
     if (h && h0 && h !== h0) throw new Error(`${i.path}: other probe contents than ${first.path}`);
+    if (!h) notes.push(`${i.path}: no probeInfo (written before it was recorded), so its probe contents are not compared`);
   }
+  return notes;
 }
 
 /** One model across pooled golden runs (ADR-0012). */

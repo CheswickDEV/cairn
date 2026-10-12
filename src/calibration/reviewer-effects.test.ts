@@ -168,8 +168,25 @@ describe("the correction never costs a run its artifact (ADR-0012)", () => {
 
 describe("checkPoolInputs", () => {
   const input = (path: string, sha256: string, res: GoldenResult) => ({ path, sha256, res });
-  it("accepts two runs of the same configuration", () => {
-    expect(() => checkPoolInputs([input("a", "1", artifact()), input("b", "2", artifact())])).not.toThrow();
+  // A second run of the same configuration: same probes and models, other results.
+  const rerun = () => {
+    const b = artifact();
+    b.perModel[0].perProbe[0].fidelity = 0.5;
+    return b;
+  };
+  it("accepts two runs of the same configuration and notes missing probe hashes", () => {
+    expect(checkPoolInputs([input("a", "1", artifact()), input("b", "2", rerun())])).toEqual([
+      "a: no probeInfo (written before it was recorded), so its probe contents are not compared",
+      "b: no probeInfo (written before it was recorded), so its probe contents are not compared",
+    ]);
+    const withInfo = (r: GoldenResult) => ({ ...r, probeInfo: [{ sha256: "p" }] }) as GoldenResult;
+    expect(checkPoolInputs([input("a", "1", withInfo(artifact())), input("b", "2", withInfo(rerun()))])).toEqual([]);
+  });
+  it("refuses a re-serialized copy of the same run (other file hash, same results)", () => {
+    const a = artifact();
+    const copy = JSON.parse(JSON.stringify({ ...a, date: "2026-10-13" })) as GoldenResult;
+    copy.perModel = copy.perModel.map((m) => Object.fromEntries(Object.entries(m).reverse()) as typeof m);
+    expect(() => checkPoolInputs([input("a", "1", a), input("b", "2", copy)])).toThrow(/b: the same run as a \(identical results\)/);
   });
   it.each([
     ["the same artifact twice", (b: GoldenResult) => b, "1", /the same artifact twice/],
@@ -179,7 +196,8 @@ describe("checkPoolInputs", () => {
     ["other probe contents", (b: GoldenResult) => ({ ...b, probeInfo: [{ sha256: "x" }] }), "2", /other probe contents/],
   ] as const)("refuses %s", (_, change, sha, error) => {
     const first = { ...artifact(), reviewerEffort: "high", probeInfo: [{ sha256: "p" }] } as GoldenResult;
-    expect(() => checkPoolInputs([input("a", "1", first), input("b", sha, change({ ...first }))])).toThrow(error);
+    const second = { ...rerun(), reviewerEffort: "high", probeInfo: [{ sha256: "p" }] } as GoldenResult;
+    expect(() => checkPoolInputs([input("a", "1", first), input("b", sha, change(sha === "1" ? { ...first } : second))])).toThrow(error);
   });
   it("refuses an empty list and a non-golden file", () => {
     expect(() => checkPoolInputs([])).toThrow(/at least one/);

@@ -17,6 +17,5 @@ compaction, clearing, or a model/host switch. Do not add recurring reminders.
   usage and surface cap. A yellow/red result is information, not permission to save a handoff.
 - An explicit host-status request permits `host_status` to inspect available host CLIs.
 
-Default account mode stores locally with no model call or egress (unless the operator opted in to
-automatic compaction with `CAIRN_ACCOUNT_SUMMARIZER=auto`). Optional bridge, sampling, and API modes
-need explicit configuration. No extra status calls are needed for handoff/resume.
+Default account mode stores locally with no model call or egress. Optional bridge, sampling,
+and API modes need explicit configuration. No extra status calls are needed for handoff/resume.

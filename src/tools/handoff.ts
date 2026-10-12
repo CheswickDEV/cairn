@@ -15,19 +15,18 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
   selectSummarizer,
   resolveProfile,
+  normalizeModelId,
   summarizerPool,
   detectEcosystem,
   FIDELITY_FLOOR,
   type HostSignal,
-  type ModelProfile,
   type ReachabilityProbe,
   type SelectResult,
   type Zone,
 } from "../core/model-profiles.js";
-import { freezeVerbatim, restoreVerbatim, missingVerbatim, type Hold } from "../core/verbatim.js";
+import { freezeVerbatim, restoreVerbatim, missingVerbatim } from "../core/verbatim.js";
 import { runOptionalCompaction, dynamicMaxTokens, type FetchFn, type ModelCaller } from "../core/providers.js";
-import type { TranscriptCli } from "../core/transcript.js";
-import { probeFitsModel } from "../calibration/window-fit.js";
+import { isSameModel } from "../calibration/variants.js";
 import { HANDOFF_DECISION_KEY, LEGACY_HANDOFF_TITLE_DE } from "../core/prompts.js";
 import { t, type Lang } from "../i18n/index.js";
 import type { CairnConfig, CompactionMode } from "../core/config.js";
@@ -84,12 +83,6 @@ export interface HandoffDeps {
   reachable?: ReachabilityProbe;
   /** Language for the human-facing result text + (non-account) compaction prompt. Default 'en'. */
   lang?: Lang;
-  /** Opt-in automatic compaction in account mode (`CAIRN_ACCOUNT_SUMMARIZER=auto`, ADR-0012): the session
-   *  transcript for a CLI, and that CLI's caller. Used only when the config enables it. */
-  accountAuto?: {
-    transcript: (cli: TranscriptCli) => string | undefined;
-    callers: Partial<Record<TranscriptCli, ModelCaller>>;
-  };
 }
 
 export interface HandoffResult {
@@ -97,14 +90,12 @@ export interface HandoffResult {
   selectionKind: SelectResult["kind"];
   modelId?: string;
   reason: string;
-  /** Model the optional mode asked to compact (bridge/API: the selected one; absent = the caller's default). */
+  /** Model that compacted in an optional mode: the one(s) the caller reports as answering, else the requested
+   *  one (bridge/API: the selected or the endpoint's); absent = unknown (the CLI's default, an unreporting
+   *  sampling client). Also the brief's `who` in the ledger. */
   compactedWith?: string;
   /** Account mode: the selected summarizer when it is not the host model that wrote the brief (ADR-0012). */
   recommendedModel?: string;
-  /** Account mode, opt-in: the brief was compacted from the session transcript by `compactedWith`. */
-  autoCompacted?: boolean;
-  /** Account mode, opt-in: why the automatic compaction did not run or failed (the host's brief was kept). */
-  autoSkipped?: string;
   storedDecisionId: string;
   verbatimHolds: number;
   missingRequired: string[];
@@ -143,10 +134,11 @@ function compactionEcosystem(mode: CompactionMode, config: CairnConfig, endpoint
 }
 
 /**
- * The model an optional mode asks for (ADR-0012). Bridge/API in a pool ecosystem: the selected model; after a
- * verbatim fallback the endpoint's default or a host model of that ecosystem, else the caller's default
- * (undefined). Sampling cannot pick the client's model: the selected one goes as a hint. An API endpoint
- * outside the pool (gemini): its default model, else the host's, as before.
+ * The model an optional mode asks for (ADR-0012). An API endpoint's configured model always wins: a gateway
+ * or an Azure deployment names its own models. Otherwise bridge/API in a pool ecosystem: the selected
+ * model; after a verbatim fallback a host model of that ecosystem, else none (the bridge CLI's default; API
+ * refuses the call). Sampling cannot pick the client's model: the selected one goes as a hint. An API
+ * endpoint outside the pool (gemini) without a model: the host's, as before.
  */
 function compactionModel(
   mode: CompactionMode,
@@ -157,59 +149,20 @@ function compactionModel(
 ): string | undefined {
   const selected = selection.kind === "model" ? selection.model.id : undefined;
   if (mode === "sampling") return selected ?? host.modelId;
+  if (mode === "api" && endpointModel) return endpointModel;
   if (target) {
     if (selected) return selected;
-    if (mode === "api" && endpointModel) return endpointModel;
     return host.modelId && detectEcosystem(host) === target ? host.modelId : undefined;
   }
-  return endpointModel ?? host.modelId;
+  return host.modelId;
 }
 
-/**
- * Opt-in automatic compaction in account mode (ADR-0012): the session transcript, compacted by the selected
- * summarizer through the host's own CLI at effort `high` (claude for a Claude model, codex for a GPT model).
- * Any miss - no caller, no transcript, a transcript too large for the model's window, an error, a truncated
- * or empty answer - returns a reason instead, and the host's brief stays. Only the verbatim holds the brief
- * kept become evidence (a transcript holds hundreds of code spans).
- */
-async function compactTranscript(
-  model: ModelProfile,
-  deps: HandoffDeps,
-  lang: Lang,
-  exactSpans: string[],
-  expectedBriefTokens: number | undefined,
-): Promise<{ ok: true; brief: string; holds: Hold[] } | { ok: false; reason: string }> {
-  const cli: TranscriptCli = model.ecosystem === "openai" ? "codex" : "claude";
-  const caller = deps.accountAuto?.callers[cli];
-  if (!caller) return { ok: false, reason: `no ${cli} caller` };
-  let transcript: string | undefined;
-  try {
-    transcript = deps.accountAuto!.transcript(cli);
-  } catch (e) {
-    return { ok: false, reason: `transcript unreadable: ${e instanceof Error ? e.message : String(e)}` };
-  }
-  if (!transcript) return { ok: false, reason: `no ${cli} session transcript found` };
-  const frozenT = freezeVerbatim(transcript, exactSpans);
-  const tokens = Math.ceil(frozenT.masked.length / 4);
-  if (!probeFitsModel(model.id, tokens, model)) {
-    return { ok: false, reason: `transcript (~${Math.round(tokens / 1000)}k tokens) does not fit ${model.id}'s window` };
-  }
-  try {
-    const result = await caller({
-      systemPrompt: t(lang).prompts.sevenBucket,
-      prompt: frozenT.masked,
-      maxTokens: dynamicMaxTokens(expectedBriefTokens ?? 4_096, 8_192),
-      model: model.id,
-      effort: "high",
-    });
-    if (result.finishReason === "error" || result.truncated || !result.text.trim()) {
-      return { ok: false, reason: `${model.id} gave no complete brief (${result.finishReason})` };
-    }
-    const brief = restoreVerbatim(result.text, frozenT.holds);
-    return { ok: true, brief, holds: frozenT.holds.filter((h) => brief.includes(h.content)) };
-  } catch (e) {
-    return { ok: false, reason: `${cli} call failed: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}` };
-  }
+/** The model a compaction can be credited to: the one(s) the caller reports as answering (claude's
+ *  `modelUsage`, a codex reroute, the sampling client's `model`) when they differ from the request or
+ *  nothing was requested; else the requested one. Sampling reports nothing else: its request is a hint. */
+function creditedModel(mode: CompactionMode, requested: string | undefined, answered: string[] | undefined): string | undefined {
+  if (answered?.length && !(requested && answered.every((m) => isSameModel(m, normalizeModelId(requested))))) return answered.join(", ");
+  return mode === "sampling" && !answered?.length ? undefined : requested;
 }
 
 export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promise<HandoffResult> {
@@ -248,35 +201,14 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
   let effectiveBrief: string;
   let egress = false;
   let compactedWith: string | undefined;
-  let holds = frozen.holds;
-  // Account mode: the host wrote the brief. If the selection names another model, recommend it (ADR-0012).
-  let recommendedModel =
-    mode === "account" && selection.kind === "model" && resolveProfile(host.modelId).id !== selection.model.id
-      ? selection.model.id
-      : undefined;
-  let autoCompacted = false;
-  let autoSkipped: string | undefined;
   if (mode === "account") {
     effectiveBrief = input.brief;
-    if (recommendedModel && selection.kind === "model" && deps.config.accountSummarizer === "auto") {
-      const auto = await compactTranscript(selection.model, deps, lang, input.exactSpans ?? [], input.expectedBriefTokens);
-      if (auto.ok) {
-        effectiveBrief = auto.brief;
-        holds = auto.holds;
-        compactedWith = selection.model.id;
-        egress = true;
-        autoCompacted = true;
-        recommendedModel = undefined;
-      } else {
-        autoSkipped = auto.reason;
-      }
-    }
   } else {
     // Effort + its larger budget only where they reach the provider: the API adapters. The bridge pins
     // `high` itself, and sampling cannot carry an effort (ADR-0012).
     const model = compactionModel(mode, selection, host, target, endpointKey ? deps.config.endpoints[endpointKey]?.model : undefined);
-    compactedWith = model;
-    const effort = mode === "api" ? compactionEffort(model) : undefined;
+    // A pool model's effort only goes to its own provider; a gemini endpoint keeps its defaults.
+    const effort = mode === "api" && target ? compactionEffort(model) : undefined;
     const briefTokens = dynamicMaxTokens(input.expectedBriefTokens ?? 4_096, 8_192);
     const maxTokens = effort ? Math.max(briefTokens, EFFORT_MAX_TOKENS) : briefTokens;
     const result = await runOptionalCompaction({
@@ -294,6 +226,7 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
       sample: deps.sample,
       bridge: deps.bridge,
     });
+    compactedWith = creditedModel(mode, model, result.modelsUsed);
     effectiveBrief = restoreVerbatim(result.text, frozen.holds);
     egress = true;
   }
@@ -312,14 +245,15 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
     .currentState()
     .filter((d) => d.decision === HANDOFF_DECISION_KEY || d.decision === LEGACY_HANDOFF_TITLE_DE);
   const head = deps.store.appendDecision({
-    who,
+    // The brief's author: the compacting model in the optional modes, else the host.
+    who: compactedWith ?? who,
     decision: HANDOFF_DECISION_KEY,
     rationale: effectiveBrief,
     status: "accepted",
   });
   for (const prior of priorBriefs) deps.store.supersede(prior.decisionId, head.decisionId);
 
-  for (const h of holds) {
+  for (const h of frozen.holds) {
     deps.store.addEvidence({
       decisionId: head.decisionId,
       claim: t(lang).handoff.verbatimClaim,
@@ -345,7 +279,7 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
     decisionsStored++;
   }
 
-  let evidenceStored = holds.length;
+  let evidenceStored = frozen.holds.length;
   for (const e of input.evidence ?? []) {
     deps.store.addEvidence({
       decisionId: lastDecisionId,
@@ -357,6 +291,12 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
     evidenceStored++;
   }
 
+  // Account mode: the host wrote the brief. If the selection names another model, recommend it (ADR-0012).
+  const recommendedModel =
+    mode === "account" && selection.kind === "model" && resolveProfile(host.modelId).id !== selection.model.id
+      ? selection.model.id
+      : undefined;
+
   return {
     mode,
     selectionKind: selection.kind,
@@ -364,10 +304,8 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
     reason: selection.reason,
     ...(compactedWith ? { compactedWith } : {}),
     ...(recommendedModel ? { recommendedModel } : {}),
-    ...(autoCompacted ? { autoCompacted } : {}),
-    ...(autoSkipped ? { autoSkipped } : {}),
     storedDecisionId: head.decisionId,
-    verbatimHolds: holds.length,
+    verbatimHolds: frozen.holds.length,
     missingRequired,
     decisionsStored,
     evidenceStored,
@@ -427,8 +365,6 @@ export function registerHandoff(server: McpServer, deps: HandoffDeps): void {
         reason: z.string(),
         compactedWith: z.string().optional(),
         recommendedModel: z.string().optional(),
-        autoCompacted: z.boolean().optional(),
-        autoSkipped: z.string().optional(),
         storedDecisionId: z.string(),
         verbatimHolds: z.number(),
         missingRequired: z.array(z.string()),
@@ -447,8 +383,7 @@ export function registerHandoff(server: McpServer, deps: HandoffDeps): void {
           : m.selVerbatim({ reason: r.reason });
       const warn =
         (r.missingRequired.length ? `\n${m.missingVerbatim({ spans: r.missingRequired.join(", ") })}` : "") +
-        (r.compactedWith ? `\n${m.compactedWith({ model: r.compactedWith, auto: r.autoCompacted === true })}` : "") +
-        (r.autoSkipped ? `\n${m.autoSkipped({ reason: r.autoSkipped })}` : "") +
+        (r.compactedWith ? `\n${m.compactedWith({ model: r.compactedWith })}` : "") +
         (r.recommendedModel
           ? `\n${m.recommend({ writer: (args as HandoffInput).host?.modelId, model: resolveProfile(r.recommendedModel).displayName })}`
           : "");

@@ -49,14 +49,15 @@ function keyPattern(key: string): RegExp {
     const core = normalizeForKeys(key.slice(open ? 1 : 0, close ? -1 : undefined));
     const esc = core.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const lead = !open && /^[\p{L}\p{N}]/u.test(core) ? "(?<![\\p{L}\\p{N}])" : "";
-    // A number may carry a unit right after it ("1.8s", "4GiB", "30-day") but no further digits
-    // ("240" is not "2400", "1.8" not "1.85"); a word must end where the key ends.
+    // A number ends where the key ends: no further digits ("240" is not "2400", "1.8" not "1.85") and no
+    // letters ("400" is not "400k", "16" not "16GB"); a key lists the unit forms it accepts ("1.8s").
+    // A word ends there too, and a URL scheme is not the word ("postgres://…" is no "postgres").
     const trail = close
       ? ""
       : /\p{N}$/u.test(core)
-        ? "(?![\\p{N}]|[.,]\\p{N})"
+        ? "(?![\\p{L}\\p{N}]|[.,]\\p{N})"
         : /\p{L}$/u.test(core)
-          ? "(?![\\p{L}\\p{N}])"
+          ? "(?![\\p{L}\\p{N}]|:\\/\\/)"
           : "";
     re = new RegExp(lead + esc + trail, "u");
     keyPatterns.set(key, re);

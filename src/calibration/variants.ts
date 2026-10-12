@@ -84,7 +84,7 @@ export function assertNotError(finishReason: string, label: string): void {
  *  (`-v1:0`). A version step (`claude-opus-5` → `claude-opus-5-5`) is a different model. */
 const SAME_MODEL_SUFFIX = /^(?:-(?:\d{8}|\d{4}-\d{2}-\d{2}))?(?:-v\d+(?::\d+)?)?$/;
 
-function isSameModel(reported: string, requested: string): boolean {
+export function isSameModel(reported: string, requested: string): boolean {
   const n = normalizeModelId(reported);
   return n.startsWith(requested) && SAME_MODEL_SUFFIX.test(n.slice(requested.length));
 }

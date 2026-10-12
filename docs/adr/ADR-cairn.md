@@ -610,8 +610,10 @@ takes each reviewer's leniency out of the scores.
 each run 245 calls (35 briefs + 210 reviews) without a skip, with claude 2.1.296 and codex-cli 0.162.1.
 `npm run calibrate -- --pool <artifacts>` pools them without a model call: 10 probe runs per model, one
 reviewer-effect fit over all 420 reviews, and the stored briefs checked again against the current ground
-truth. It writes `…-pooled-golden.json` with the inputs' SHA-256, and refuses an artifact given twice or
-runs of other probes, probe contents, models or reviewer effort. If the effects cannot be fitted (one
+truth. It writes `…-pooled-golden.json` with the inputs' SHA-256, and refuses an artifact given twice (by
+file hash, or by its results when re-serialized) or runs of other probes, probe contents, models or
+reviewer effort. An artifact without `probeInfo` (older than that field, like both runs here) gets a note
+(`inputNotes`): its probe contents cannot be compared. If the effects cannot be fitted (one
 reviewer per brief leaves them unidentifiable), a golden run records why (`reviewerEffectsSkipped`) and
 still writes its artifact. Between the runs the model means moved by
 up to 0.011, more than half the 0.02 band, so one run cannot settle a model near the band edge.
@@ -659,27 +661,28 @@ corrected). Before, only the cheapest band model was checked.
 writes the brief, and the optional modes passed the host's own model id to the caller. Now:
 - Bridge and API compact with the selected summarizer, at effort `high`, chosen in the ecosystem they run
   in: the bridge CLI's (`CAIRN_BRIDGE=claude` → Claude Opus 5.5, `codex` → GPT-6.1 Sol, whatever the
-  host) or the API endpoint's provider. The result reports it (`compactedWith`). After a verbatim fallback
-  they keep the endpoint's default model or a host model of the same ecosystem, else the CLI's default;
-  an endpoint outside the pool (gemini) uses its default model, else the host's.
+  host) or the API endpoint's provider. An endpoint with a configured model always uses it, since a gateway
+  or an Azure deployment names its own models; the selection applies only to an endpoint without one.
+  After a verbatim fallback the bridge keeps a host model of its ecosystem, else the CLI's default; an API
+  endpoint keeps a host model of its provider, else Cairn refuses the call before any egress instead of
+  sending an empty model id. An endpoint outside the pool (gemini) uses its model, else the host's, and
+  gets no effort or effort budget.
+- The result names the model that compacted (`compactedWith`), and the ledger credits the brief to it
+  (`who`): the model the caller reports as answering (claude's `modelUsage`, a codex reroute, the sampling
+  client's `model`) when it is not the requested one, else the requested one. Unknown (the CLI's default
+  without a report, a sampling client that names no model) leaves it out; the brief then stays credited to
+  the host.
 - Sampling cannot choose the client's model; the selection goes along as `modelPreferences.hints`.
 - Account mode makes no model call. When the selected summarizer is not the host model that wrote the
   brief, the result recommends it (`recommendedModel`), and the handoff skill passes that line on: switch
   the session model (`/model`) and run Cairn Handoff again. The skill now passes the host's own model id.
-- Opt-in (`CAIRN_ACCOUNT_SUMMARIZER=auto`): instead of recommending, Cairn compacts the session
-  transcript itself with the selected summarizer through the host's own CLI at `high` (claude for a
-  Claude model, codex for a GPT model; up to 15 minutes). That is a model call on the user's account, the
-  same vendor as the session. The transcript: Claude Code's `<config>/projects/<project dir>/<session
-  id>.jsonl` (from `CLAUDE_PROJECT_DIR` and `CLAUDE_CODE_SESSION_ID`, which Claude Code passes to its MCP
-  servers), read along the active branch only (a rewind leaves the abandoned branch in the file) and from
-  the last `compact_boundary` on; Codex's session rollout (pin `CAIRN_CODEX_SESSION`, else the newest for
-  the cwd) from the last compaction on, without its developer and context messages. Side chains, meta
-  messages, thinking and harness reminders stay out. Only the verbatim holds the brief kept become
-  evidence. If anything misses (no transcript, no caller, a transcript too large for the window, an
-  error, a truncated or empty answer), the host's brief stays and the result names the reason
-  (`autoSkipped`). Limits: a near-full Codex context does not fit GPT-6.1 Sol's 258,400 window through
-  `codex` with the 1.7× request allowance; the Claude Code `compact_boundary` handling follows the Agent
-  SDK's message type and is not yet observed in a real transcript.
+- The session model keeps writing the brief on Claude and Codex hosts alike (user decision, 2026-10-12).
+  An opt-in that read the session transcript from disk and compacted it again through the host's CLI was
+  built and removed before release: it doubled the model cost and context of every handoff, and its review
+  found a stale session id after `/clear`, `/branch` or `/resume`, a foreign Codex rollout without a cwd
+  match, Codex's 60 s tool timeout, Codex's encrypted remote compaction, provider settings bypassed, and
+  transcript content (tool output, web pages) steering a child with a shell and web search. Switching the
+  model by hand gives the same brief with the context the session already holds.
 
 **Fidelity floor 0.84**, signed off by the user on 2026-10-12. Opus 5.5 (0.9596) and GPT-6.1 Sol (0.9573)
 clear even the red zone (0.84 + 0.10 = 0.94), by 0.020 and 0.017, so a full context is compacted, not
@@ -697,9 +700,11 @@ items (code, configs, error strings, identifiers) came back byte-exact (hard ver
 reviewers rated recall 0.966–0.998; the main deduction is the hallucination criterion (0.807–0.893).
 
 The deterministic must-survive check now matches every non-exact item by its key facts (`keys`: AND over
-groups, any alternative per group; words end where the key ends, a number may carry a unit but no further
-digits, a decimal comma reads as a point) instead of the whole ground-truth sentence, which a paraphrase
-never repeats. The keys cover German and English forms and unit spellings. Every item's own text carries
+groups, any alternative per group; words and numbers end where the key ends, so "400" does not match
+"400k" or "4000" and a key lists the unit forms it accepts ("1.8s"); a word before `://` is a URL scheme,
+not the word; a decimal comma reads as a point) instead of the whole ground-truth sentence, which a
+paraphrase never repeats. The keys cover German and English forms and unit spellings, and a test holds 89
+paraphrases and look-alikes from the review to their expected result. Every item's own text carries
 its keys, and a brief of bare bucket headings carries none. Rechecked without a model call, every model
 keeps all 69 key facts in all 70 golden briefs and all 20 in the four high-fill briefs. Five of them (the
 batch size, the refresh-token TTL, the key rotation, the replicas, the disruption budget) appear only

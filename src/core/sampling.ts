@@ -31,6 +31,8 @@ export function serverSampler(server: McpServer): ModelCaller {
     });
     const text = res.content.type === "text" ? res.content.text : "";
     const finishReason = res.stopReason ?? "unknown";
-    return { text, truncated: finishReason === "maxTokens", finishReason };
+    // The client names the model that answered; the handoff credits the brief to it (ADR-0012).
+    const model = typeof res.model === "string" && res.model.trim() ? res.model.trim() : undefined;
+    return { text, truncated: finishReason === "maxTokens", finishReason, ...(model ? { modelsUsed: [model] } : {}) };
   };
 }

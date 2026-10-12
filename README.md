@@ -59,9 +59,8 @@ The default path is **account mode**: the host agent writes the handoff brief in
 Claude or Codex session. Cairn only **stores and validates** it: **no** server-side
 model call, **no** API keys, **no** egress through Cairn. If your session model is not the most faithful
 summarizer (Claude Opus 5.5 on Claude, GPT-6.1 Sol on Codex), the handoff result says so, and you can
-switch the model (`/model`) and run Cairn Handoff again. With `CAIRN_ACCOUNT_SUMMARIZER=auto` (opt-in)
-Cairn does that itself: it reads the session transcript and compacts it with that model through your
-own logged-in `claude` or `codex` CLI, which is a model call on your account.
+switch the model (`/model`) and run Cairn Handoff again. Cairn never does that on its own: re-compacting
+the session would be a second model call over the whole context.
 
 ---
 
@@ -257,7 +256,6 @@ old Cairn block/copies too; old guidance otherwise remains active in that projec
 | `CAIRN_DB` | Path to the SQLite ledger | `~/.cairn/cairn.sqlite` |
 | `CAIRN_ENABLE_MODES` | Additional modes: `sampling`, `bridge`, `api` | `account` only |
 | `CAIRN_BRIDGE` | Bridge target: `claude` or `codex` | empty |
-| `CAIRN_ACCOUNT_SUMMARIZER` | `auto`: in account mode, when another model wrote the brief, compact the session transcript with the selected summarizer through the host's own CLI (a model call on your account; falls back to the host's brief) | off |
 | `CAIRN_ENDPOINT_<NAME>` | Explicit API/org endpoint `provider\|baseUrl\|apiKeyEnv\|model` | empty |
 | `CAIRN_CODEX_SESSIONS` | Alternative Codex sessions directory | `~/.codex/sessions` |
 | `CAIRN_CODEX_SESSION` | Pin a Codex rollout by UUID/path substring | newest matching session |
@@ -270,7 +268,7 @@ old Cairn block/copies too; old guidance otherwise remains active in that projec
 | `account` | Default | **No** | Host agent produces the brief in-session; Cairn only persists it and recommends the selected summarizer if another model wrote it. |
 | `bridge` | `CAIRN_ENABLE_MODES=bridge` | yes, local via another CLI | Condensation via the other logged-in account, with the selected summarizer of that CLI's ecosystem at effort `high`. |
 | `sampling` | `CAIRN_ENABLE_MODES=sampling` | client-dependent | MCP sampling, when the host supports it. The client picks the model; Cairn names its selection as a hint. |
-| `api` | `CAIRN_ENABLE_MODES=api` + endpoint | yes | Headless org runs with explicit credentials, with the selected summarizer of the endpoint's provider. |
+| `api` | `CAIRN_ENABLE_MODES=api` + endpoint | yes | Headless org runs with explicit credentials: the endpoint's configured model, else the selected summarizer of its provider. |
 
 Without explicit configuration, Cairn **refuses** all non-account paths.
 
@@ -282,8 +280,7 @@ Without explicit configuration, Cairn **refuses** all non-account paths.
 - Append-only: decisions are **superseded**, not deleted
 - `stdout` stays reserved for MCP
 - No backend, no telemetry, no cloud sync
-- Default account mode needs **no** API keys and makes **no** model call in the server; only
-  `CAIRN_ACCOUNT_SUMMARIZER=auto` lets it read the session transcript and call your local CLI
+- Default account mode needs **no** API keys and makes **no** model call in the server
 
 ---
 

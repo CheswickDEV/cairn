@@ -10,16 +10,16 @@
   },
 
   "must_survive": [
-    { "id": "c_eu", "kind": "constraint", "source_ref": "T01", "text": "Belegdaten müssen DSGVO-konform in der EU bleiben; keine US-Cloud-Verarbeitung (auch nicht für OCR).", "primacy": true, "note": "Early binding constraint; must also be reflected as the REASON AcmeOCR was rejected (cross-ref T07).", "keys": [["eu","dsgvo","gdpr"],["us-cloud","us cloud","us-region","us region","us-east*","us-anbieter*","us provider*","us-provider*","usa","keine us","no us","not in the us","outside the eu","außerhalb der eu","nur in der eu","only in the eu","eu-only"]] },
-    { "id": "c_budget", "kind": "constraint", "source_ref": "T01,T10b", "text": "Infra-Budget-Deckel 400 €/Monat.", "contradiction_resolution": "400 (T10b) overrides the 500 floated in T10.", "keys": [["400"],["€","eur","euro*"]] },
-    { "id": "c_sla", "kind": "constraint", "source_ref": "T01", "text": "Latenz-SLA p95 < 1.8 s pro Beleg.", "keys": [["1.8","1800 ms","1800ms"],["p95"]] },
+    { "id": "c_eu", "kind": "constraint", "source_ref": "T01", "text": "Belegdaten müssen DSGVO-konform in der EU bleiben; keine US-Cloud-Verarbeitung (auch nicht für OCR).", "primacy": true, "note": "Early binding constraint; must also be reflected as the REASON AcmeOCR was rejected (cross-ref T07).", "keys": [["eu","dsgvo","gdpr"],["us-cloud*","us cloud*","us-region*","us region*","us-east*","us-west*","us-anbieter*","us anbieter*","us provider*","us-provider*","us-hosting","us hosting","us-hosted","us hosted","us data*","us-data*","us-rechenzentr*","us rechenzentr*","usa","american*","amerikan*","keine us","kein us","no us","not in the us","outside the eu","außerhalb der eu","nur in der eu","only in the eu","eu-only"]] },
+    { "id": "c_budget", "kind": "constraint", "source_ref": "T01,T10b", "text": "Infra-Budget-Deckel 400 €/Monat.", "contradiction_resolution": "400 (T10b) overrides the 500 floated in T10.", "keys": [["400","four hundred","vierhundert"],["€","eur","euro","euros"]] },
+    { "id": "c_sla", "kind": "constraint", "source_ref": "T01", "text": "Latenz-SLA p95 < 1.8 s pro Beleg.", "keys": [["1.8","1.8s","1.8sec*","1.8sek*","1800 ms","1800ms","1800 msec*","1800 millisec*","1800 millisek*"],["p95","95th percentile","95th-percentile","95. perzentil"]] },
 
     { "id": "d_db_0", "kind": "decision", "status": "superseded", "superseded_by": "d_db_1", "source_ref": "T02", "text": "SQLite als DB (initialer Prototyp-Ansatz).", "keys": [["sqlite"]] },
-    { "id": "d_db_1", "kind": "decision", "status": "accepted", "supersedes": "d_db_0", "source_ref": "T05", "text": "PostgreSQL als DB.", "rationale": "SQLite locked bei gleichzeitigen Writes mehrerer Worker.", "keys": [["postgresql","postgres als db","postgres als datenbank","postgres database","postgres db"]] },
+    { "id": "d_db_1", "kind": "decision", "status": "accepted", "supersedes": "d_db_0", "source_ref": "T05", "text": "PostgreSQL als DB.", "rationale": "SQLite locked bei gleichzeitigen Writes mehrerer Worker.", "keys": [["postgres","postgresql"]] },
 
     { "id": "d_ocr_acme", "kind": "decision", "status": "superseded", "superseded_by": "d_ocr_doctr", "source_ref": "T06,T07", "text": "AcmeOCR (Cloud) — vorgeschlagen, dann verworfen.", "rationale": "Verarbeitet nur in us-east-1, verletzt c_eu.", "keys": [["acmeocr","acme ocr","acme-ocr"]] },
     { "id": "d_ocr_paddle", "kind": "decision", "status": "discarded", "source_ref": "T08", "text": "PaddleOCR — getestet, verworfen.", "rationale": "Fehlerhaftes deutsches Umlaut-Handling (ä/ö/ü -> a/o/u).", "keys": [["paddleocr","paddle ocr","paddle-ocr"]] },
-    { "id": "d_ocr_doctr", "kind": "decision", "status": "accepted", "supersedes": "d_ocr_acme", "source_ref": "T08", "text": "OCR-Engine = docTR (self-hosted, korrekte Umlaute).", "keys": [["doctr"],["self-hosted","self hosted","selbst gehostet","selbstgehostet","selbst-gehostet","on-prem*","lokal*","locally","umlaut*"]] },
+    { "id": "d_ocr_doctr", "kind": "decision", "status": "accepted", "supersedes": "d_ocr_acme", "source_ref": "T08", "text": "OCR-Engine = docTR (self-hosted, korrekte Umlaute).", "keys": [["doctr"],["self-hosted","self hosted","selbst gehostet","selbstgehostet","selbst-gehostet","on-prem*","lokal*","locally","own server","own vps","eigenen server","eigenen vps","eigener server","umlaut*","ä/ö/ü","äöü"]] },
 
     { "id": "d_queue", "kind": "decision", "status": "accepted", "source_ref": "T11", "text": "Redis als Job-Queue / Broker.", "keys": [["redis"],["queue*","*broker*","warteschlange*"]] },
     { "id": "d_k8s", "kind": "decision", "status": "discarded", "source_ref": "T12", "text": "Kubernetes — verworfen (Overkill für 2 Worker, sprengt Budget).", "keys": [["kubernetes","k8s"]] },
@@ -32,20 +32,20 @@
     { "id": "v_commit", "kind": "verbatim", "exact": true, "source_ref": "T16", "text": "a3f9c21" },
     { "id": "v_url", "kind": "verbatim", "exact": true, "source_ref": "T13", "text": "https://eu-fsn.belegstore.example.de" },
 
-    { "id": "n_throughput", "kind": "number", "source_ref": "T16", "text": "Durchsatz ≈ 240 Belege/Stunde.", "keys": [["240"],["beleg*","stunde","/h","hour"]] },
-    { "id": "n_p95", "kind": "number", "source_ref": "T16", "text": "p95-Latenz aktuell 1,6 s (unter SLA 1.8 s).", "keys": [["1.6"],["p95*"]] },
-    { "id": "n_cost", "kind": "number", "source_ref": "T18", "text": "Laufende Kosten ≈ 290 €/Monat (unter 400er-Deckel).", "keys": [["290"],["€","eur","euro*"]] },
+    { "id": "n_throughput", "kind": "number", "source_ref": "T16", "text": "Durchsatz ≈ 240 Belege/Stunde.", "keys": [["240"],["beleg*","receipt*","stunde*","/h","/hr","hour*"]] },
+    { "id": "n_p95", "kind": "number", "source_ref": "T16", "text": "p95-Latenz aktuell 1,6 s (unter SLA 1.8 s).", "keys": [["1.6","1.6s","1.6sec*","1.6sek*","1600 ms","1600ms"],["p95*","95th percentile","95. perzentil"]] },
+    { "id": "n_cost", "kind": "number", "source_ref": "T18", "text": "Laufende Kosten ≈ 290 €/Monat (unter 400er-Deckel).", "keys": [["290"],["€","eur","euro","euros"]] },
     { "id": "n_batch", "kind": "number", "source_ref": "T13", "text": "MAX_BATCH = 32.", "keys": [["max_batch","batch*"],["32"]] },
     { "id": "n_threshold", "kind": "number", "source_ref": "T13,T14", "text": "CONFIDENCE_THRESHOLD = 0.82 (aktuell).", "keys": [["0.82"],["confidence*","threshold*","schwell*","cutoff","konfidenz*"]] },
 
     { "id": "cc_tz", "kind": "critical_context", "source_ref": "T17", "buried": true, "text": "VPS-Zeitzone MUSS UTC sein; vorher Europe/Berlin verursachte 1–2 h Timestamp-Versatz und kaputte Sortierung. Nicht zurückdrehen.", "keys": [["utc"],["europe/berlin","berlin"]] },
     { "id": "cc_cpu", "kind": "critical_context", "source_ref": "T09", "text": "Läuft bewusst auf CPU (VPS ohne GPU); CUDA-Fehler ist benign, mit ORT_DISABLE_CUDA=1 unterdrückt.", "keys": [["cpu"],["gpu","cuda*"]] },
-    { "id": "cc_umlaut", "kind": "critical_context", "source_ref": "T08", "buried": true, "text": "docTR wurde wegen korrekter deutscher Umlaute gewählt; PaddleOCR scheiterte genau daran.", "keys": [["umlaut*"],["paddle*","doctr"]] },
+    { "id": "cc_umlaut", "kind": "critical_context", "source_ref": "T08", "buried": true, "text": "docTR wurde wegen korrekter deutscher Umlaute gewählt; PaddleOCR scheiterte genau daran.", "keys": [["umlaut*","ä/ö/ü","äöü"],["paddle*","doctr"]] },
 
     { "id": "o_threshold", "kind": "open_decision", "source_ref": "T19", "text": "DECIDE: CONFIDENCE_THRESHOLD 0.82 beibehalten vs. auf 0.78 senken (mehr Recall, höheres Fehlrisiko).", "keys": [["0.78"],["0.82"]] },
-    { "id": "o_worker", "kind": "open_decision", "source_ref": "T20", "text": "DECIDE: zweiter Worker bei steigendem Volumen — offen, hängt an Lastmessung nächste Woche.", "keys": [["worker*"],["zweit*","second","another worker","additional worker*","extra worker*","zusätzliche* worker","zusätzlichen worker","zusätzlicher worker","weitere worker","weiteren worker","weiterer worker"]] },
+    { "id": "o_worker", "kind": "open_decision", "source_ref": "T20", "text": "DECIDE: zweiter Worker bei steigendem Volumen — offen, hängt an Lastmessung nächste Woche.", "keys": [["worker*"],["zweit*","second worker*","2nd worker*","2. worker*","to two worker*","to 2 worker*","auf zwei worker*","auf 2 worker*","another worker*","one more worker*","additional worker*","extra worker*","zusätzliche* worker*","weitere* worker*","noch ein* worker*","more workers","mehr worker"]] },
 
-    { "id": "r_next", "kind": "recency", "source_ref": "T21", "text": "Nächster Schritt (zuletzt angefragt): Threshold testweise auf 0.78 senken, einen Tag Produktivlast fahren, p95 erneut messen, Ergebnis posten — als Basis für die Entscheidung o_threshold.", "keys": [["0.78"],["p95"],["tag","day","produktivlast","production","prod","24 h","24h","24 stunden"]] }
+    { "id": "r_next", "kind": "recency", "source_ref": "T21", "text": "Nächster Schritt (zuletzt angefragt): Threshold testweise auf 0.78 senken, einen Tag Produktivlast fahren, p95 erneut messen, Ergebnis posten — als Basis für die Entscheidung o_threshold.", "keys": [["0.78"],["p95","95th percentile"],["tag","day","produktivlast","produktiv*","production","24 h","24h","24 stunden","24 hours"]] }
   ],
 
   "must_not_appear": [

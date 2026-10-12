@@ -21,7 +21,5 @@ This invocation does not enable automatic saves or resumes on later turns.
    was saved and any unresolved omissions briefly. If the result recommends another summarizer
    model, pass that one line on to the user; do not switch models or retry on your own.
 
-Account mode persists locally without a model call or egress, unless the operator set
-`CAIRN_ACCOUNT_SUMMARIZER=auto`: then Cairn may compact the session transcript itself with the
-recommended model through the local CLI, and the result says so. Each new handoff supersedes the
+Account mode persists locally without a model call or egress. Each new handoff supersedes the
 previous brief. A later resume or another handoff requires a new explicit user request.

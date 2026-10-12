@@ -4,7 +4,7 @@ import { SqliteStore } from "../store/sqlite-store.js";
 import { loadConfig } from "../core/config.js";
 import { serverSampler } from "../core/sampling.js";
 import { t } from "../i18n/index.js";
-import type { ModelCaller } from "../core/providers.js";
+import { EgressNotConfiguredError, runOptionalCompaction, type ModelCaller, type ModelCallResult } from "../core/providers.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 /* ADR-0012 stage 2: the selection decides which model compacts in the optional modes, and in account
@@ -129,5 +129,138 @@ describe("API mode model fallbacks (ADR-0012)", () => {
     const { r, url } = await api("gemini");
     expect(url).toContain("/models/gemini-x:generateContent");
     expect(r.compactedWith).toBe("gemini-x");
+  });
+
+  const runApi = async (endpoint: { provider: "anthropic" | "openai" | "gemini"; model?: string }, modelId: string, fidelityFloor?: number) => {
+    const fetchFn = vi.fn(async (_url: string, _init: RequestInit) => ({
+      json: async () =>
+        endpoint.provider === "gemini"
+          ? { candidates: [{ content: { parts: [{ text: "1) DECISIONS x" }] }, finishReason: "STOP" }] }
+          : endpoint.provider === "openai"
+            ? { choices: [{ message: { content: "1) DECISIONS x" }, finish_reason: "stop" }] }
+            : { content: [{ type: "text", text: "1) DECISIONS x" }], stop_reason: "end_turn" },
+    }));
+    const config = {
+      enabledModes: ["account" as const, "api" as const],
+      endpoints: { main: { baseUrl: "https://api.example.test", ...endpoint } },
+      storePath: ":memory:",
+    };
+    const s = store();
+    const run = runHandoff(
+      { brief: "", source: "src", host: { modelId }, sourceZone: "red", mode: "api", fidelityFloor },
+      { store: s, config, fetchFn: fetchFn as never },
+    );
+    return { run, fetchFn, s };
+  };
+
+  it("a configured endpoint model wins over the selection (a gateway or an Azure deployment names its own models)", async () => {
+    const { run, fetchFn } = await runApi({ provider: "openai", model: "my-azure-deployment" }, "gpt-6-luna");
+    const r = await run;
+    expect(r.modelId).toBe("gpt-6.1-sol"); // still selected and reported
+    const body = JSON.parse(fetchFn.mock.calls[0][1].body as string);
+    expect(body.model).toBe("my-azure-deployment");
+    expect(body).not.toHaveProperty("reasoning_effort"); // not a pool id: the provider default
+    expect(r.compactedWith).toBe("my-azure-deployment");
+  });
+
+  it("without any model id the API call is refused before egress, never sent with an empty model", async () => {
+    const { run, fetchFn, s } = await runApi({ provider: "anthropic" }, "gpt-6.1-sol", 0.99);
+    await expect(run).rejects.toThrow(EgressNotConfiguredError);
+    await expect(run).rejects.toThrow(/no model for endpoint 'main'/);
+    expect(fetchFn).not.toHaveBeenCalled();
+    expect(s.currentState()).toEqual([]);
+  });
+
+  it("the guardrail reports a disabled mode or a missing endpoint before a missing model", async () => {
+    const request = { prompt: "p", maxTokens: 10, model: "" };
+    const endpoints = { main: { provider: "anthropic" as const, baseUrl: "https://api.example.test" } };
+    const off = { enabledModes: ["account" as const], endpoints, storePath: ":memory:" };
+    await expect(runOptionalCompaction({ mode: "api", config: off, request, endpointKey: "main" })).rejects.toThrow(/not enabled/);
+    const on = { ...off, enabledModes: ["account" as const, "api" as const] };
+    await expect(runOptionalCompaction({ mode: "api", config: on, request, endpointKey: "x" })).rejects.toThrow(/no endpoint 'x'/);
+    await expect(runOptionalCompaction({ mode: "api", config: on, request, endpointKey: "main" })).rejects.toThrow(/no model for endpoint 'main'/);
+  });
+
+  it("a gemini endpoint gets no effort budget from a pool host id", async () => {
+    const { run, fetchFn } = await runApi({ provider: "gemini" }, "claude-opus-5-5");
+    await run;
+    const body = JSON.parse(fetchFn.mock.calls[0][1].body as string);
+    expect(body.generationConfig.maxOutputTokens).toBe(6_144); // dynamicMaxTokens(4096 × 1.5, cap 8192), not 32000
+  });
+});
+
+describe("the brief is credited to the model that answered (ADR-0012)", () => {
+  const bridgeRun = async (answer: Partial<ModelCallResult>, floor?: number, modelId = "gpt-6.1-sol") => {
+    const s = store();
+    const bridge = vi.fn<ModelCaller>(async () => ({ text: "1) DECISIONS x", truncated: false, finishReason: "success", ...answer }));
+    const r = await runHandoff(
+      {
+        brief: "",
+        source: "src",
+        host: { modelId },
+        sourceZone: "red",
+        mode: "bridge",
+        fidelityFloor: floor,
+        decisions: [{ decision: "d", rationale: "r" }],
+      },
+      { store: s, config: loadConfig({ CAIRN_ENABLE_MODES: "bridge", CAIRN_BRIDGE: "claude" }), bridge },
+    );
+    const who = s.currentState().map((d) => [d.decision, d.who]);
+    return { r, who };
+  };
+
+  it("the requested model when the caller reports only it (snapshot suffix allowed)", async () => {
+    const { r, who } = await bridgeRun({ modelsUsed: ["claude-opus-5-5-20260922"] });
+    expect(r.compactedWith).toBe("claude-opus-5-5");
+    expect(who.find(([d]) => d !== "d")?.[1]).toBe("claude-opus-5-5");
+  });
+
+  it("the answering model after a fallback or a codex reroute; host decisions keep the host as author", async () => {
+    const { r, who } = await bridgeRun({ modelsUsed: ["claude-sonnet-5-5"] });
+    expect(r.compactedWith).toBe("claude-sonnet-5-5");
+    expect(who.find(([d]) => d !== "d")?.[1]).toBe("claude-sonnet-5-5");
+    expect(who).toContainEqual(["d", "gpt-6.1-sol"]); // the host's own structured decision
+    const mixed = await bridgeRun({ modelsUsed: ["claude-opus-5-5", "claude-haiku-5-5"] });
+    expect(mixed.r.compactedWith).toBe("claude-opus-5-5, claude-haiku-5-5");
+  });
+
+  it("the CLI's default model when nothing was requested and the CLI names it", async () => {
+    const { r } = await bridgeRun({ modelsUsed: ["claude-sonnet-5-5"] }, 0.99);
+    expect(r.selectionKind).toBe("verbatim-fallback");
+    expect(r.compactedWith).toBe("claude-sonnet-5-5");
+    const none = await bridgeRun({}, 0.99);
+    expect(none.r.compactedWith).toBeUndefined();
+    expect(none.who.every(([, w]) => w === "gpt-6.1-sol")).toBe(true); // unknown author: the host, as before
+  });
+
+  it("sampling credits the client's reported model, never the hint", async () => {
+    const run = async (model?: string) => {
+      const s = store();
+      const createMessage = vi.fn(async () => ({ content: { type: "text", text: "1) DECISIONS x" }, stopReason: "endTurn", ...(model !== undefined ? { model } : {}) }));
+      const server = { server: { getClientCapabilities: () => ({ sampling: {} }), createMessage } } as unknown as McpServer;
+      const r = await runHandoff(
+        { brief: "", source: "src", host: { modelId: "claude-sonnet-5-5" }, sourceZone: "green", mode: "sampling" },
+        { store: s, config: loadConfig({ CAIRN_ENABLE_MODES: "sampling" }), sample: serverSampler(server) },
+      );
+      return { r, who: s.getDecision(r.storedDecisionId)?.who };
+    };
+    expect(await run("claude-sonnet-5-5")).toMatchObject({ r: { compactedWith: "claude-sonnet-5-5" }, who: "claude-sonnet-5-5" });
+    expect(await run("claude-opus-5-5")).toMatchObject({ r: { compactedWith: "claude-opus-5-5" }, who: "claude-opus-5-5" });
+    const unreported = await run();
+    expect(unreported.r.compactedWith).toBeUndefined();
+    expect(unreported.who).toBe("claude-sonnet-5-5");
+    expect((await run("  ")).r.compactedWith).toBeUndefined();
+  });
+
+  it("a decorated requested id (`[1m]`) and the plain id the client reports name the same model", async () => {
+    const s = store();
+    const createMessage = vi.fn(async () => ({ content: { type: "text", text: "1) DECISIONS x" }, stopReason: "endTurn", model: "claude-opus-5-5" }));
+    const server = { server: { getClientCapabilities: () => ({ sampling: {} }), createMessage } } as unknown as McpServer;
+    const r = await runHandoff(
+      { brief: "", source: "src", host: { modelId: "claude-opus-5-5[1m]" }, sourceZone: "green", mode: "sampling", fidelityFloor: 0.99 },
+      { store: s, config: loadConfig({ CAIRN_ENABLE_MODES: "sampling" }), sample: serverSampler(server) },
+    );
+    expect(r.selectionKind).toBe("verbatim-fallback");
+    expect(r.compactedWith).toBe("claude-opus-5-5[1m]");
   });
 });

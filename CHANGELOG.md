@@ -37,16 +37,16 @@ independent reviews). See ADR-0012.
 - **The selected summarizer compacts** `[CODE-IMPACTING]`: bridge and API mode compact with the
   selection of the ecosystem they run in (the bridge CLI's or the endpoint's provider), at effort `high`,
   and report it (`compactedWith`). Before, they passed the host's own model id, so a Sonnet session
-  compacted with Sonnet and a Codex host with a claude bridge sent a GPT id to claude; an endpoint's
-  default model went unused. Sampling names the selection as a model hint (the client decides). Account
+  compacted with Sonnet and a Codex host with a claude bridge sent a GPT id to claude. An API endpoint
+  with a configured model keeps it (gateways and Azure deployments name their own models); without any
+  model id Cairn refuses the API call before egress instead of sending an empty one, and a gemini endpoint
+  gets no effort budget. `compactedWith` and the brief's `who` in the ledger name the model that answered
+  when the caller reports one (claude's `modelUsage`, a codex reroute, the sampling client's `model`).
+  Sampling names the selection as a model hint (the client decides). Account
   mode still makes no model call; when another model wrote the brief, the result and the handoff skill
-  recommend switching to the selected summarizer (`recommendedModel`).
-- **Automatic compaction in account mode, opt-in** `[CODE-IMPACTING]` (`CAIRN_ACCOUNT_SUMMARIZER=auto`):
-  when another model wrote the brief, Cairn compacts the session transcript with the selected summarizer
-  through the host's own CLI at `high` and stores that brief (`autoCompacted`); on any miss the host's
-  brief stays with the reason (`autoSkipped`). It reads Claude Code's session transcript along the active
-  branch (rewinds left out) or the Codex rollout. Off by default: account mode then still makes no model
-  call. Skills, server instructions and README say so.
+  recommend switching to the selected summarizer (`recommendedModel`). The session model keeps writing
+  the brief: Cairn does not re-compact the session on its own, which would be a second model call over
+  the whole context.
 - **Band rule** `[CODE-IMPACTING]`: the fidelity floor is checked over the whole top band. The cheapest
   band model that clears the zone floor compacts; verbatim only when none does. Before, only the cheapest
   band model was checked, and a miss went straight to verbatim although a stronger band model would
@@ -55,11 +55,15 @@ independent reviews). See ADR-0012.
 - **Calibration tooling** `[CODE-IMPACTING]`:
   - `npm run calibrate -- --pool <golden artifacts>` pools runs without a model call: one reviewer-effect
     fit over all reviews, corrected means and confidence, the stored briefs checked again against the
-    current ground truth, and a `…-pooled-golden.json` with the inputs' SHA-256. Golden artifacts also
-    record the reviewer effects and the corrected values per probe and model.
+    current ground truth, and a `…-pooled-golden.json` with the inputs' SHA-256. It refuses an artifact
+    given twice, also re-serialized, and runs of another configuration, and notes inputs without
+    `probeInfo` (`inputNotes`). Golden artifacts also record the reviewer effects and the corrected values
+    per probe and model.
   - Must-survive facts are checked by their key facts (`keys` in the ground truth) instead of the whole
-    sentence, which a paraphrase never repeats; before, nearly every fact counted as missed. Every item's
-    own text carries its keys (tested).
+    sentence, which a paraphrase never repeats; before, nearly every fact counted as missed. Words and
+    numbers end where the key ends ("400" is not "400k"), a key lists its unit forms, and a URL scheme
+    (`postgres://`) is not the word. Every item's own text carries its keys, and 89 paraphrases and
+    look-alikes from the review hold their expected result (tested).
   - Artifacts record each probe's length and SHA-256 (`probeInfo`) and the candidates pre-excluded by
     window (`preExcluded`).
 - **Handoff cost estimate**: the selection estimates the input in tokens of the text it compacts (about

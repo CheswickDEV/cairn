@@ -49,7 +49,7 @@ function poolArtifacts(paths: string[], now: Date, out: NodeJS.WriteStream): voi
     const body = readFileSync(path, "utf8");
     return { path, sha256: createHash("sha256").update(body).digest("hex"), res: JSON.parse(body) as GoldenResult };
   });
-  checkPoolInputs(inputs);
+  const notes = checkPoolInputs(inputs);
   const probes = inputs[0].res.probes.join(",");
   const pooled = poolGoldenResults(inputs.map((i) => i.res));
   const date = isoDate(now);
@@ -57,10 +57,18 @@ function poolArtifacts(paths: string[], now: Date, out: NodeJS.WriteStream): voi
   const provenance = collectProvenance({ live: false });
   const path = persistArtifact(
     RESULTS_DIR,
-    { date, inputs: inputs.map(({ path, sha256 }) => ({ path, sha256 })), probes: inputs[0].res.probes, ...pooled, provenance },
+    {
+      date,
+      inputs: inputs.map(({ path, sha256 }) => ({ path, sha256 })),
+      ...(notes.length ? { inputNotes: notes } : {}),
+      probes: inputs[0].res.probes,
+      ...pooled,
+      provenance,
+    },
     `${time}Z-pooled-golden`,
   );
   out.write(`Cairn POOLED GOLDEN SET — ${pooled.runs} runs, probes: ${probes} (no model call)\n`);
+  for (const n of notes) out.write(`Note: ${n}\n`);
   out.write(`Wrote ${path}\n\nReviewer effects (least squares, centred): `);
   out.write(Object.entries(pooled.reviewerEffects).map(([r, e]) => `${r} ${e >= 0 ? "+" : ""}${e.toFixed(4)}`).join(", ") + "\n\n");
   out.write("Per model (probe runs; raw mean; corrected mean; corrected confidence; verbosity; deterministic must-survive):\n");
