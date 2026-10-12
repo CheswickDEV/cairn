@@ -14,6 +14,10 @@ Spec/rubric: `../calibration-spec.md`.
    - **verbatim** items (`exact: true`): hard string comparison, pass/fail — no reviewer.
    - **recall / supersession / hallucination**: blind peer-review by every other pool model (full matrix, effort `high`, no self-review; ADR-0012).
 4. `fidelityScore` = weighted mean (`scoring.weights`), averaged over reviewers; spread as `confidence`.
+   The profiles take each reviewer's leniency out first (least squares over all reviews; ADR-0012), and
+   `npm run calibrate -- --pool <golden artifacts>` pools several runs without a model call.
+5. Deterministic must-survive check: every non-exact item carries `keys` (its key facts; all groups must
+   match, any alternative per group). A paraphrase that keeps them counts; the whole sentence is not needed.
 
 ## Covered Test Cases
 

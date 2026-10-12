@@ -20,20 +20,39 @@ independent reviews). See ADR-0012.
   result"): Claude hosts get Claude Opus 5.5 and Codex hosts GPT-6.1 Sol, in every zone. Before, the
   calibrated pick on Claude hosts was Haiku 4.5.
   - The golden set ran twice at effort `high`, 245 calls each, and the runs are pooled.
-  - The profiles carry the mean from the foreign-family reviewers only: fidelity 0.9416 for Opus 5.5 and
-    0.9655 for GPT-6.1 Sol, plus verbosity, confidence, effort `high` and the date for all seven pool
-    models. Claude reviewers rated Claude briefs 0.03–0.05 higher than GPT reviewers did, and the full
-    matrix without self-review favors the strictest reviewers; with all reviewers Haiku 5.5 and GPT-6
-    Luna would sit just inside the 0.02 band.
+  - The profiles carry the pooled mean of all reviewers with each reviewer's leniency taken out
+    (least squares): fidelity 0.9596 for Opus 5.5 and 0.9573 for GPT-6.1 Sol, plus verbosity,
+    confidence, effort `high` and the date for all seven pool models. Without the correction the full
+    matrix favors the strictest reviewers, which do not review themselves; Haiku 5.5 and GPT-6 Luna would
+    then sit just inside the 0.02 band. Corrected they are 0.003 and 0.004 outside it.
   - The fidelity floor moves from 0.85 to **0.84** (user sign-off), so both picks clear the red zone
-    (0.94) and a full context is compacted rather than handed over verbatim; Opus 5.5 by only 0.0016, so a
-    recalibration can tip red back to verbatim on Claude hosts. A handoff without a zone counts as red
-    and now reports Opus 5.5 on Claude hosts. Without Opus 5.5 a Claude host gets
-    Haiku 5.5, and verbatim in red.
+    (0.94, by about 0.02) and a full context is compacted rather than handed over verbatim. A handoff
+    without a zone counts as red and now reports Opus 5.5 on Claude hosts. Without Opus 5.5 a Claude host
+    gets Haiku 5.5 in green and yellow and Fable 5.1 in red.
   - Cairn masks code, configs and error strings before the model call and restores them byte-exact.
-    All seven models kept every marker in all 70 golden-set briefs, so every exact must-survive item
-    came back byte-exact. A 400K-token control run (4d) kept facts from the start, middle and end of
-    the probe, but scored lower than the golden set; it does not feed the profiles.
+    All seven models kept every marker and every key fact in all 70 golden-set briefs. A 400K-token
+    control run (4d) kept facts from the start, middle and end of the probe, but scored lower than the
+    golden set; it does not feed the profiles.
+- **Band rule** `[CODE-IMPACTING]`: the fidelity floor is checked over the whole top band. The cheapest
+  band model that clears the zone floor compacts; verbatim only when none does. Before, only the cheapest
+  band model was checked, and a miss went straight to verbatim although a stronger band model would
+  have cleared the floor. ADR-0004 and ADR-0007 carry a correction: red raises the floor, it does not
+  switch to the strongest model.
+- **Calibration tooling** `[CODE-IMPACTING]`:
+  - `npm run calibrate -- --pool <golden artifacts>` pools runs without a model call: one reviewer-effect
+    fit over all reviews, corrected means and confidence, the stored briefs checked again against the
+    current ground truth, and a `…-pooled-golden.json` with the inputs' SHA-256. Golden artifacts also
+    record the reviewer effects and the corrected values per probe and model.
+  - Must-survive facts are checked by their key facts (`keys` in the ground truth) instead of the whole
+    sentence, which a paraphrase never repeats; before, nearly every fact counted as missed. Every item's
+    own text carries its keys (tested).
+  - Artifacts record each probe's length and SHA-256 (`probeInfo`) and the candidates pre-excluded by
+    window (`preExcluded`).
+- **Handoff cost estimate**: the selection estimates the input in tokens of the text it compacts (about
+  4 characters per token): the host brief in account mode, the raw source in the model-driven modes.
+  Before, it took the brief's character count, about 4× too high, and ignored the source.
+- **Reference copy tested**: a test compares `docs/reference/model-profiles.ts` with the source, profiles
+  and selection; its demo runs only when the file is executed directly.
 - **Effort floor `high`** `[CODE-IMPACTING]`: calibration runs every model at exactly `high` (was
   `medium`…`max`); reviewers run at exactly `high`. The CLI configuration and pre-flight require exactly
   `high`, reviewer creation too; `buildVariants` and the account compactor (skip without a call) enforce

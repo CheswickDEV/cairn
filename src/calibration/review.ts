@@ -29,9 +29,45 @@ export type Reviewer = (input: {
 
 /* --------------------------- deterministic metrics --------------------------- */
 
-/** An `exact` item must appear byte-exact; any other item as its full text, case-insensitive. */
+/** Text form the key match runs on: lower case, one space for any whitespace run (incl. no-break and
+ *  thin spaces), and a decimal comma read as a point ("1,6 s" → "1.6 s"; "12.000" stays). */
+export function normalizeForKeys(text: string): string {
+  return text
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/\s+/gu, " ")
+    .replace(/(\d),(\d{1,2})(?!\d)/g, "$1.$2");
+}
+
+const keyPatterns = new Map<string, RegExp>();
+/** One key alternative as a regex: a word boundary on each alphanumeric edge unless that side has `*`. */
+function keyPattern(key: string): RegExp {
+  let re = keyPatterns.get(key);
+  if (!re) {
+    const open = key.startsWith("*");
+    const close = key.endsWith("*");
+    const core = normalizeForKeys(key.slice(open ? 1 : 0, close ? -1 : undefined));
+    const esc = core.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const lead = !open && /^[\p{L}\p{N}]/u.test(core) ? "(?<![\\p{L}\\p{N}])" : "";
+    const trail = !close && /[\p{L}\p{N}]$/u.test(core) ? "(?![\\p{L}\\p{N}])" : "";
+    re = new RegExp(lead + esc + trail, "u");
+    keyPatterns.set(key, re);
+  }
+  return re;
+}
+
+/** True if every key group matches the (normalized) text by at least one alternative. */
+export function matchesKeys(text: string, keys: string[][]): boolean {
+  const t = normalizeForKeys(text);
+  return keys.every((group) => group.some((k) => keyPattern(k).test(t)));
+}
+
+/** An `exact` item must appear byte-exact; a keyed item by its key facts; any other item as its full text,
+ *  case-insensitive. */
 function survives(brief: string, it: GtItem): boolean {
-  return it.exact ? brief.includes(it.text) : brief.toLowerCase().includes(it.text.toLowerCase());
+  if (it.exact) return brief.includes(it.text);
+  if (it.keys?.length) return matchesKeys(brief, it.keys);
+  return brief.toLowerCase().includes(it.text.toLowerCase());
 }
 
 export function computeRecall(brief: string, gt: GroundTruth): number {

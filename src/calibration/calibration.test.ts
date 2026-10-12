@@ -207,11 +207,20 @@ describe("deterministic recall/verbatim metrics (real fixtures)", () => {
   it("missingMustSurvive names exactly the items computeRecall misses (same matching)", () => {
     expect(missingMustSurvive(allTexts, GT)).toEqual([]);
     expect(missingMustSurvive("nichts Relevantes", GT)).toEqual(GT.mustSurvive.map((i) => i.id));
-    // A paraphrase (here: the final period dropped) is a miss for a non-exact item.
-    const first = GT.mustSurvive.find((i) => !i.exact)!;
-    const brief = allTexts.replace(first.text, first.text.replace(/\.$/, ""));
-    expect(missingMustSurvive(brief, GT)).toEqual([first.id]);
-    expect(computeRecall(brief, GT)).toBe((GT.mustSurvive.length - 1) / GT.mustSurvive.length);
+    // Keyed items (ADR-0012): a paraphrase that keeps the key facts is no miss; dropping a key fact is.
+    const budget = GT.mustSurvive.find((i) => i.id === "c_budget")!;
+    expect(budget.keys).toBeDefined();
+    const paraphrased = allTexts.replace(budget.text, "Budget: höchstens 400 € pro Monat für die Infrastruktur.");
+    expect(missingMustSurvive(paraphrased, GT)).toEqual([]);
+    const dropped = allTexts.replace(budget.text, "Budget: gedeckelt.");
+    expect(missingMustSurvive(dropped, GT)).toEqual(["c_budget"]);
+    expect(computeRecall(dropped, GT)).toBe((GT.mustSurvive.length - 1) / GT.mustSurvive.length);
+  });
+
+  it("an item without keys still needs its whole text (case-insensitive)", () => {
+    const gt = { ...GT, mustSurvive: [{ id: "x", kind: "constraint" as const, text: "Budget 400 €." }] };
+    expect(missingMustSurvive("BUDGET 400 €.", gt)).toEqual([]);
+    expect(missingMustSurvive("Budget: 400 €", gt)).toEqual(["x"]);
   });
 });
 

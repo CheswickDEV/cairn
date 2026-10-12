@@ -116,6 +116,8 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
   const host = input.host ?? {};
   const lang: Lang = deps.lang ?? "en";
   const select = deps.select ?? selectSummarizer;
+  // The text a model would compact: the host brief in account mode, the raw source in the model-driven modes.
+  const sourceText = mode === "account" ? input.brief : input.source ?? input.brief;
 
   // Quality-first selection (informational in account mode; provider choice in API mode).
   const selection = await select({
@@ -123,7 +125,9 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
     // Conservative selector input when unknown, not a measured context-zone claim.
     sourceZone: input.sourceZone ?? "red",
     cost: {
-      inputTokens: input.estInputTokens ?? input.brief.length,
+      // Tokens, not characters: the long-context tiers (Haiku 5.5 above 100K, GPT-6 above 272K) and the
+      // cost tiebreak count tokens. ~4 characters per token, as the calibration estimates (runner.ts).
+      inputTokens: input.estInputTokens ?? Math.ceil(sourceText.length / 4),
       expectedBriefTokens: input.expectedBriefTokens ?? 6_000,
     },
     fidelityFloor: input.fidelityFloor ?? FIDELITY_FLOOR,
@@ -132,7 +136,6 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
 
   // Deterministic verbatim layer: freeze the text we will compact (the host brief in account
   // mode, or the raw source in the model-driven modes).
-  const sourceText = mode === "account" ? input.brief : input.source ?? input.brief;
   const frozen = freezeVerbatim(sourceText, input.exactSpans ?? []);
 
   // Produce the effective brief. Account mode = the host already made it (no model call/egress).

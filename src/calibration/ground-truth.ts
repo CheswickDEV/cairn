@@ -27,6 +27,14 @@ export interface GtItem {
   supersededBy?: string;
   /** Verbatim items: presence is checked by hard byte-exact string match, never reviewer judgment. */
   exact?: boolean;
+  /**
+   * Key facts for the deterministic check of a non-exact item (ADR-0012): every group must match, by any
+   * one of its alternatives. A brief paraphrases, so the whole `text` is rarely there verbatim; these keys
+   * are the content a faithful paraphrase cannot drop (values, names, the decisive qualifier). Matching is
+   * case-insensitive on word boundaries, with a decimal comma read as a point; a leading or trailing `*`
+   * lifts the boundary on that side. Without keys the whole `text` must appear (case-insensitive).
+   */
+  keys?: string[][];
   sourceRef?: string;
   primacy?: boolean;
   buried?: boolean;

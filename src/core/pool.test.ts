@@ -181,23 +181,24 @@ describe("suspended models (ADR-0012)", () => {
 });
 
 // Phase 6 (ADR-0012): the provisional transition block is replaced by the calibrated selection. Basis:
-// golden set 2026-10-12, two runs pooled, scored by the foreign-family reviewers only; floor 0.84 signed
-// off by the user so that Opus 5.5 and GPT-6.1 Sol compact in every zone (red = floor + 0.10 = 0.94).
+// golden set 2026-10-12, two runs pooled, all reviewers with each reviewer's leniency taken out
+// (`npm run calibrate -- --pool`); floor 0.84 signed off by the user so that Opus 5.5 and GPT-6.1 Sol
+// compact in every zone (red = floor + 0.10 = 0.94).
 describe("calibrated selection (ADR-0012, golden set 2026-10-12, floor 0.84)", () => {
   const cost: CostInput = { inputTokens: 180_000, expectedBriefTokens: 6_000 };
   const ZONES: Zone[] = ["green", "yellow", "red"];
   const pick = (host: { modelId?: string; provider?: string }, sourceZone: Zone, reachable?: (p: ModelProfile) => Promise<boolean>) =>
     selectSummarizer({ host, sourceZone, cost, fidelityFloor: FIDELITY_FLOOR, reachable });
 
-  // id, fidelityScore, verbosityCoeff, confidence (foreign reviewers, 10 probe runs each)
+  // id, fidelityScore, verbosityCoeff, confidence (reviewer-corrected, 10 probe runs each)
   const MEASURED: [string, number, number, number][] = [
-    ["claude-fable-5-1", 0.9298, 1.13, 0.99],
-    ["claude-opus-5-5", 0.9416, 1.11, 0.99],
-    ["claude-sonnet-5-5", 0.9183, 1.10, 0.98],
-    ["claude-haiku-5-5", 0.9123, 1.15, 0.98],
-    ["gpt-6-astra", 0.9697, 0.90, 0.98],
-    ["gpt-6.1-sol", 0.9655, 0.88, 0.98],
-    ["gpt-6-luna", 0.9486, 0.76, 0.98],
+    ["claude-fable-5-1", 0.9510, 1.13, 0.98],
+    ["claude-opus-5-5", 0.9596, 1.11, 0.98],
+    ["claude-sonnet-5-5", 0.9363, 1.10, 0.98],
+    ["claude-haiku-5-5", 0.9366, 1.15, 0.98],
+    ["gpt-6-astra", 0.9639, 0.90, 0.98],
+    ["gpt-6.1-sol", 0.9573, 0.88, 0.98],
+    ["gpt-6-luna", 0.9397, 0.76, 0.98],
   ];
 
   it.each(MEASURED)("%s carries the measured values at effort 'high'", (id, fidelity, verbosity, confidence) => {
@@ -226,24 +227,31 @@ describe("calibrated selection (ADR-0012, golden set 2026-10-12, floor 0.84)", (
     }
   });
 
-  it("Codex host: GPT-6.1 Sol in every zone (Astra shares the band, Sol is cheaper; Luna is 0.0211 below Astra)", async () => {
+  it("Codex host: GPT-6.1 Sol in every zone (Astra shares the band, Sol is cheaper; Luna is 0.0242 below Astra)", async () => {
     for (const zone of ZONES) {
       const r = await pick({ provider: "openai", modelId: "gpt-6.1-sol" }, zone);
       expect(r.kind === "model" && r.model.id).toBe("gpt-6.1-sol");
     }
   });
 
-  // Deliberately recorded (user sign-off 2026-10-12): without Opus the band reaches down to Haiku 5.5,
-  // the cheapest, whose 0.9123 clears green and yellow but not red (0.94) → verbatim in red.
-  it("Claude host without Opus 5.5: Haiku 5.5 in green and yellow, red → verbatim", async () => {
+  // Without Opus the band runs from Fable 5.1 (0.9510) down to Haiku 5.5 (0.9366) and Sonnet 5.5 (0.9363).
+  // Haiku, the cheapest, clears green and yellow; in red (0.94) neither it nor Sonnet does, so the next
+  // band model by cost that clears it, Fable 5.1, compacts instead of a verbatim handoff (ADR-0012).
+  it("Claude host without Opus 5.5: Haiku 5.5 in green and yellow, Fable 5.1 in red", async () => {
     const noOpus = async (p: ModelProfile) => p.status === "active" && p.id !== "claude-opus-5-5";
     for (const zone of ["green", "yellow"] as Zone[]) {
       const r = await pick({ modelId: "claude-opus-5-5" }, zone, noOpus);
       expect(r.kind === "model" && r.model.id).toBe("claude-haiku-5-5");
     }
     const red = await pick({ modelId: "claude-opus-5-5" }, "red", noOpus);
+    expect(red.kind === "model" && red.model.id).toBe("claude-fable-5-1");
+  });
+
+  it("Claude host with only Haiku 5.5 and Sonnet 5.5: no band model clears red → verbatim, naming the best", async () => {
+    const weak = async (p: ModelProfile) => p.id === "claude-haiku-5-5" || p.id === "claude-sonnet-5-5";
+    const red = await pick({ modelId: "claude-opus-5-5" }, "red", weak);
     expect(red.kind).toBe("verbatim-fallback");
-    expect(red.reason).toContain("below effective floor");
+    expect(red.reason).toContain("best available 'claude-haiku-5-5' (fidelity 0.937) below effective floor 0.940");
   });
 
   it("Codex host without GPT-6.1 Sol: Astra in every zone (Luna stays outside the band)", async () => {
@@ -276,10 +284,26 @@ describe("calibrated selection (ADR-0012, golden set 2026-10-12, floor 0.84)", (
     expect(store.getDecision(r.storedDecisionId)?.rationale).toBe("1) DECISIONS x");
   });
 
-  // Opus 5.5 clears every zone, so the defaults need a case where they decide: without Opus the pick is
-  // Haiku 5.5 (0.9123), which clears yellow (0.89) but not red (0.94) at FIDELITY_FLOOR.
+  it("runHandoff estimates the selection cost in tokens of the text it compacts (~4 characters per token)", async () => {
+    const seen: number[] = [];
+    const select: typeof selectSummarizer = async (i) => {
+      seen.push(i.cost.inputTokens);
+      return selectSummarizer(i);
+    };
+    const host = { modelId: "claude-opus-5-5" };
+    const echo = async (req: { prompt: string }) => ({ text: req.prompt, truncated: false, finishReason: "endTurn" as const });
+    const account = { store: new SqliteStore({ path: ":memory:" }), config: loadConfig({}), select };
+    await runHandoff({ brief: "x".repeat(4_000), host }, account); // the host brief
+    await runHandoff({ brief: "x".repeat(4_000), host, estInputTokens: 180_000 }, account); // an explicit estimate wins
+    const bridged = { ...account, config: loadConfig({ CAIRN_ENABLE_MODES: "bridge", CAIRN_BRIDGE: "claude" }), bridge: echo };
+    await runHandoff({ brief: "short", source: "y".repeat(40_000), host, mode: "bridge" }, bridged); // the raw source
+    expect(seen).toEqual([1_000, 180_000, 10_000]);
+  });
+
+  // Opus 5.5 clears every zone, so the defaults need a case where they decide: with only Haiku 5.5 (0.9366)
+  // and Sonnet 5.5 (0.9363) reachable, yellow (0.89) is cleared and red (0.94) is not, at FIDELITY_FLOOR.
   it("runHandoff defaults: no zone selects as red, no floor uses FIDELITY_FLOOR", async () => {
-    const deps = { store: new SqliteStore({ path: ":memory:" }), config: loadConfig({}), reachable: async (p: ModelProfile) => p.status === "active" && p.id !== "claude-opus-5-5" };
+    const deps = { store: new SqliteStore({ path: ":memory:" }), config: loadConfig({}), reachable: async (p: ModelProfile) => p.id === "claude-haiku-5-5" || p.id === "claude-sonnet-5-5" };
     const host = { modelId: "claude-opus-5-5" };
     const none = await runHandoff({ brief: "x", host }, deps);
     expect(none.selectionKind).toBe("verbatim-fallback");
@@ -323,6 +347,17 @@ describe("selection with synthetic calibration values (profiles fixture)", () =>
     const above = await run([haiku, flat], { cost: { inputTokens: 150_000, expectedBriefTokens: 6_000 } });
     expect(below.kind === "model" && below.model.id).toBe("claude-haiku-5-5");
     expect(above.kind === "model" && above.model.id).toBe("claude-flat-synthetic");
+  });
+
+  it("a band model below the zone floor gives way to the next band model by cost (ADR-0012)", async () => {
+    const profiles = calibrated({ "claude-fable-5-1": 0.975, "claude-opus-5-5": 0.965, "claude-haiku-5-5": 0.958 });
+    const green = await run(profiles, { fidelityFloor: 0.86 }); // 0.86: the cheapest band model clears it
+    expect(green.kind === "model" && green.model.id).toBe("claude-haiku-5-5");
+    const red = await run(profiles, { fidelityFloor: 0.86, sourceZone: "red" }); // 0.96: Haiku misses, Opus clears
+    expect(red.kind === "model" && red.model.id).toBe("claude-opus-5-5");
+    const none = await run(profiles, { fidelityFloor: 0.9, sourceZone: "red" }); // 1.00: no band model clears it
+    expect(none.kind).toBe("verbatim-fallback");
+    expect(none.reason).toContain("best available 'claude-fable-5-1' (fidelity 0.975)");
   });
 
   it("floor + red escalation: below 0.95 in red → verbatim with the floor reason; at 0.96 → model", async () => {

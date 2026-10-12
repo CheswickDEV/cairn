@@ -4,6 +4,7 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -99,5 +100,24 @@ export function collectProvenance(opts: { live: boolean; run?: RunCommand; root?
     ...(opts.live
       ? { cli: { claude: firstLine(run, "claude", ["--version"]), codex: firstLine(run, "codex", ["--version"]) } }
       : {}),
+  };
+}
+
+/** What an artifact records about a probe, so a run can be matched to its exact input (ADR-0012). */
+export interface ProbeInfo {
+  label: string;
+  /** Length in UTF-16 code units, as the token estimate counts it. */
+  chars: number;
+  sha256: string;
+  /** The high-fill probe's token target (`CAIRN_CALIB_PROBE_TOKENS`). */
+  targetTokens?: number;
+}
+
+export function probeInfo(label: string, text: string, targetTokens?: number): ProbeInfo {
+  return {
+    label,
+    chars: text.length,
+    sha256: createHash("sha256").update(text, "utf8").digest("hex"),
+    ...(targetTokens !== undefined ? { targetTokens } : {}),
   };
 }

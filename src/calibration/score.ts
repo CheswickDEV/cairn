@@ -85,3 +85,63 @@ export interface CalibrationArtifact {
   /** Code and CLI versions behind the run (set by the CLI). */
   provenance?: RunProvenance;
 }
+
+/* ------------------------------------------------------------------ */
+/* Reviewer-effect correction (ADR-0012)                               */
+/* ------------------------------------------------------------------ */
+
+/** One review in the reviewer-effect fit: the brief it scored, the reviewer, the weighted fidelity. */
+export interface ReviewObservation {
+  brief: string;
+  reviewer: string;
+  fidelity: number;
+}
+
+/** Solve A·x = b (Gaussian elimination with partial pivoting); throws on a singular system. */
+function solveLinear(a: number[][], b: number[]): number[] {
+  const n = b.length;
+  const m = a.map((row, i) => [...row, b[i]]);
+  for (let c = 0; c < n; c++) {
+    let p = c;
+    for (let r = c + 1; r < n; r++) if (Math.abs(m[r][c]) > Math.abs(m[p][c])) p = r;
+    if (Math.abs(m[p][c]) < 1e-12) throw new Error("reviewer-effect fit: singular system (reviewer design not connected)");
+    [m[c], m[p]] = [m[p], m[c]];
+    for (let r = 0; r < n; r++) {
+      if (r === c) continue;
+      const f = m[r][c] / m[c][c];
+      for (let k = c; k <= n; k++) m[r][k] -= f * m[c][k];
+    }
+  }
+  return m.map((row, i) => row[n] / row[i]);
+}
+
+/**
+ * Reviewer leniency/strictness by least squares (ADR-0012): fidelity ≈ brief quality + reviewer effect, with
+ * the effects centred on 0 (unweighted mean over the reviewers). In the full matrix no model reviews its own
+ * brief, so each brief's mean misses exactly its author's effect; subtracting every reviewer's effect from its
+ * reviews removes that. Solved exactly from the normal equations with the brief qualities eliminated:
+ * (A + 11ᵀ)·e = c, where A[r][s] = n_r·[r=s] − Σ_{briefs b scored by r and s} 1/k_b and
+ * c[r] = Σ_{b scored by r} (y_br − ȳ_b). A reviewer set of one has no relative effect (empty map).
+ */
+export function fitReviewerEffects(obs: ReviewObservation[]): Map<string, number> {
+  const reviewers = [...new Set(obs.map((o) => o.reviewer))].sort();
+  if (reviewers.length < 2) return new Map(reviewers.map((r) => [r, 0]));
+  const idx = new Map(reviewers.map((r, i) => [r, i]));
+  const byBrief = new Map<string, ReviewObservation[]>();
+  for (const o of obs) byBrief.set(o.brief, [...(byBrief.get(o.brief) ?? []), o]);
+  const n = reviewers.length;
+  const a = Array.from({ length: n }, () => new Array<number>(n).fill(1)); // the 11ᵀ term
+  const c = new Array<number>(n).fill(0);
+  for (const reviews of byBrief.values()) {
+    const k = reviews.length;
+    const mean = reviews.reduce((s, o) => s + o.fidelity, 0) / k;
+    for (const o of reviews) {
+      const r = idx.get(o.reviewer)!;
+      a[r][r] += 1;
+      for (const p of reviews) a[r][idx.get(p.reviewer)!] -= 1 / k;
+      c[r] += o.fidelity - mean;
+    }
+  }
+  const e = solveLinear(a, c);
+  return new Map(reviewers.map((r, i) => [r, e[i]]));
+}

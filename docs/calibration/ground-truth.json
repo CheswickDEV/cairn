@@ -10,20 +10,20 @@
   },
 
   "must_survive": [
-    { "id": "c_eu", "kind": "constraint", "source_ref": "T01", "text": "Belegdaten müssen DSGVO-konform in der EU bleiben; keine US-Cloud-Verarbeitung (auch nicht für OCR).", "primacy": true, "note": "Early binding constraint; must also be reflected as the REASON AcmeOCR was rejected (cross-ref T07)." },
-    { "id": "c_budget", "kind": "constraint", "source_ref": "T01,T10b", "text": "Infra-Budget-Deckel 400 €/Monat.", "contradiction_resolution": "400 (T10b) overrides the 500 floated in T10." },
-    { "id": "c_sla", "kind": "constraint", "source_ref": "T01", "text": "Latenz-SLA p95 < 1.8 s pro Beleg." },
+    { "id": "c_eu", "kind": "constraint", "source_ref": "T01", "text": "Belegdaten müssen DSGVO-konform in der EU bleiben; keine US-Cloud-Verarbeitung (auch nicht für OCR).", "primacy": true, "note": "Early binding constraint; must also be reflected as the REASON AcmeOCR was rejected (cross-ref T07).", "keys": [["eu","dsgvo","gdpr"],["us"]] },
+    { "id": "c_budget", "kind": "constraint", "source_ref": "T01,T10b", "text": "Infra-Budget-Deckel 400 €/Monat.", "contradiction_resolution": "400 (T10b) overrides the 500 floated in T10.", "keys": [["400"],["€","eur","euro*"]] },
+    { "id": "c_sla", "kind": "constraint", "source_ref": "T01", "text": "Latenz-SLA p95 < 1.8 s pro Beleg.", "keys": [["1.8"],["p95"]] },
 
-    { "id": "d_db_0", "kind": "decision", "status": "superseded", "superseded_by": "d_db_1", "source_ref": "T02", "text": "SQLite als DB (initialer Prototyp-Ansatz)." },
-    { "id": "d_db_1", "kind": "decision", "status": "accepted", "supersedes": "d_db_0", "source_ref": "T05", "text": "PostgreSQL als DB.", "rationale": "SQLite locked bei gleichzeitigen Writes mehrerer Worker." },
+    { "id": "d_db_0", "kind": "decision", "status": "superseded", "superseded_by": "d_db_1", "source_ref": "T02", "text": "SQLite als DB (initialer Prototyp-Ansatz).", "keys": [["sqlite"]] },
+    { "id": "d_db_1", "kind": "decision", "status": "accepted", "supersedes": "d_db_0", "source_ref": "T05", "text": "PostgreSQL als DB.", "rationale": "SQLite locked bei gleichzeitigen Writes mehrerer Worker.", "keys": [["postgresql"]] },
 
-    { "id": "d_ocr_acme", "kind": "decision", "status": "superseded", "superseded_by": "d_ocr_doctr", "source_ref": "T06,T07", "text": "AcmeOCR (Cloud) — vorgeschlagen, dann verworfen.", "rationale": "Verarbeitet nur in us-east-1, verletzt c_eu." },
-    { "id": "d_ocr_paddle", "kind": "decision", "status": "discarded", "source_ref": "T08", "text": "PaddleOCR — getestet, verworfen.", "rationale": "Fehlerhaftes deutsches Umlaut-Handling (ä/ö/ü -> a/o/u)." },
-    { "id": "d_ocr_doctr", "kind": "decision", "status": "accepted", "supersedes": "d_ocr_acme", "source_ref": "T08", "text": "OCR-Engine = docTR (self-hosted, korrekte Umlaute)." },
+    { "id": "d_ocr_acme", "kind": "decision", "status": "superseded", "superseded_by": "d_ocr_doctr", "source_ref": "T06,T07", "text": "AcmeOCR (Cloud) — vorgeschlagen, dann verworfen.", "rationale": "Verarbeitet nur in us-east-1, verletzt c_eu.", "keys": [["acmeocr","acme ocr","acme-ocr"]] },
+    { "id": "d_ocr_paddle", "kind": "decision", "status": "discarded", "source_ref": "T08", "text": "PaddleOCR — getestet, verworfen.", "rationale": "Fehlerhaftes deutsches Umlaut-Handling (ä/ö/ü -> a/o/u).", "keys": [["paddleocr","paddle ocr","paddle-ocr"]] },
+    { "id": "d_ocr_doctr", "kind": "decision", "status": "accepted", "supersedes": "d_ocr_acme", "source_ref": "T08", "text": "OCR-Engine = docTR (self-hosted, korrekte Umlaute).", "keys": [["doctr"],["self-hosted","self hosted","selbst gehostet","selbstgehostet","on-prem*","lokal*","umlaut*"]] },
 
-    { "id": "d_queue", "kind": "decision", "status": "accepted", "source_ref": "T11", "text": "Redis als Job-Queue / Broker." },
-    { "id": "d_k8s", "kind": "decision", "status": "discarded", "source_ref": "T12", "text": "Kubernetes — verworfen (Overkill für 2 Worker, sprengt Budget)." },
-    { "id": "d_deploy", "kind": "decision", "status": "accepted", "source_ref": "T12", "text": "Deployment per Docker Compose auf Hetzner-VPS (Falkenstein, EU)." },
+    { "id": "d_queue", "kind": "decision", "status": "accepted", "source_ref": "T11", "text": "Redis als Job-Queue / Broker.", "keys": [["redis"],["queue*","*broker*","warteschlange*"]] },
+    { "id": "d_k8s", "kind": "decision", "status": "discarded", "source_ref": "T12", "text": "Kubernetes — verworfen (Overkill für 2 Worker, sprengt Budget).", "keys": [["kubernetes","k8s"]] },
+    { "id": "d_deploy", "kind": "decision", "status": "accepted", "source_ref": "T12", "text": "Deployment per Docker Compose auf Hetzner-VPS (Falkenstein, EU).", "keys": [["docker compose","docker-compose","compose"],["hetzner"]] },
 
     { "id": "v_env", "kind": "verbatim", "exact": true, "source_ref": "T13", "text": "OCR_ENGINE=doctr\nDB_DSN=postgres://beleg:****@localhost:5432/beleg_prod\nREDIS_URL=redis://localhost:6379/0\nMAX_BATCH=32\nCONFIDENCE_THRESHOLD=0.82\nS3_ENDPOINT=https://eu-fsn.belegstore.example.de\nTZ=UTC" },
     { "id": "v_error", "kind": "verbatim", "exact": true, "source_ref": "T09", "text": "RuntimeError: ONNXRuntimeError: [E:onnxruntime:Default] CUDA_PATH is not set, falling back to CPUExecutionProvider" },
@@ -32,20 +32,20 @@
     { "id": "v_commit", "kind": "verbatim", "exact": true, "source_ref": "T16", "text": "a3f9c21" },
     { "id": "v_url", "kind": "verbatim", "exact": true, "source_ref": "T13", "text": "https://eu-fsn.belegstore.example.de" },
 
-    { "id": "n_throughput", "kind": "number", "source_ref": "T16", "text": "Durchsatz ≈ 240 Belege/Stunde." },
-    { "id": "n_p95", "kind": "number", "source_ref": "T16", "text": "p95-Latenz aktuell 1,6 s (unter SLA 1.8 s)." },
-    { "id": "n_cost", "kind": "number", "source_ref": "T18", "text": "Laufende Kosten ≈ 290 €/Monat (unter 400er-Deckel)." },
-    { "id": "n_batch", "kind": "number", "source_ref": "T13", "text": "MAX_BATCH = 32." },
-    { "id": "n_threshold", "kind": "number", "source_ref": "T13,T14", "text": "CONFIDENCE_THRESHOLD = 0.82 (aktuell)." },
+    { "id": "n_throughput", "kind": "number", "source_ref": "T16", "text": "Durchsatz ≈ 240 Belege/Stunde.", "keys": [["240"],["beleg*","stunde","/h","hour"]] },
+    { "id": "n_p95", "kind": "number", "source_ref": "T16", "text": "p95-Latenz aktuell 1,6 s (unter SLA 1.8 s).", "keys": [["1.6"],["p95*"]] },
+    { "id": "n_cost", "kind": "number", "source_ref": "T18", "text": "Laufende Kosten ≈ 290 €/Monat (unter 400er-Deckel).", "keys": [["290"],["€","eur","euro*"]] },
+    { "id": "n_batch", "kind": "number", "source_ref": "T13", "text": "MAX_BATCH = 32.", "keys": [["max_batch","batch*"],["32"]] },
+    { "id": "n_threshold", "kind": "number", "source_ref": "T13,T14", "text": "CONFIDENCE_THRESHOLD = 0.82 (aktuell).", "keys": [["0.82"],["confidence*","threshold*","schwell*","cutoff","konfidenz*"]] },
 
-    { "id": "cc_tz", "kind": "critical_context", "source_ref": "T17", "buried": true, "text": "VPS-Zeitzone MUSS UTC sein; vorher Europe/Berlin verursachte 1–2 h Timestamp-Versatz und kaputte Sortierung. Nicht zurückdrehen." },
-    { "id": "cc_cpu", "kind": "critical_context", "source_ref": "T09", "text": "Läuft bewusst auf CPU (VPS ohne GPU); CUDA-Fehler ist benign, mit ORT_DISABLE_CUDA=1 unterdrückt." },
-    { "id": "cc_umlaut", "kind": "critical_context", "source_ref": "T08", "buried": true, "text": "docTR wurde wegen korrekter deutscher Umlaute gewählt; PaddleOCR scheiterte genau daran." },
+    { "id": "cc_tz", "kind": "critical_context", "source_ref": "T17", "buried": true, "text": "VPS-Zeitzone MUSS UTC sein; vorher Europe/Berlin verursachte 1–2 h Timestamp-Versatz und kaputte Sortierung. Nicht zurückdrehen.", "keys": [["utc"],["europe/berlin","berlin"]] },
+    { "id": "cc_cpu", "kind": "critical_context", "source_ref": "T09", "text": "Läuft bewusst auf CPU (VPS ohne GPU); CUDA-Fehler ist benign, mit ORT_DISABLE_CUDA=1 unterdrückt.", "keys": [["cpu"],["gpu","cuda*"]] },
+    { "id": "cc_umlaut", "kind": "critical_context", "source_ref": "T08", "buried": true, "text": "docTR wurde wegen korrekter deutscher Umlaute gewählt; PaddleOCR scheiterte genau daran.", "keys": [["umlaut*"],["paddle*","doctr"]] },
 
-    { "id": "o_threshold", "kind": "open_decision", "source_ref": "T19", "text": "DECIDE: CONFIDENCE_THRESHOLD 0.82 beibehalten vs. auf 0.78 senken (mehr Recall, höheres Fehlrisiko)." },
-    { "id": "o_worker", "kind": "open_decision", "source_ref": "T20", "text": "DECIDE: zweiter Worker bei steigendem Volumen — offen, hängt an Lastmessung nächste Woche." },
+    { "id": "o_threshold", "kind": "open_decision", "source_ref": "T19", "text": "DECIDE: CONFIDENCE_THRESHOLD 0.82 beibehalten vs. auf 0.78 senken (mehr Recall, höheres Fehlrisiko).", "keys": [["0.78"],["0.82"]] },
+    { "id": "o_worker", "kind": "open_decision", "source_ref": "T20", "text": "DECIDE: zweiter Worker bei steigendem Volumen — offen, hängt an Lastmessung nächste Woche.", "keys": [["worker*"],["zweit*","second","additional worker","zusätzlichen worker","zusätzlicher worker","weiteren worker","weiterer worker"]] },
 
-    { "id": "r_next", "kind": "recency", "source_ref": "T21", "text": "Nächster Schritt (zuletzt angefragt): Threshold testweise auf 0.78 senken, einen Tag Produktivlast fahren, p95 erneut messen, Ergebnis posten — als Basis für die Entscheidung o_threshold." }
+    { "id": "r_next", "kind": "recency", "source_ref": "T21", "text": "Nächster Schritt (zuletzt angefragt): Threshold testweise auf 0.78 senken, einen Tag Produktivlast fahren, p95 erneut messen, Ergebnis posten — als Basis für die Entscheidung o_threshold.", "keys": [["0.78"],["p95"],["tag","day","produktivlast","production"]] }
   ],
 
   "must_not_appear": [

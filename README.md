@@ -328,26 +328,26 @@ These decorations resolve to the base entry: `[1m]`, `@effort`, provider and reg
 separator such as `-codex`. The longest known id wins, so `gpt-5.5-pro` stays GPT-5.5 Pro.
 
 The pool models were calibrated on 2026-10-12 (ADR-0012). The golden set ran twice at effort `high`, and
-each brief was scored by the six other pool models. The profiles carry the pooled mean from the
-foreign-family reviewers only, because Claude reviewers rate Claude briefs 0.03–0.05 higher than GPT
-reviewers do.
+each brief was scored by the six other pool models. The profiles carry the pooled mean with each
+reviewer's leniency taken out (a least-squares fit), because no model reviews its own brief and lenient
+and strict reviewers would otherwise shift the ranking.
 
 | Model | Fidelity | Model | Fidelity |
 |---|---|---|---|
-| GPT-6 Astra | 0.9697 | Claude Opus 5.5 | 0.9416 |
-| GPT-6.1 Sol | 0.9655 | Claude Fable 5.1 | 0.9298 |
-| GPT-6 Luna | 0.9486 | Claude Sonnet 5.5 | 0.9183 |
-| | | Claude Haiku 5.5 | 0.9123 |
-
-Compare fidelity only within one ecosystem: the two columns were scored by different reviewers.
+| Claude Opus 5.5 | 0.9596 | GPT-6 Astra | 0.9639 |
+| Claude Fable 5.1 | 0.9510 | GPT-6.1 Sol | 0.9573 |
+| Claude Haiku 5.5 | 0.9366 | GPT-6 Luna | 0.9397 |
+| Claude Sonnet 5.5 | 0.9363 | | |
 
 With the fidelity floor at 0.84, Claude hosts get Claude Opus 5.5 and Codex hosts GPT-6.1 Sol in every
-zone, so the red zone (floor + 0.10 = 0.94) is compacted, not handed over verbatim (Opus 5.5 clears it by
-only 0.0016). Without Opus 5.5 a
-Claude host falls back to Haiku 5.5, and to verbatim in red. Cairn masks code, configs and error strings
-before the model call and restores them byte-exact; in every golden-set brief all seven models kept every
-marker. `npm run calibrate -- --dry-run --golden` shows how many model calls a live run makes;
-`npm run calibrate -- --real --golden` measures all seven at effort `high` on your accounts. Cairn cannot
+zone, so the red zone (floor + 0.10 = 0.94) is compacted, not handed over verbatim. If the cheapest model
+of the top band misses a zone's floor, the next one that clears it compacts; verbatim follows only when no
+band model clears it. Without Opus 5.5 a Claude host gets Haiku 5.5 in green and yellow and Fable 5.1 in
+red. Cairn masks code, configs and error strings before the model call and restores them byte-exact; in
+every golden-set brief all seven models kept every marker and every key fact.
+`npm run calibrate -- --dry-run --golden` shows how many model calls a live run makes;
+`npm run calibrate -- --real --golden` measures all seven at effort `high` on your accounts, and
+`npm run calibrate -- --pool <artifacts>` pools golden runs without a model call. Cairn cannot
 override a Claude Code effort cap (`maxEffortLevel` in your user or managed settings, an Enterprise role
 cap) or a managed `env` setting, so make sure none of them sets less than `high` before a live run.
 

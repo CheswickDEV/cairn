@@ -14,6 +14,10 @@
  * `--dry-run` = the live configuration (candidates, reviewer pool, efforts) on the fixture compactor and
  * the heuristic reviewer: no egress; prints how many model calls `--real` would make.
  *
+ * `--pool <golden.json>…` = pool golden artifacts of the same configuration without any model call: one
+ * reviewer-effect fit over all their reviews, corrected means, and the stored briefs checked again against
+ * the current ground truth (ADR-0012). Writes `…-pooled-golden.json` with the inputs' SHA-256.
+ *
  * Artifacts: `calibration/results/<date>T<time>Z-<mode>[-golden|-large].json`, never overwritten.
  */
 
@@ -28,14 +32,55 @@ import { parseVariant } from "./variants.js";
 import { makeAccountCompactor } from "./account-compactor.js";
 import { makeModelReviewer } from "./model-reviewer.js";
 import { buildLargeProbe, LARGE_GROUND_TRUTH } from "./large-probe.js";
-import { runGoldenSet, goldenProbes } from "./golden-set.js";
+import { runGoldenSet, goldenProbes, poolGoldenResults, type GoldenResult } from "./golden-set.js";
 import { resolveCalibConfig, assertCalibPreflight, artifactSuffix, type CalibConfig } from "./calib-config.js";
-import { collectProvenance, collectsCliVersions } from "./provenance.js";
+import { collectProvenance, collectsCliVersions, probeInfo } from "./provenance.js";
 import type { GroundTruth } from "./ground-truth.js";
 import type { Compactor } from "./runner.js";
 import type { Reviewer } from "./review.js";
+import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 
 const RESULTS_DIR = "calibration/results";
+
+/** `--pool <artifact.json>…`: pool golden artifacts, no model call (ADR-0012). */
+function poolArtifacts(paths: string[], now: Date, out: NodeJS.WriteStream): void {
+  if (paths.length === 0) throw new Error("--pool needs at least one golden artifact");
+  const inputs = paths.map((path) => {
+    const body = readFileSync(path, "utf8");
+    const res = JSON.parse(body) as GoldenResult;
+    if (!Array.isArray(res.perModel) || !Array.isArray(res.probes)) throw new Error(`${path}: not a golden artifact`);
+    return { path, sha256: createHash("sha256").update(body).digest("hex"), res };
+  });
+  const probes = inputs[0].res.probes.join(",");
+  for (const i of inputs) {
+    if (i.res.probes.join(",") !== probes) throw new Error(`${i.path}: other probes than ${inputs[0].path}`);
+  }
+  const pooled = poolGoldenResults(inputs.map((i) => i.res));
+  const date = isoDate(now);
+  const time = now.toISOString().slice(10, 19).replace(/:/g, "-");
+  const provenance = collectProvenance({ live: false });
+  const path = persistArtifact(
+    RESULTS_DIR,
+    { date, inputs: inputs.map(({ path, sha256 }) => ({ path, sha256 })), probes: inputs[0].res.probes, ...pooled, provenance },
+    `${time}Z-pooled-golden`,
+  );
+  out.write(`Cairn POOLED GOLDEN SET — ${pooled.runs} runs, probes: ${probes} (no model call)\n`);
+  out.write(`Wrote ${path}\n\nReviewer effects (least squares, centred): `);
+  out.write(Object.entries(pooled.reviewerEffects).map(([r, e]) => `${r} ${e >= 0 ? "+" : ""}${e.toFixed(4)}`).join(", ") + "\n\n");
+  out.write("Per model (probe runs; raw mean; corrected mean; corrected confidence; verbosity; deterministic must-survive):\n");
+  for (const m of [...pooled.perModel].sort((a, b) => b.meanFidelityAdjusted - a.meanFidelityAdjusted)) {
+    const det = m.missingMustSurvive === null ? "n/a" : `missed ${m.missingMustSurvive}/${m.mustSurviveChecked}, ${m.briefsRetainingAll}/${m.probeRuns} briefs keep all`;
+    out.write(
+      `  ${m.modelId.padEnd(30)} n=${m.probeRuns} raw=${m.meanFidelity.toFixed(4)} corrected=${m.meanFidelityAdjusted.toFixed(4)} ` +
+        `conf=${m.meanConfidenceAdjusted.toFixed(3)} verbosity=${m.meanVerbosityCoeff.toFixed(3)}  [${det}]\n`,
+    );
+  }
+  out.write(
+    `\nFloor proposal (median of the means): raw ${pooled.floorProposal?.toFixed(4) ?? "n/a"}, corrected ` +
+      `${pooled.floorProposalAdjusted?.toFixed(4) ?? "n/a"} — manual sign-off.\n`,
+  );
+}
 
 function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -82,6 +127,8 @@ async function main(): Promise<void> {
   const now = new Date();
   const date = isoDate(now);
   const out = process.stdout;
+  const poolAt = process.argv.indexOf("--pool");
+  if (poolAt >= 0) return poolArtifacts(process.argv.slice(poolAt + 1), now, out);
   // Validates candidates, reviewer pool and efforts (ADR-0012); throws before any model call.
   const cfg = resolveCalibConfig(process.env, process.argv);
   const live = cfg.mode !== "offline";
@@ -120,7 +167,8 @@ async function main(): Promise<void> {
       date,
       onSkip,
     });
-    const gpath = persistArtifact(RESULTS_DIR, { ...res, provenance }, suffix);
+    const info = probes.map((p) => probeInfo(p.label, p.probe));
+    const gpath = persistArtifact(RESULTS_DIR, { ...res, probeInfo: info, provenance }, suffix);
     out.write(`\nWrote ${gpath} (skipped ${skips.length})\n\nPer model (mean over ${res.probes.length} probes):\n`);
     for (const m of [...res.perModel].sort((a, b) => b.meanFidelity - a.meanFidelity)) {
       const pp = m.perProbe.map((p) => `${p.label}=${p.fidelity.toFixed(3)}`).join("  ");
@@ -129,7 +177,10 @@ async function main(): Promise<void> {
           `verbosity=${m.meanVerbosityCoeff.toFixed(2)}${m.highSpreadWarnings ? ` ⚠high-spread×${m.highSpreadWarnings}` : ""}  [${pp}]\n`,
       );
     }
-    out.write(`\nFloor proposal (median mean-fidelity): ${res.floorProposal?.toFixed(3) ?? "n/a"} — manual sign-off.\n`);
+    out.write(
+      `\nFloor proposal (median mean-fidelity): ${res.floorProposal?.toFixed(3) ?? "n/a"}; reviewer-corrected ` +
+        `${res.floorProposalAdjusted?.toFixed(3) ?? "n/a"} — manual sign-off.\n`,
+    );
     writeCallSummary(out, cfg, calls);
     return;
   }
@@ -146,7 +197,7 @@ async function main(): Promise<void> {
       date,
       groundTruth: gt,
     });
-    const path = persistArtifact(RESULTS_DIR, { ...artifact, provenance }, suffix);
+    const path = persistArtifact(RESULTS_DIR, { ...artifact, probeInfo: [probeInfo("standard", loadProbeContext())], provenance }, suffix);
     const updated = applyCalibration(PROFILES, artifact);
     out.write(`Cairn calibration (OFFLINE/fixture mode) — ${date}\n`);
     out.write(`Wrote versioned artifact: ${path}\n`);
@@ -212,7 +263,9 @@ async function main(): Promise<void> {
     onSkip,
   });
 
-  const path = persistArtifact(RESULTS_DIR, { ...artifact, provenance }, suffix);
+  const info = probeInfo(cfg.probe === "large" ? "large" : "standard", probe ?? loadProbeContext(), cfg.probe === "large" ? cfg.probeTokens ?? 800_000 : undefined);
+  const preExcluded = part.excluded.map((e) => ({ id: e.id, window: e.window, request: e.request }));
+  const path = persistArtifact(RESULTS_DIR, { ...artifact, probeInfo: [info], preExcluded, provenance }, suffix);
   out.write(`\nWrote versioned artifact: ${path}\n`);
   out.write(`Scored variants: ${artifact.models.length}/${candidates.length} (skipped ${skips.length})\n\n`);
   out.write(`Per (model × effort):\n`);

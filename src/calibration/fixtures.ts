@@ -33,6 +33,7 @@ interface RawItem {
   source_ref?: string;
   primacy?: boolean;
   buried?: boolean;
+  keys?: string[][];
 }
 interface RawGroundTruth {
   must_survive: RawItem[];
@@ -53,6 +54,7 @@ export function loadGroundTruth(): GroundTruth {
     sourceRef: r.source_ref,
     primacy: r.primacy,
     buried: r.buried,
+    ...(r.keys ? { keys: r.keys } : {}),
   }));
   return {
     mustSurvive,

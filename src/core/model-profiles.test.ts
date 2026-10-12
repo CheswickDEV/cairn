@@ -93,9 +93,9 @@ describe("Claude Opus 5.5 profile (sourced 2026-10)", () => {
   });
 
   // Phase 6 (ADR-0012): the 2026-10-12 golden set replaces the uncalibrated seed; the prior stays as history.
-  it("is calibrated: golden set 2026-10-12 at effort 'high' (foreign-family reviewers), seed prior kept", () => {
+  it("is calibrated: golden set 2026-10-12 at effort 'high' (all reviewers, reviewer-corrected), seed prior kept", () => {
     expect(opus55.summarizer.calibrated).toBe(true);
-    expect(opus55.summarizer.fidelityScore).toBe(0.9416);
+    expect(opus55.summarizer.fidelityScore).toBe(0.9596);
     expect(opus55.summarizer.effort).toBe("high");
     expect(opus55.summarizer.calibrationDate).toBe("2026-10-12");
     expect(opus55.summarizer.provisionalFidelity).toBe(0.92);

@@ -4,7 +4,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { collectProvenance, collectsCliVersions, gitNeutralEnv, PACKAGE_ROOT, type RunCommand } from "./provenance.js";
+import { collectProvenance, collectsCliVersions, gitNeutralEnv, PACKAGE_ROOT, type RunCommand, probeInfo } from "./provenance.js";
+import { buildLargeProbe } from "./large-probe.js";
 
 const SHA = "6b6cc61aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const ROOT = "/repo/cairn";
@@ -132,5 +133,19 @@ describe("run provenance (ADR-0012)", () => {
       node: process.version,
       cli: { claude: null, codex: null },
     });
+  });
+});
+
+describe("probe info (ADR-0012)", () => {
+  it("records length, SHA-256 and, for the high-fill probe, the token target", () => {
+    expect(probeInfo("standard", "abc")).toEqual({
+      label: "standard",
+      chars: 3,
+      sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+    });
+    const large = probeInfo("large", buildLargeProbe(4_000).probe, 4_000);
+    expect(large.targetTokens).toBe(4_000);
+    expect(large.sha256).toBe(probeInfo("large", buildLargeProbe(4_000).probe).sha256); // deterministic probe
+    expect(large.chars).toBe(buildLargeProbe(4_000).probe.length);
   });
 });

@@ -24,6 +24,7 @@
  */
 
 import { z } from "zod";
+import { pathToFileURL } from "node:url";
 
 /* ------------------------------------------------------------------ */
 /* Schema                                                              */
@@ -116,14 +117,14 @@ export const PROFILES: ModelProfile[] = [
     price: { inputPerMTok: 10, outputPerMTok: 50, cacheReadPerMTok: 0.25, batchInputPerMTok: 5, batchOutputPerMTok: 25 },
     context: { window: 1_000_000, maxOutput: 128_000, stdThreshold: null, surcharge: null }, // flat across 1M
     qualityZone: { greenPct: 0.40, yellowPct: 0.70, provisional: true }, // inherits 1M house values
-    summarizer: { fidelityScore: 0.9298, verbosityCoeff: 1.13, provisionalFidelity: 0.93, calibrated: true, calibrationDate: "2026-10-12", confidence: 0.99, effort: "high" },
+    summarizer: { fidelityScore: 0.9510, verbosityCoeff: 1.13, provisionalFidelity: 0.93, calibrated: true, calibrationDate: "2026-10-12", confidence: 0.98, effort: "high" },
     sources: [
       VENDOR("Anthropic Claude Fable 5.1 model page", "https://platform.claude.com/docs/en/models/fable-5-1/overview", "2026-10"),
       VENDOR("Anthropic pricing docs", "https://platform.claude.com/docs/en/about-claude/pricing", "2026-10"),
     ],
     notes: "Flat pricing across the full 1M; cache reads 0.025x base input. Default effort 'high' (API and Claude Code). " +
-      "Calibrated 2026-10-12 (ADR-0012): golden-set mean of two pooled runs at effort 'high', scored by " +
-      "the foreign-family reviewers only (fidelity 0.9298, verbosity 1.13).",
+      "Calibrated 2026-10-12 (ADR-0012): golden-set mean of two pooled runs at effort 'high', all reviewers, " +
+      "each reviewer's leniency taken out (fidelity 0.9510, verbosity 1.13).",
   },
   {
     id: "claude-opus-5-5",
@@ -134,15 +135,15 @@ export const PROFILES: ModelProfile[] = [
     price: { inputPerMTok: 4, outputPerMTok: 20, cacheReadPerMTok: 0.2, batchInputPerMTok: 2, batchOutputPerMTok: 10 },
     context: { window: 1_000_000, maxOutput: 128_000, stdThreshold: null, surcharge: null }, // flat across 1M
     qualityZone: { greenPct: 0.40, yellowPct: 0.70, provisional: true }, // inherits 1M house values
-    summarizer: { fidelityScore: 0.9416, verbosityCoeff: 1.11, provisionalFidelity: 0.92, calibrated: true, calibrationDate: "2026-10-12", confidence: 0.99, effort: "high" },
+    summarizer: { fidelityScore: 0.9596, verbosityCoeff: 1.11, provisionalFidelity: 0.92, calibrated: true, calibrationDate: "2026-10-12", confidence: 0.98, effort: "high" },
     sources: [
       VENDOR("Anthropic Claude Opus 5.5 model page", "https://platform.claude.com/docs/en/models/opus-5-5/overview", "2026-10"),
       VENDOR("Anthropic pricing docs", "https://platform.claude.com/docs/en/about-claude/pricing", "2026-10"),
     ],
     notes: "Released 2026-09-22. Flat pricing across the full 1M; cache reads 0.05x base input. Default effort 'medium' " +
       "(Opus 5 and earlier: 'high'); adaptive thinking is always on. " +
-      "Calibrated 2026-10-12 (ADR-0012): golden-set mean of two pooled runs at effort 'high', scored by " +
-      "the foreign-family reviewers only (fidelity 0.9416, verbosity 1.11).",
+      "Calibrated 2026-10-12 (ADR-0012): golden-set mean of two pooled runs at effort 'high', all reviewers, " +
+      "each reviewer's leniency taken out (fidelity 0.9596, verbosity 1.11).",
   },
   {
     id: "claude-sonnet-5-5",
@@ -153,14 +154,14 @@ export const PROFILES: ModelProfile[] = [
     price: { inputPerMTok: 2, outputPerMTok: 10, cacheReadPerMTok: 0.1, batchInputPerMTok: 1, batchOutputPerMTok: 5 },
     context: { window: 1_000_000, maxOutput: 128_000, stdThreshold: null, surcharge: null }, // flat across 1M
     qualityZone: { greenPct: 0.40, yellowPct: 0.70, provisional: true }, // inherits 1M house values
-    summarizer: { fidelityScore: 0.9183, verbosityCoeff: 1.10, provisionalFidelity: 0.85, calibrated: true, calibrationDate: "2026-10-12", confidence: 0.98, effort: "high" },
+    summarizer: { fidelityScore: 0.9363, verbosityCoeff: 1.10, provisionalFidelity: 0.85, calibrated: true, calibrationDate: "2026-10-12", confidence: 0.98, effort: "high" },
     sources: [
       VENDOR("Anthropic Claude Sonnet 5.5 model page", "https://platform.claude.com/docs/en/models/sonnet-5-5/overview", "2026-10"),
       VENDOR("Anthropic pricing docs", "https://platform.claude.com/docs/en/about-claude/pricing", "2026-10"),
     ],
     notes: "Flat pricing across the full 1M; cache reads 0.05x base input. Default effort 'high' on the API but 'medium' " +
       "in Claude Code. Calibrated 2026-10-12 (ADR-0012): golden-set mean of two pooled runs at effort 'high', " +
-      "scored by the foreign-family reviewers only (fidelity 0.9183, verbosity 1.10).",
+      "all reviewers, each reviewer's leniency taken out (fidelity 0.9363, verbosity 1.10).",
   },
   {
     id: "claude-haiku-5-5",
@@ -172,15 +173,15 @@ export const PROFILES: ModelProfile[] = [
     // Prompts over 100,000 tokens: the whole request at 5x ($0.50/$2.50, Batch $0.25/$1.25, cache reads $0.05).
     context: { window: 1_000_000, maxOutput: 128_000, stdThreshold: 100_000, surcharge: { inputMult: 5, outputMult: 5 } },
     qualityZone: { greenPct: 0.40, yellowPct: 0.70, provisional: true }, // inherits 1M house values
-    summarizer: { fidelityScore: 0.9123, verbosityCoeff: 1.15, provisionalFidelity: 0.70, calibrated: true, calibrationDate: "2026-10-12", confidence: 0.98, effort: "high" },
+    summarizer: { fidelityScore: 0.9366, verbosityCoeff: 1.15, provisionalFidelity: 0.70, calibrated: true, calibrationDate: "2026-10-12", confidence: 0.98, effort: "high" },
     sources: [
       VENDOR("Anthropic Claude Haiku 5.5 model page", "https://platform.claude.com/docs/en/models/haiku-5-5/overview", "2026-10"),
       VENDOR("Anthropic pricing docs", "https://platform.claude.com/docs/en/about-claude/pricing", "2026-10"),
     ],
     notes: "The only current Claude model with a long-context tier: a request over 100,000 prompt tokens (cache reads and " +
       "writes included) pays 5x on input, output and cache, Batch too. Default effort 'medium'. " +
-      "Calibrated 2026-10-12 (ADR-0012): golden-set mean of two pooled runs at effort 'high', scored by " +
-      "the foreign-family reviewers only (fidelity 0.9123, verbosity 1.15).",
+      "Calibrated 2026-10-12 (ADR-0012): golden-set mean of two pooled runs at effort 'high', all reviewers, " +
+      "each reviewer's leniency taken out (fidelity 0.9366, verbosity 1.15).",
   },
 
   // ---- Anthropic: suspended earlier generation ----
@@ -250,15 +251,15 @@ export const PROFILES: ModelProfile[] = [
     price: { inputPerMTok: 10, outputPerMTok: 50, cacheReadPerMTok: 1, batchInputPerMTok: 5, batchOutputPerMTok: 25 },
     context: { window: 1_050_000, maxOutput: 128_000, stdThreshold: 272_000, surcharge: { inputMult: 2, outputMult: 1.5 } },
     qualityZone: { greenPct: 0.40, yellowPct: 0.70, provisional: true },
-    summarizer: { fidelityScore: 0.9697, verbosityCoeff: 0.90, provisionalFidelity: 0.93, calibrated: true, calibrationDate: "2026-10-12", confidence: 0.98, effort: "high" },
+    summarizer: { fidelityScore: 0.9639, verbosityCoeff: 0.90, provisionalFidelity: 0.93, calibrated: true, calibrationDate: "2026-10-12", confidence: 0.98, effort: "high" },
     sources: [
       VENDOR("OpenAI GPT-6 Astra model docs", "https://developers.openai.com/api/docs/models/gpt-6-astra", "2026-10"),
       VENDOR("OpenAI API pricing (Batch)", "https://developers.openai.com/api/docs/pricing", "2026-10"),
     ],
     notes: "Max input 922,000 of the 1,050,000 window. Reasoning effort low..max; the default is not documented, so Cairn " +
       "always sets it. Codex: off by default on Enterprise/Edu. " +
-      "Calibrated 2026-10-12 (ADR-0012): golden-set mean of two pooled runs at effort 'high', scored by " +
-      "the foreign-family reviewers only (fidelity 0.9697, verbosity 0.90).",
+      "Calibrated 2026-10-12 (ADR-0012): golden-set mean of two pooled runs at effort 'high', all reviewers, " +
+      "each reviewer's leniency taken out (fidelity 0.9639, verbosity 0.90).",
   },
   {
     id: "gpt-6.1-sol",
@@ -269,15 +270,15 @@ export const PROFILES: ModelProfile[] = [
     price: { inputPerMTok: 2, outputPerMTok: 10, cacheReadPerMTok: 0.1, batchInputPerMTok: 1, batchOutputPerMTok: 5 },
     context: { window: 1_050_000, maxOutput: 128_000, stdThreshold: 272_000, surcharge: { inputMult: 2, outputMult: 1.5 } },
     qualityZone: { greenPct: 0.40, yellowPct: 0.70, provisional: true },
-    summarizer: { fidelityScore: 0.9655, verbosityCoeff: 0.88, provisionalFidelity: 0.92, calibrated: true, calibrationDate: "2026-10-12", confidence: 0.98, effort: "high" },
+    summarizer: { fidelityScore: 0.9573, verbosityCoeff: 0.88, provisionalFidelity: 0.92, calibrated: true, calibrationDate: "2026-10-12", confidence: 0.98, effort: "high" },
     sources: [
       VENDOR("OpenAI GPT-6.1 Sol model docs", "https://developers.openai.com/api/docs/models/gpt-6.1-sol", "2026-10"),
       VENDOR("OpenAI API pricing (Batch)", "https://developers.openai.com/api/docs/pricing", "2026-10"),
     ],
     notes: "Max input 922,000 of the 1,050,000 window; cache reads 0.05x base input. Reasoning effort low..max, default " +
       "'medium'. Codex's recommended model (`codex exec -m gpt-6.1-sol`). " +
-      "Calibrated 2026-10-12 (ADR-0012): golden-set mean of two pooled runs at effort 'high', scored by " +
-      "the foreign-family reviewers only (fidelity 0.9655, verbosity 0.88).",
+      "Calibrated 2026-10-12 (ADR-0012): golden-set mean of two pooled runs at effort 'high', all reviewers, " +
+      "each reviewer's leniency taken out (fidelity 0.9573, verbosity 0.88).",
   },
   {
     id: "gpt-6-luna",
@@ -288,14 +289,14 @@ export const PROFILES: ModelProfile[] = [
     price: { inputPerMTok: 0.1, outputPerMTok: 0.5, cacheReadPerMTok: 0.01, batchInputPerMTok: 0.05, batchOutputPerMTok: 0.25 },
     context: { window: 1_050_000, maxOutput: 128_000, stdThreshold: 272_000, surcharge: { inputMult: 2, outputMult: 1.5 } },
     qualityZone: { greenPct: 0.40, yellowPct: 0.70, provisional: true },
-    summarizer: { fidelityScore: 0.9486, verbosityCoeff: 0.76, provisionalFidelity: 0.70, calibrated: true, calibrationDate: "2026-10-12", confidence: 0.98, effort: "high" },
+    summarizer: { fidelityScore: 0.9397, verbosityCoeff: 0.76, provisionalFidelity: 0.70, calibrated: true, calibrationDate: "2026-10-12", confidence: 0.98, effort: "high" },
     sources: [
       VENDOR("OpenAI GPT-6 Luna model docs", "https://developers.openai.com/api/docs/models/gpt-6-luna", "2026-10"),
       VENDOR("OpenAI API pricing (Batch)", "https://developers.openai.com/api/docs/pricing", "2026-10"),
     ],
     notes: "Max input 922,000 of the 1,050,000 window. Reasoning effort none, low..max, default 'medium'. " +
-      "Calibrated 2026-10-12 (ADR-0012): golden-set mean of two pooled runs at effort 'high', scored by " +
-      "the foreign-family reviewers only (fidelity 0.9486, verbosity 0.76).",
+      "Calibrated 2026-10-12 (ADR-0012): golden-set mean of two pooled runs at effort 'high', all reviewers, " +
+      "each reviewer's leniency taken out (fidelity 0.9397, verbosity 0.76).",
   },
 
   // ---- OpenAI: suspended earlier generation ----
@@ -543,17 +544,23 @@ export async function selectSummarizer(input: SelectInput): Promise<SelectResult
   // for a Pro sibling that is not measurably more faithful.
   const FIDELITY_BAND = 0.02; // models within this delta count as equivalent fidelity
   const maxF = Math.max(...pool.map(fidelityKey));
-  const topBand = pool.filter((p) => maxF - fidelityKey(p) <= FIDELITY_BAND);
-  const chosen = [...topBand].sort((a, b) => effectiveCost(a, input.cost) - effectiveCost(b, input.cost))[0];
+  const topBand = pool
+    .filter((p) => maxF - fidelityKey(p) <= FIDELITY_BAND)
+    .sort((a, b) => effectiveCost(a, input.cost) - effectiveCost(b, input.cost));
 
   // Stage 4: fidelity floor — zone escalation RAISES the floor (harder source context demands a
-  // stronger summarizer). If even the top-band model can't clear the effective floor, go verbatim.
+  // stronger summarizer). The cheapest band model that clears the effective floor compacts; a cheaper
+  // one below it gives way to the next band model instead of sending the handoff to verbatim
+  // (ADR-0012). Verbatim only when no band model clears it — then no reachable model does, since the
+  // band holds the best one.
   const ESCALATION_BUMP: Record<Zone, number> = { green: 0, yellow: 0.05, red: 0.10 };
   const effectiveFloor = input.fidelityFloor + ESCALATION_BUMP[input.sourceZone];
-  if (fidelityKey(chosen) < effectiveFloor) {
+  const chosen = topBand.find((p) => fidelityKey(p) >= effectiveFloor);
+  if (!chosen) {
+    const best = topBand.reduce((a, b) => (fidelityKey(b) > fidelityKey(a) ? b : a));
     return {
       kind: "verbatim-fallback",
-      reason: `best available '${chosen.id}' (fidelity ${fidelityKey(chosen).toFixed(3)}) below ` +
+      reason: `best available '${best.id}' (fidelity ${fidelityKey(best).toFixed(3)}) below ` +
               `effective floor ${effectiveFloor.toFixed(3)} in ${input.sourceZone} zone ` +
               `— emitting lossless verbatim handoff instead`,
     };
@@ -650,5 +657,7 @@ function render(r: SelectResult): string {
     : `VERBATIM FALLBACK — ${r.reason}`;
 }
 
-// Run when executed directly (tsx / ts-node).
-demo().catch((e) => { console.error(e); process.exit(1); });
+// Run only when executed directly (tsx / ts-node), not when a test imports this copy to compare it with src.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  demo().catch((e) => { console.error(e); process.exit(1); });
+}

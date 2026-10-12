@@ -9,7 +9,8 @@ import type { GroundTruth } from "./ground-truth.js";
 import type { Compactor } from "./runner.js";
 import type { Reviewer } from "./review.js";
 import { runCalibration } from "./harness.js";
-import { median, type ReviewRecord } from "./score.js";
+import { median, stddev, clamp01, fitReviewerEffects, type ReviewRecord, type ReviewObservation } from "./score.js";
+import { missingMustSurvive, computeVerbatimScore } from "./review.js";
 import type { RunProvenance } from "./provenance.js";
 import { loadProbeContext, loadGroundTruth, loadExactSpans } from "./fixtures.js";
 import { GOLDEN2_PROBE, GOLDEN2_GROUND_TRUTH, GOLDEN2_EXACT_SPANS } from "./golden-probe-2.js";
@@ -53,6 +54,10 @@ export interface GoldenProbeResult {
   brief?: string;
   reviewers: string[];
   reviews: ReviewRecord[];
+  /** Mean of the reviews after each reviewer's effect is subtracted (ADR-0012, `reviewerEffects`). */
+  fidelityAdjusted?: number;
+  /** clamp(1 − spread) of the corrected reviews. */
+  confidenceAdjusted?: number;
 }
 
 export interface GoldenModelResult {
@@ -66,6 +71,9 @@ export interface GoldenModelResult {
   /** How many probes raised the high-spread warning. */
   highSpreadWarnings: number;
   probesScored: number;
+  /** Mean of `fidelityAdjusted` over the probes (ADR-0012). */
+  meanFidelityAdjusted?: number;
+  meanConfidenceAdjusted?: number;
   perProbe: GoldenProbeResult[];
 }
 
@@ -76,6 +84,10 @@ export interface GoldenResult {
   probes: string[];
   perModel: GoldenModelResult[];
   floorProposal: number | null;
+  /** Least-squares reviewer effects over this run's reviews, centred on 0 (ADR-0012; `fitReviewerEffects`). */
+  reviewerEffects?: Record<string, number>;
+  /** Median of `meanFidelityAdjusted` over the models. */
+  floorProposalAdjusted?: number | null;
   /** Code and CLI versions behind the run (set by the CLI). */
   provenance?: RunProvenance;
 }
@@ -156,12 +168,129 @@ export async function runGoldenSet(input: RunGoldenSetInput): Promise<GoldenResu
 
   // Floor proposal: the median mean-fidelity across models (robust central value), or null if empty.
   const floorProposal = perModel.length ? median(perModel.map((m) => m.meanFidelity)) : null;
+  const corrected = correctForReviewers([perModel]);
 
   return {
     date: input.date,
     ...(input.reviewerEffort ? { reviewerEffort: input.reviewerEffort } : {}),
     probes: input.probes.map((p) => p.label),
-    perModel,
+    perModel: corrected ? corrected.runs[0] : perModel,
     floorProposal,
+    ...(corrected
+      ? {
+          reviewerEffects: corrected.effects,
+          floorProposalAdjusted: median(corrected.runs[0].map((m) => m.meanFidelityAdjusted!)),
+        }
+      : {}),
+  };
+}
+
+/**
+ * Reviewer-effect correction over one or more runs (ADR-0012): one joint least-squares fit over every
+ * review, then each probe result gets `fidelityAdjusted` / `confidenceAdjusted` and each model the means.
+ * Briefs are told apart per run, model and probe. Returns null when there are no reviews to fit.
+ */
+function correctForReviewers(runs: GoldenModelResult[][]): { effects: Record<string, number>; runs: GoldenModelResult[][] } | null {
+  const obs: ReviewObservation[] = [];
+  runs.forEach((perModel, i) => {
+    for (const m of perModel) {
+      for (const p of m.perProbe) {
+        for (const r of p.reviews) obs.push({ brief: `${i}|${m.modelId}|${p.label}`, reviewer: r.reviewerModelId, fidelity: r.fidelity });
+      }
+    }
+  });
+  if (obs.length === 0) return null;
+  const e = fitReviewerEffects(obs);
+  const adjust = (m: GoldenModelResult): GoldenModelResult => {
+    const perProbe = m.perProbe.map((p) => {
+      if (!p.reviews.length) return p;
+      const ys = p.reviews.map((r) => r.fidelity - (e.get(r.reviewerModelId) ?? 0));
+      return { ...p, fidelityAdjusted: mean(ys), confidenceAdjusted: clamp01(1 - stddev(ys)) };
+    });
+    const scored = perProbe.filter((p) => p.fidelityAdjusted !== undefined);
+    return {
+      ...m,
+      perProbe,
+      meanFidelityAdjusted: mean(scored.map((p) => p.fidelityAdjusted!)),
+      meanConfidenceAdjusted: mean(scored.map((p) => p.confidenceAdjusted!)),
+    };
+  };
+  return { effects: Object.fromEntries(e), runs: runs.map((perModel) => perModel.map(adjust)) };
+}
+
+/** One model across pooled golden runs (ADR-0012). */
+export interface PooledModelResult {
+  modelId: string;
+  baseModelId: string;
+  effort: string;
+  /** Probe runs pooled (probes × runs). */
+  probeRuns: number;
+  meanFidelity: number;
+  meanFidelityAdjusted: number;
+  meanConfidenceAdjusted: number;
+  meanVerbosityCoeff: number;
+  /** Deterministic re-check of the stored briefs with the current ground truth (null for an unknown probe). */
+  missingMustSurvive: number | null;
+  mustSurviveChecked: number;
+  briefsRetainingAll: number;
+}
+
+export interface PooledGoldenResult {
+  runs: number;
+  reviewerEffects: Record<string, number>;
+  perModel: PooledModelResult[];
+  /** Median over the models of the raw / corrected pooled means. */
+  floorProposal: number | null;
+  floorProposalAdjusted: number | null;
+}
+
+/**
+ * Pool several golden artifacts of the same configuration (ADR-0012): every probe run counts once, the
+ * reviewer effects come from one fit over all reviews, and the stored briefs are checked again against the
+ * current ground truth of their probe (`probes`, by label). No model call.
+ */
+export function poolGoldenResults(results: GoldenResult[], probes: GoldenProbe[] = goldenProbes()): PooledGoldenResult {
+  if (results.length === 0) throw new Error("pool: no golden result");
+  const corrected = correctForReviewers(results.map((r) => r.perModel));
+  if (!corrected) throw new Error("pool: the artifacts hold no reviews");
+  const gtBy = new Map(probes.map((p) => [p.label, p.groundTruth]));
+  const byModel = new Map<string, GoldenModelResult[]>();
+  for (const run of corrected.runs) for (const m of run) byModel.set(m.modelId, [...(byModel.get(m.modelId) ?? []), m]);
+  const perModel: PooledModelResult[] = [...byModel.values()].map((ms) => {
+    const pp = ms.flatMap((m) => m.perProbe);
+    let missing: number | null = 0;
+    let checked = 0;
+    let retaining = 0;
+    for (const p of pp) {
+      const gt = gtBy.get(p.label);
+      if (!gt || p.brief === undefined) {
+        missing = null;
+        continue;
+      }
+      const miss = missingMustSurvive(p.brief, gt);
+      if (missing !== null) missing += miss.length;
+      checked += gt.mustSurvive.length;
+      if (miss.length === 0 && computeVerbatimScore(p.brief, gt) === 1) retaining++;
+    }
+    return {
+      modelId: ms[0].modelId,
+      baseModelId: ms[0].baseModelId,
+      effort: ms[0].effort,
+      probeRuns: pp.length,
+      meanFidelity: mean(pp.map((p) => p.fidelity)),
+      meanFidelityAdjusted: mean(pp.map((p) => p.fidelityAdjusted!)),
+      meanConfidenceAdjusted: mean(pp.map((p) => p.confidenceAdjusted!)),
+      meanVerbosityCoeff: mean(pp.map((p) => p.verbosityCoeff)),
+      missingMustSurvive: missing,
+      mustSurviveChecked: checked,
+      briefsRetainingAll: retaining,
+    };
+  });
+  return {
+    runs: results.length,
+    reviewerEffects: corrected.effects,
+    perModel,
+    floorProposal: perModel.length ? median(perModel.map((m) => m.meanFidelity)) : null,
+    floorProposalAdjusted: perModel.length ? median(perModel.map((m) => m.meanFidelityAdjusted)) : null,
   };
 }

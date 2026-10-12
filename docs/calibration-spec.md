@@ -61,5 +61,6 @@ Weight recall and hallucination higher (those are the expensive errors). Verbati
 ## 6. Bias Mitigation
 
 - Full reviewer matrix (ADR-0012): every other pool model reviews each brief, so every brief gets reviewers from both ecosystems. Compare a family's scores from its own family with those from the other family.
+- Reviewer leniency (ADR-0012): no model reviews its own brief, so each brief misses its author's own leniency or strictness. Fit fidelity ≈ brief quality + reviewer effect by least squares (effects centred on 0) and score with each reviewer's effect taken out (`fitReviewerEffects`, `--pool`).
 - Reviewers receive brief + ground-truth, but **not** the author's model name (blind).
 - Re-run on every new model / price update; old scores remain versioned and preserved.
