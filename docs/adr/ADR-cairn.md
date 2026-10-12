@@ -546,10 +546,11 @@ mock API the other caps gave no notice either. Managed settings, including a man
 `--settings`. Cairn does not override managed settings or caps and cannot see the applied level, so check for a cap below `high` before a live
 run. The API adapters do not stream, so a very long generation at `high` can hit fetch's ~300 s header
 timeout and fail the handoff. The OpenAI adapter still sends the deprecated `max_tokens`, which OpenAI
-documents as incompatible with o-series models (`max_completion_tokens` replaces it). A bridge-mode
-handoff ignores `finishReason`: it stores the text of a claude error result and the partial answer of
-a failed Codex run as the brief, and a Codex run that completes without an answer as an empty brief;
-calibration skips all of these. Both predate this ADR and are open points.
+documents as incompatible with o-series models (`max_completion_tokens` replaces it). Both predate this
+ADR and are open points. Until 2026-10-12 a bridge-mode handoff also ignored `finishReason` and stored the
+text of a claude error result, the partial answer of a failed Codex run or an empty Codex answer as the
+brief, and the API adapters read an HTTP error body as an empty brief; that is fixed (see "Who writes the
+brief").
 
 **Reviewers.** All seven pool models review, at exactly `high`, and each brief is scored by the six
 others (k = pool − 1); a model never reviews its own brief. Pool entries are normalised to base ids, so
@@ -584,7 +585,7 @@ to a truncated prompt is no answer. The run keeps its artifact.
 Limits:
 - A CLI that leaves less than the buffer unread and exits with 0 can go unnoticed. claude and codex read
   their whole prompt.
-- The product handoff still stores a failed bridge call's answer (open point above).
+- The product handoff stores nothing from a failed call ("Who writes the brief").
 
 `--dry-run` resolves the live configuration on the fixture
 compactor and heuristic reviewer and prints the call count: 49 for the single probe (7 briefs + 42
@@ -707,6 +708,12 @@ recommendation:
   - after the bridge CLI's default: the line names the recommended model only.
 
   The handoff skill passes that line on and passes the host's own model id.
+- A failed or empty compaction stores nothing (user decision, 2026-10-12): a call that fails (a CLI
+  error, a network error, an API HTTP error), a claude error result, a failed Codex run (also one with a
+  partial answer) or an answer without text raises `CompactionFailedError`. A refusal before the call stays
+  `EgressNotConfiguredError`. No brief, decision or evidence of that handoff is written, so the previous
+  brief stays current. An API error carries the provider's `error.message` (the status only for a body that
+  is no JSON). A truncated answer (output cap reached) is still stored.
 - The result names the model that compacted (`compactedWith`), and the ledger credits the brief to it
   (`who`): the model the caller reports as answering (claude's `modelUsage`, a codex reroute, the sampling
   client's `model`) when it is not the requested one, else the requested one. Unknown (the CLI's default

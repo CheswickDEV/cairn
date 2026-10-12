@@ -26,7 +26,14 @@ import {
   type Zone,
 } from "../core/model-profiles.js";
 import { freezeVerbatim, restoreVerbatim, missingVerbatim } from "../core/verbatim.js";
-import { runOptionalCompaction, dynamicMaxTokens, type FetchFn, type ModelCaller } from "../core/providers.js";
+import {
+  runOptionalCompaction,
+  dynamicMaxTokens,
+  CompactionFailedError,
+  EgressNotConfiguredError,
+  type FetchFn,
+  type ModelCaller,
+} from "../core/providers.js";
 import { HANDOFF_DECISION_KEY, LEGACY_HANDOFF_TITLE_DE } from "../core/prompts.js";
 import { t, type Lang } from "../i18n/index.js";
 import type { CairnConfig, CompactionMode } from "../core/config.js";
@@ -227,6 +234,7 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
     const effort = mode === "api" && target && resolveProfile(model).ecosystem === target ? compactionEffort(model) : undefined;
     const briefTokens = dynamicMaxTokens(input.expectedBriefTokens ?? 4_096, 8_192);
     const maxTokens = effort ? Math.max(briefTokens, EFFORT_MAX_TOKENS) : briefTokens;
+    const nothingStored = "nothing stored, the previous brief stays current";
     const result = await runOptionalCompaction({
       mode,
       config: deps.config,
@@ -241,7 +249,20 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
       fetchFn: deps.fetchFn,
       sample: deps.sample,
       bridge: deps.bridge,
+    }).catch((e: unknown) => {
+      // A refusal before the call stays what it is; any failure of the call itself is a failed compaction.
+      if (e instanceof EgressNotConfiguredError || e instanceof CompactionFailedError) throw e;
+      throw new CompactionFailedError(`${mode} compaction failed: ${e instanceof Error ? e.message : String(e)}; ${nothingStored}`);
     });
+    // A failed call (a claude error result, a failed Codex run's partial answer) or one without text is no
+    // brief: store nothing, so the previous brief stays current (ADR-0012).
+    if (result.finishReason === "error" || !result.text.trim()) {
+      const detail = result.text.trim().slice(0, 300);
+      throw new CompactionFailedError(
+        `${mode} compaction ${result.finishReason === "error" ? "failed" : "returned no text"}` +
+          `${detail ? `: ${detail}` : ""}; ${nothingStored}`,
+      );
+    }
     compactedWith = creditedModel(mode, model, result.modelsUsed);
     effectiveBrief = restoreVerbatim(result.text, frozen.holds);
     egress = true;

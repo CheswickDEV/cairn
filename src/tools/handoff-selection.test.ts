@@ -124,7 +124,7 @@ describe("the recommendation text follows where the writing model came from", ()
     const line = async (input: HandoffInput, env: Record<string, string>, lang: "en" | "de" = "en") => {
       const config = loadConfig(env);
       const caller = echo();
-      const fetchFn = vi.fn(async () => ({ json: async () => ({ choices: [{ message: { content: "1) DECISIONS x" }, finish_reason: "stop" }] }) }));
+      const fetchFn = vi.fn(async () => ({ ok: true, json: async () => ({ choices: [{ message: { content: "1) DECISIONS x" }, finish_reason: "stop" }] }) }));
       const r = await runHandoff(input, { store: store(), config, bridge: caller, sample: caller, fetchFn: fetchFn as never });
       return recommendationLine(r, input, config, lang);
     };
@@ -192,6 +192,7 @@ describe("the tool text", () => {
 describe("API mode model fallbacks (ADR-0012)", () => {
   const api = async (provider: "anthropic" | "gemini", fidelityFloor?: number) => {
     const fetchFn = vi.fn(async () => ({
+      ok: true,
       json: async () =>
         provider === "gemini"
           ? { candidates: [{ content: { parts: [{ text: "1) DECISIONS x" }] }, finishReason: "STOP" }] }
@@ -227,6 +228,7 @@ describe("API mode model fallbacks (ADR-0012)", () => {
 
   const runApi = async (endpoint: { provider: "anthropic" | "openai" | "gemini"; model?: string }, modelId: string, fidelityFloor?: number) => {
     const fetchFn = vi.fn(async (_url: string, _init: RequestInit) => ({
+      ok: true,
       json: async () =>
         endpoint.provider === "gemini"
           ? { candidates: [{ content: { parts: [{ text: "1) DECISIONS x" }] }, finishReason: "STOP" }] }

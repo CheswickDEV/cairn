@@ -62,6 +62,13 @@ independent reviews). See ADR-0012.
   - No recommendation when the model asked for (the request, in sampling the hint) already is the
     selection, even if a fallback answered (the result names it in `compactedWith`) or the answer went
     unreported, and none for a gemini endpoint, which runs no pool model.
+- **A failed compaction stores nothing** `[CODE-IMPACTING]`: a failed call (CLI, network or API HTTP
+  error), a claude error result, a failed Codex run (also one with a partial answer) or an answer without
+  text now fails the handoff with `CompactionFailedError`, and nothing of it is stored, so the previous
+  brief stays current. Before, the
+  bridge stored the error text or partial answer as the brief, and the API adapters read an error body as
+  an empty brief, which then superseded the previous one. API errors carry the provider's message. A
+  truncated answer is still stored.
 - **Band rule** `[CODE-IMPACTING]`: the fidelity floor is checked over the whole top band. The cheapest
   band model that clears the zone floor is selected; verbatim only when none does. Before, only the cheapest
   band model was checked, and a miss went straight to verbatim although a stronger band model would
@@ -117,10 +124,8 @@ independent reviews). See ADR-0012.
     Sampling mode cannot set an effort (MCP has no such field); documented as a limit.
   - Limits: a Claude Code effort cap below `high` (`maxEffortLevel` in user or managed settings, also per
     model, or an Enterprise role cap) or a managed `env` still clamps the bridge, without notice. The API adapters do not stream (a very long generation can hit the
-    ~300 s fetch header timeout), the OpenAI adapter still sends the deprecated `max_tokens`, and a
-    handoff in bridge mode ignores `finishReason` and stores a claude error text, a failed Codex run's
-    partial answer, or an empty Codex answer as the brief (all pre-existing). A Codex error message is no
-    longer taken as the answer: a failed Codex run without an answer fails the bridge call, with Codex's
+    ~300 s fetch header timeout) and the OpenAI adapter still sends the deprecated `max_tokens` (both
+    pre-existing). A Codex error message is no longer taken as the answer: a failed Codex run without an answer fails the bridge call, with Codex's
     error message (or stderr) as the reason.
 - **Bridge context isolation** `[CODE-IMPACTING]`: a bridge call carries far less of the user's own
   context. It still carries Codex's global AGENTS.md and any skill named with `$<skill>` (see limits

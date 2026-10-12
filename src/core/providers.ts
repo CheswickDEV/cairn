@@ -17,6 +17,15 @@ export class EgressNotConfiguredError extends Error {
   }
 }
 
+/** A compaction call that failed or returned no text (ADR-0012): the handoff stores nothing and the previous
+ *  brief stays current. */
+export class CompactionFailedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CompactionFailedError";
+  }
+}
+
 export interface ModelCallRequest {
   systemPrompt?: string;
   prompt: string;
@@ -52,6 +61,21 @@ function authKey(ep: EndpointConfig, env: Env): string | undefined {
   return ep.apiKeyEnv ? env[ep.apiKeyEnv] : undefined;
 }
 
+/** Refuse an HTTP error (ADR-0012) with the provider's own message (`error.message` in the Anthropic, OpenAI
+ *  and Gemini error bodies), instead of reading the error body as an empty brief. */
+async function assertOk(res: Response, provider: EndpointConfig["provider"]): Promise<void> {
+  if (res.ok) return;
+  let detail = "";
+  try {
+    const body = (await res.json()) as { error?: { message?: unknown } | string } | null;
+    const e = body?.error;
+    detail = typeof e === "string" ? e : typeof e?.message === "string" ? e.message : "";
+  } catch {
+    // not JSON (a gateway's HTML error page)
+  }
+  throw new CompactionFailedError(`${provider} API returned HTTP ${res.status}${detail ? `: ${detail.slice(0, 300)}` : ""}`);
+}
+
 export async function callAnthropic(
   ep: EndpointConfig,
   req: ModelCallRequest,
@@ -73,6 +97,7 @@ export async function callAnthropic(
       ...(req.effort ? { output_config: { effort: req.effort } } : {}),
     }),
   });
+  await assertOk(res, "anthropic");
   const json = (await res.json()) as {
     content?: Array<{ type: string; text?: string }>;
     stop_reason?: string;
@@ -104,6 +129,7 @@ export async function callOpenAICompatible(
       ...(req.effort ? { reasoning_effort: req.effort } : {}), // Chat Completions spelling (Responses: reasoning.effort)
     }),
   });
+  await assertOk(res, "openai");
   const json = (await res.json()) as {
     choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
   };
@@ -130,6 +156,7 @@ export async function callGemini(
       generationConfig: { maxOutputTokens: req.maxTokens },
     }),
   });
+  await assertOk(res, "gemini");
   const json = (await res.json()) as {
     candidates?: Array<{ content?: { parts?: Array<{ text?: string }> }; finishReason?: string }>;
   };

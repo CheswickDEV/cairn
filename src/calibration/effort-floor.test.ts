@@ -415,13 +415,13 @@ describe("product paths", () => {
   it("API adapters send the documented effort fields only when set", async () => {
     const ep = { provider: "anthropic" as const, baseUrl: "https://api.example.test" };
     const body = (f: ReturnType<typeof vi.fn>) => JSON.parse((f.mock.calls[0][1] as RequestInit).body as string);
-    const anth = vi.fn(async () => ({ json: async () => ({ content: [{ type: "text", text: "x" }], stop_reason: "end_turn" }) }));
+    const anth = vi.fn(async () => ({ ok: true, json: async () => ({ content: [{ type: "text", text: "x" }], stop_reason: "end_turn" }) }));
     await callAnthropic(ep, { prompt: "p", maxTokens: 10, model: "claude-opus-5-5", effort: "high" }, anth as unknown as FetchFn, {});
     expect(body(anth).output_config).toEqual({ effort: "high" });
-    const oai = vi.fn(async () => ({ json: async () => ({ choices: [{ message: { content: "x" }, finish_reason: "stop" }] }) }));
+    const oai = vi.fn(async () => ({ ok: true, json: async () => ({ choices: [{ message: { content: "x" }, finish_reason: "stop" }] }) }));
     await callOpenAICompatible({ ...ep, provider: "openai" }, { prompt: "p", maxTokens: 10, model: "gpt-6.1-sol", effort: "high" }, oai as unknown as FetchFn, {});
     expect(body(oai).reasoning_effort).toBe("high");
-    const plain = vi.fn(async () => ({ json: async () => ({ content: [], stop_reason: "end_turn" }) }));
+    const plain = vi.fn(async () => ({ ok: true, json: async () => ({ content: [], stop_reason: "end_turn" }) }));
     await callAnthropic(ep, { prompt: "p", maxTokens: 10, model: "m" }, plain as unknown as FetchFn, {});
     expect(body(plain)).not.toHaveProperty("output_config");
   });
@@ -438,7 +438,7 @@ describe("product paths", () => {
       endpoints: { main: { provider: "anthropic", baseUrl: "https://api.example.test" } },
       storePath: ":memory:",
     };
-    const fetchFn = vi.fn(async () => ({ json: async () => ({ content: [{ type: "text", text: "1) DECISIONS x" }], stop_reason: "end_turn" }) }));
+    const fetchFn = vi.fn(async () => ({ ok: true, json: async () => ({ content: [{ type: "text", text: "1) DECISIONS x" }], stop_reason: "end_turn" }) }));
     await runHandoff(
       { brief: "", source: "src", host: { modelId: "claude-opus-5-5" }, sourceZone: "green", mode: "api" },
       { store: new SqliteStore({ path: ":memory:" }), config, fetchFn: fetchFn as unknown as FetchFn },
@@ -471,7 +471,7 @@ describe("product paths", () => {
       endpoints: { main: { provider: "anthropic", baseUrl: "https://api.example.test" } },
       storePath: ":memory:",
     };
-    const fetchFn = vi.fn(async () => ({ json: async () => ({ content: [{ type: "text", text: "1) DECISIONS x" }], stop_reason: "end_turn" }) }));
+    const fetchFn = vi.fn(async () => ({ ok: true, json: async () => ({ content: [{ type: "text", text: "1) DECISIONS x" }], stop_reason: "end_turn" }) }));
     const r = await runHandoff(
       { brief: "", source: "src", host: { modelId: "claude-haiku-4-5-20251001" }, sourceZone: "green", mode: "api" },
       { store: new SqliteStore({ path: ":memory:" }), config, fetchFn: fetchFn as unknown as FetchFn },
@@ -489,7 +489,7 @@ describe("product paths", () => {
       endpoints: { main: { provider: "anthropic", baseUrl: "https://api.example.test" } },
       storePath: ":memory:",
     };
-    const fetchFn = vi.fn(async () => ({ json: async () => ({ content: [{ type: "text", text: "1) DECISIONS x" }], stop_reason: "end_turn" }) }));
+    const fetchFn = vi.fn(async () => ({ ok: true, json: async () => ({ content: [{ type: "text", text: "1) DECISIONS x" }], stop_reason: "end_turn" }) }));
     const r = await runHandoff(
       { brief: "", source: "src", host: { modelId: "claude-sonnet-5-5" }, sourceZone: "red", mode: "api" },
       { store: new SqliteStore({ path: ":memory:" }), config, fetchFn: fetchFn as unknown as FetchFn },
