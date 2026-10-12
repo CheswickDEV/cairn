@@ -56,16 +56,16 @@ independent reviews). See ADR-0012.
   - `npm run calibrate -- --pool <golden artifacts>` pools runs without a model call: one reviewer-effect
     fit over all reviews, corrected means and confidence, the stored briefs checked again against the
     current ground truth, and a `…-pooled-golden.json` with the inputs' SHA-256. It refuses an artifact
-    given twice, also re-serialized, reordered or re-scored (it compares the briefs and reviews), and
+    given twice, also re-serialized, reordered or re-scored (it compares the briefs and the reviewers'
+    own scores), and
     runs of another configuration, and notes inputs without
     `probeInfo` (`inputNotes`). Golden artifacts also record the reviewer effects and the corrected values
     per probe and model.
   - Must-survive facts are checked by their key facts (`keys` in the ground truth) instead of the whole
     sentence, which a paraphrase never repeats; before, nearly every fact counted as missed. Words and
-    numbers end where the key ends ("400" is not "400k"), a key lists its unit forms, and neither an
-    identifier going on with `_` (`POSTGRES_PASSWORD`) nor a URL scheme (`postgres://`) is the word. Every
-    item's own text carries its keys, and 104 paraphrases and look-alikes from two review rounds hold their
-    expected result (tested).
+    numbers end where the key ends ("400" is not "400k"), a key lists its unit forms, and a URL scheme
+    (`postgres://`) is not the word. Every item's own text carries its keys, and 133 paraphrases and
+    look-alikes from three review rounds hold their expected result (tested).
   - Artifacts record each probe's length and SHA-256 (`probeInfo`) and the candidates pre-excluded by
     window (`preExcluded`).
 - **Handoff cost estimate**: the selection estimates the input in tokens of the text it compacts (about
@@ -99,7 +99,8 @@ independent reviews). See ADR-0012.
     results only, so a valid brief that mentions a context window is no longer rejected.
   - Bridge mode (`CAIRN_BRIDGE`) now always passes `--effort high` / `model_reasoning_effort=high`.
   - API mode sends `output_config.effort` (Anthropic) or `reasoning_effort` (OpenAI) as `high` for pool
-    models and raises the output budget to 32,000 tokens (Anthropic: `max_tokens` also caps the thinking).
+    models of the endpoint's own provider and raises the output budget to 32,000 tokens (Anthropic:
+    `max_tokens` also caps the thinking).
     Sampling mode cannot set an effort (MCP has no such field); documented as a limit.
   - Limits: a Claude Code effort cap below `high` (`maxEffortLevel` in user or managed settings, also per
     model, or an Enterprise role cap) or a managed `env` still clamps the bridge, without notice. The API adapters do not stream (a very long generation can hit the

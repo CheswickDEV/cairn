@@ -530,7 +530,8 @@ Limits:
 
 In the product, bridge mode always passes `--effort high` / `model_reasoning_effort=high`. API mode
 sends Anthropic's `output_config.effort` or OpenAI's `reasoning_effort` (Chat Completions) as `high` for
-ids that resolve to a pool model (including dated, prefixed or `-codex` variants), and raises the output
+ids that resolve to a pool model of the endpoint's own provider (including dated, prefixed or `-codex`
+variants; a Claude id behind an OpenAI-compatible endpoint gets none), and raises the output
 budget to 32,000 tokens: on Anthropic `max_tokens` is a hard limit on thinking plus the answer, and
 OpenAI advises reserving at least 25,000 tokens. A suspended or unrecognised model keeps its provider
 default and the old budget, because it may reject the field. Sampling mode cannot set an effort: MCP
@@ -611,7 +612,8 @@ each run 245 calls (35 briefs + 210 reviews) without a skip, with claude 2.1.296
 `npm run calibrate -- --pool <artifacts>` pools them without a model call: 10 probe runs per model, one
 reviewer-effect fit over all 420 reviews, and the stored briefs checked again against the current ground
 truth. It writes `…-pooled-golden.json` with the inputs' SHA-256, and refuses an artifact given twice (by
-file hash, or by its briefs and reviews in any order, so a re-serialized, reordered or re-scored copy too)
+file hash, or by its briefs and the reviewers' own scores in any order, so a re-serialized, reordered or
+re-scored copy too)
 or runs of other probes, probe contents, models or reviewer effort. An artifact without `probeInfo` (older
 than that field, like both runs here) gets a note (`inputNotes`): its probe contents cannot be compared;
 the others are compared with the first one that records them. If the effects cannot be fitted (one
@@ -704,11 +706,11 @@ reviewers rated recall 0.966–0.998; the main deduction is the hallucination cr
 
 The deterministic must-survive check now matches every non-exact item by its key facts (`keys`: AND over
 groups, any alternative per group; words and numbers end where the key ends, so "400" does not match
-"400k" or "4000" and a key lists the unit forms it accepts ("1.8s"); a word that goes on with `_` or
-`://` is an identifier or a URL scheme, not the word; a decimal comma reads as a point; a `*` lifts the
-boundary only at the edge of a key) instead of the whole ground-truth sentence, which a paraphrase never
-repeats. The keys cover German and English forms and unit spellings, and a test holds 104 paraphrases and
-look-alikes from two review rounds to their expected result. The check stays a bag of keys: it ignores
+"400k" or "4000" and a key lists the unit forms it accepts ("1.8s"); a word before `://` is a URL scheme,
+not the word; a decimal comma reads as a point; a `*` lifts the boundary only at the edge of a key)
+instead of the whole ground-truth sentence, which a paraphrase never repeats. The keys cover German and
+English forms and unit spellings, and a test holds 133 paraphrases and look-alikes from three review
+rounds to their expected result. The check stays a bag of keys: it ignores
 negation and distance between groups, so some look-alikes still pass (ADR follow-up below). Every item's own text carries
 its keys, and a brief of bare bucket headings carries none. Rechecked without a model call, every model
 keeps all 69 key facts in all 70 golden briefs and all 20 in the four high-fill briefs. Five of them (the

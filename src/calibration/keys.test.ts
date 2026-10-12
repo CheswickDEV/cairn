@@ -69,15 +69,16 @@ describe("key matching", () => {
     expect(matchesKeys("12.5 ms", [["12"]])).toBe(false);
   });
 
-  it("does not read an identifier that goes on with _ as the word", () => {
-    expect(matchesKeys("POSTGRES_PASSWORD steht in der .env", [["postgres"]])).toBe(false);
+  it("reads an identifier as carrying its word (SQLITE_BUSY, HPA_ENABLED)", () => {
+    expect(matchesKeys("SQLITE_BUSY bei parallelen Writes", [["sqlite"]])).toBe(true);
+    expect(matchesKeys("HPA_ENABLED=true", [["hpa"]])).toBe(true);
     expect(matchesKeys("MAX_BATCH=32", [["max_batch"], ["32"]])).toBe(true);
   });
 
   it("does not read a URL scheme as the word", () => {
     expect(matchesKeys("DB_DSN=postgres://beleg@localhost/beleg_prod", [["postgres"]])).toBe(false);
     expect(matchesKeys("broker at redis://localhost:6379/0", [["redis"]])).toBe(false);
-    expect(matchesKeys("REDIS_URL=redis://localhost:6379/0", [["redis"]])).toBe(false); // an identifier and a scheme
+    expect(matchesKeys("REDIS_URL=redis://localhost:6379/0", [["redis"]])).toBe(true); // the variable names it
     expect(matchesKeys("Postgres replaced SQLite", [["postgres"]])).toBe(true);
     expect(matchesKeys("Redis: queue", [["redis"]])).toBe(true);
   });
@@ -199,7 +200,6 @@ describe("key matching", () => {
     ["ocr-beleg/o_worker", "OFFEN: weitere Worker nach der Lastmessung.", true],
     ["ocr-beleg/c_eu", "EU-Kunden zahlen mit American Express.", false],
     ["ocr-beleg/c_eu", "EU customers and American customers share one login.", false],
-    ["ocr-beleg/d_db_1", "POSTGRES_PASSWORD steht in der .env, die DB ist noch SQLite.", false],
     ["oauth-token/g3_n_refresh", "Refresh tokens rotate; review the dashboard again in a month.", false],
     ["oauth-token/g3_n_rot", "Refresh-Token-Rotation ist Pflicht; quarterly review of the scopes.", false],
     ["db-migration/g4_o_drop", "Drop the cache warm-up; look at it again in a month.", false],
@@ -207,6 +207,37 @@ describe("key matching", () => {
     ["k8s-rollout/g5_n_pdb", "At least 5 pods are scheduled per node.", false],
     ["api-gateway/g2_c_burst", "100 req/s per API key, burst up to 200rps (token bucket).", true],
     ["db-migration/g4_cc_backfill", "Backfill in 5000er-Batches, gedrosselt.", true],
+    // Third round (r2-A/B on 1ff32b3): faithful forms the narrowed keys had lost, and new look-alikes.
+    ["ocr-beleg/c_eu", "Daten bleiben in der EU, kein amerikanischer (Cloud-)Anbieter.", true],
+    ["ocr-beleg/c_eu", "DSGVO: keine amerikanischen Dienste für die Belege.", true],
+    ["ocr-beleg/c_eu", "GDPR: EU only, no American hyperscalers.", true],
+    ["ocr-beleg/c_eu", "EU-Daten, kein amerikanisches Rechenzentrum.", true],
+    ["ocr-beleg/c_eu", "Belege bleiben in der EU, nicht bei amerikanischen Hyperscalern.", true],
+    ["large/lc_eu", "Event data stays in the EU; no American data centres.", true],
+    ["large/lc_eu", "Event data stays in the EU; no American vendors at all.", true],
+    ["oauth-token/g3_n_refresh", "Refresh-Token: TTL 1 Monat.", true],
+    ["oauth-token/g3_n_refresh", "Refresh tokens are valid for one month.", true],
+    ["oauth-token/g3_n_refresh", "Das Refresh-Token gilt einen Monat.", true],
+    ["oauth-token/g3_n_refresh", "Refresh token TTL = 1 month.", true],
+    ["oauth-token/g3_n_refresh", "Refresh tokens expire after 1 month.", true],
+    ["oauth-token/g3_n_refresh", "Refresh-Token-Laufzeit: 1 Monat.", true],
+    ["oauth-token/g3_n_refresh", "Refresh the charts to show a 1-month history.", false],
+    ["oauth-token/g3_n_rot", "Signing-key rotation: quarterly.", true],
+    ["oauth-token/g3_n_rot", "Signing-Keys werden einmal pro Quartal rotiert.", true],
+    ["oauth-token/g3_n_rot", "Key-Rotation im Quartalsrhythmus.", true],
+    ["oauth-token/g3_n_rot", "Rotate refresh tokens on every use; audit the scopes every quarter.", false],
+    ["db-migration/g4_o_drop", "OPEN: drop the old tables after cutover or keep them one month.", true],
+    ["db-migration/g4_o_drop", "OPEN: drop the old tables right away or after a month.", true],
+    ["db-migration/g4_o_drop", "OFFEN: Alt-Tabellen löschen oder 1 Monat aufbewahren.", true],
+    ["k8s-rollout/g5_d_tag0", "`latest` als Tag wurde verworfen.", true],
+    ["k8s-rollout/g5_d_tag0", "Rejected: the 'latest' image tag.", true],
+    ["k8s-rollout/g5_d_tag0", "Kein `latest`-Tag (nicht reproduzierbar).", true],
+    ["k8s-rollout/g5_d_tag0", "Rejected: the `latest`-tag (not reproducible).", true],
+    ["k8s-rollout/g5_d_tag0", "Rejected: deploying `latest`.", true],
+    ["k8s-rollout/g5_d_tag0", "Verworfen: das “latest”-Tag.", true],
+    ["k8s-rollout/g5_n_pdb", "PDB: at least 5 pods must stay available.", true],
+    ["k8s-rollout/g5_n_pdb", "PDB: mindestens 5 Pods bleiben verfügbar.", true],
+    ["k8s-rollout/g5_n_pdb", "Das PDB hält mindestens 5 Pods.", true],
   ] as const)("%s: %s → %s", (ref, text, expected) => {
     const [label, id] = ref.split("/");
     const gt = SETS.find(([l]) => l === label)![1];

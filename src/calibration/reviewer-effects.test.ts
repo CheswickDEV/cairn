@@ -199,6 +199,29 @@ describe("checkPoolInputs", () => {
     change(copy);
     expect(() => checkPoolInputs([input("a", "1", a), input("b", "2", copy)])).toThrow(/b: the same run as a \(identical results\)/);
   });
+  it.each([
+    ["with the reviews of a probe reordered", (c: GoldenResult): void => c.perModel.forEach((m) => m.perProbe.forEach((p) => p.reviews.reverse()))],
+    ["with the review fidelities recomputed", (c: GoldenResult): void => c.perModel.forEach((m) => m.perProbe.forEach((p) => p.reviews.forEach((v) => {
+      v.fidelity = 0.123;
+      v.rubric.verbatim = 0.5;
+    })))],
+  ] as const)("refuses a copy of the same run %s (same reviewer scores)", (_, change) => {
+    const a = rerun();
+    const copy = JSON.parse(JSON.stringify(a)) as GoldenResult;
+    change(copy);
+    expect(() => checkPoolInputs([input("a", "1", a), input("b", "2", copy)])).toThrow(/the same run as a/);
+  });
+  it("accepts two old runs without briefs and reviews that differ, and refuses an entry without probes", () => {
+    const old = (fidelity: number) => {
+      const r = artifact();
+      r.perModel.forEach((m) => m.perProbe.forEach((p) => { p.reviews = []; p.fidelity = fidelity; }));
+      return r;
+    };
+    expect(() => checkPoolInputs([input("a", "1", old(0.9)), input("b", "2", old(0.8))])).not.toThrow();
+    const broken = artifact();
+    (broken.perModel[0] as unknown as Record<string, unknown>).perProbe = undefined;
+    expect(() => checkPoolInputs([input("x", "1", broken)])).toThrow(/x: not a golden artifact/);
+  });
   it("compares probe contents against the first input that records them, after one without", () => {
     const withInfo = (r: GoldenResult, sha: string) => ({ ...r, probeInfo: [{ sha256: sha }] }) as GoldenResult;
     const third = artifact();

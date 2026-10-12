@@ -246,10 +246,21 @@ function canonicalJson(v: unknown): string {
   return JSON.stringify(v) ?? "null";
 }
 
-/** What identifies a run: each (model, probe) brief with its reviews, in any order; derived fields left out. */
+/**
+ * What identifies a run: each (model, probe) brief with its reviewers' own scores, in any order. Derived
+ * values (fidelities, the hard verbatim score, missing items) are left out, so a re-scored copy matches. A
+ * row with neither brief nor reviews (an old artifact) falls back to the whole row.
+ */
 function runFingerprint(r: GoldenResult): string {
   const rows = r.perModel.flatMap((m) =>
-    m.perProbe.map((p) => canonicalJson([m.modelId, p.label, p.brief ?? null, p.reviews ?? []])),
+    m.perProbe.map((p) => {
+      const reviews = (p.reviews ?? [])
+        .map((v) => canonicalJson([v.reviewerModelId, v.rubric?.recall, v.rubric?.hallucination, v.rubric?.supersession]))
+        .sort();
+      return p.brief === undefined && reviews.length === 0
+        ? canonicalJson([m.modelId, p])
+        : canonicalJson([m.modelId, p.label, p.brief ?? null, reviews]);
+    }),
   );
   return createHash("sha256").update(rows.sort().join("\n")).digest("hex");
 }
@@ -270,7 +281,9 @@ export function checkPoolInputs(inputs: PoolInput[]): string[] {
   const notes: string[] = [];
   let probeRef: PoolInput | undefined;
   for (const i of inputs) {
-    if (!Array.isArray(i.res.perModel) || !Array.isArray(i.res.probes)) throw new Error(`${i.path}: not a golden artifact`);
+    if (!Array.isArray(i.res.perModel) || !Array.isArray(i.res.probes) || !i.res.perModel.every((m) => Array.isArray(m?.perProbe))) {
+      throw new Error(`${i.path}: not a golden artifact`);
+    }
     if (seen.has(i.sha256)) throw new Error(`${i.path}: the same artifact twice`);
     seen.add(i.sha256);
     const run = runFingerprint(i.res);

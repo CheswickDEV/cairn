@@ -32,7 +32,7 @@ export interface GtItem {
    * one of its alternatives. A brief paraphrases, so the whole `text` is rarely there verbatim; these keys
    * are the content a faithful paraphrase cannot drop (values, names, the decisive qualifier). Matching is
    * case-insensitive on word boundaries, with a decimal comma read as a point: a number ends where the key
-   * ends (list unit forms such as "1.8s" as alternatives), and a word does not go on with "_" or "://". A
+   * ends (list unit forms such as "1.8s" as alternatives), and a word before "://" is a URL scheme. A
    * leading or trailing `*` lifts the boundary on that side; there is no `*` inside a key. Without keys the
    * whole `text` must appear (case-insensitive).
    */
