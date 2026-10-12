@@ -22,16 +22,18 @@ independent reviews). See ADR-0012.
   - The golden set ran twice at effort `high`, 245 calls each, and the runs are pooled.
   - The profiles carry the mean from the foreign-family reviewers only: fidelity 0.9416 for Opus 5.5 and
     0.9655 for GPT-6.1 Sol, plus verbosity, confidence, effort `high` and the date for all seven pool
-    models. Claude reviewers rated Claude briefs 0.03–0.05 higher, and the full matrix without self-review
-    favors the strictest reviewers; with all reviewers Haiku 5.5 and GPT-6 Luna would sit just inside
-    the 0.02 band.
+    models. Claude reviewers rated Claude briefs 0.03–0.05 higher than GPT reviewers did, and the full
+    matrix without self-review favors the strictest reviewers; with all reviewers Haiku 5.5 and GPT-6
+    Luna would sit just inside the 0.02 band.
   - The fidelity floor moves from 0.85 to **0.84** (user sign-off), so both picks clear the red zone
-    (0.94) and a full context is compacted rather than handed over verbatim. A handoff without a zone
-    counts as red and now reports Opus 5.5 on Claude hosts. Without Opus 5.5 a Claude host gets
+    (0.94) and a full context is compacted rather than handed over verbatim; Opus 5.5 by only 0.0016, so a
+    recalibration can tip red back to verbatim on Claude hosts. A handoff without a zone counts as red
+    and now reports Opus 5.5 on Claude hosts. Without Opus 5.5 a Claude host gets
     Haiku 5.5, and verbatim in red.
-  - All exact must-survive items (code, configs, error strings) came through byte-exact in all 70
-    golden-set briefs. A 400K-token control run (4d) kept facts from the whole probe, but scored lower
-    than the golden set; it does not feed the profiles.
+  - Cairn masks code, configs and error strings before the model call and restores them byte-exact.
+    All seven models kept every marker in all 70 golden-set briefs, so every exact must-survive item
+    came back byte-exact. A 400K-token control run (4d) kept facts from the start, middle and end of
+    the probe, but scored lower than the golden set; it does not feed the profiles.
 - **Effort floor `high`** `[CODE-IMPACTING]`: calibration runs every model at exactly `high` (was
   `medium`…`max`); reviewers run at exactly `high`. The CLI configuration and pre-flight require exactly
   `high`, reviewer creation too; `buildVariants` and the account compactor (skip without a call) enforce

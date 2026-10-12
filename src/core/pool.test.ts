@@ -222,7 +222,7 @@ describe("calibrated selection (ADR-0012, golden set 2026-10-12, floor 0.84)", (
     for (const zone of ZONES) {
       const r = await pick({ modelId: "claude-opus-5-5" }, zone);
       expect(r.kind === "model" && r.model.id).toBe("claude-opus-5-5");
-      expect(r.kind === "model" && r.reason).toContain("calibrated");
+      expect(r.kind === "model" && r.reason).toBe(`anthropic ecosystem, ${zone} zone, calibrated`);
     }
   });
 
@@ -274,6 +274,18 @@ describe("calibrated selection (ADR-0012, golden set 2026-10-12, floor 0.84)", (
     expect(r.modelId).toBe("claude-opus-5-5");
     expect(r.egress).toBe(false);
     expect(store.getDecision(r.storedDecisionId)?.rationale).toBe("1) DECISIONS x");
+  });
+
+  // Opus 5.5 clears every zone, so the defaults need a case where they decide: without Opus the pick is
+  // Haiku 5.5 (0.9123), which clears yellow (0.89) but not red (0.94) at FIDELITY_FLOOR.
+  it("runHandoff defaults: no zone selects as red, no floor uses FIDELITY_FLOOR", async () => {
+    const deps = { store: new SqliteStore({ path: ":memory:" }), config: loadConfig({}), reachable: async (p: ModelProfile) => p.status === "active" && p.id !== "claude-opus-5-5" };
+    const host = { modelId: "claude-opus-5-5" };
+    const none = await runHandoff({ brief: "x", host }, deps);
+    expect(none.selectionKind).toBe("verbatim-fallback");
+    expect(none.reason).toContain("in red zone");
+    const yellow = await runHandoff({ brief: "x", host, sourceZone: "yellow" }, deps);
+    expect(yellow.selectionKind === "model" && yellow.modelId).toBe("claude-haiku-5-5");
   });
 });
 

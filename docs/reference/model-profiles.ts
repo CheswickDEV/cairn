@@ -614,23 +614,23 @@ async function demo() {
     host: { modelId: "claude-opus-5-5" },
     sourceZone: "green",
     cost,
-    fidelityFloor: 0.0, // floor disabled until calibrated; provisional ranks used
+    fidelityFloor: 0.84, // FIDELITY_FLOOR since the 2026-10-12 calibration (ADR-0012)
   });
   console.log("  Claude Code, green zone ->", render(inClaudeCode));
 
   const inCodexRed = await selectSummarizer({
     host: { provider: "openai", modelId: "gpt-6.1-sol" },
-    sourceZone: "red", // escalate: no cost downgrade
+    sourceZone: "red", // red raises the floor by 0.10 (0.94); GPT-6.1 Sol (0.9655) clears it
     cost,
-    fidelityFloor: 0.0,
+    fidelityFloor: 0.84,
   });
-  console.log("  Codex, RED zone (escalate) ->", render(inCodexRed));
+  console.log("  Codex, RED zone (floor + 0.10) ->", render(inCodexRed));
 
   const claudeUserNoChatGPT = await selectSummarizer({
     host: { modelId: "claude-sonnet-5-5" }, // a Claude user — must NOT pick GPT
     sourceZone: "green",
     cost,
-    fidelityFloor: 0.0,
+    fidelityFloor: 0.84,
   });
   console.log("  Claude user (no ChatGPT acct) ->", render(claudeUserNoChatGPT), "(GPT models excluded)");
 
@@ -638,7 +638,7 @@ async function demo() {
     host: { modelId: "claude-haiku-5-5" },
     sourceZone: "red",
     cost,
-    fidelityFloor: 0.75, // red bumps to 0.85; Haiku 5.5's 0.70 can't clear it -> verbatim
+    fidelityFloor: 0.84, // red bumps to 0.94; Haiku 5.5's 0.9123 can't clear it -> verbatim
     reachable: async (p) => p.id === "claude-haiku-5-5", // only Haiku 5.5 reachable
   });
   console.log("  Only weak model reachable, RED zone ->", render(onlyWeakReachable));

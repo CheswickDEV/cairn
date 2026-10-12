@@ -342,9 +342,11 @@ reviewers do.
 Compare fidelity only within one ecosystem: the two columns were scored by different reviewers.
 
 With the fidelity floor at 0.84, Claude hosts get Claude Opus 5.5 and Codex hosts GPT-6.1 Sol in every
-zone, so the red zone (floor + 0.10 = 0.94) is compacted, not handed over verbatim. Without Opus 5.5 a
-Claude host falls back to Haiku 5.5, and to verbatim in red. In every golden-set brief the code, configs
-and error strings came through byte-exact. `npm run calibrate -- --dry-run --golden` shows how many model calls a live run makes;
+zone, so the red zone (floor + 0.10 = 0.94) is compacted, not handed over verbatim (Opus 5.5 clears it by
+only 0.0016). Without Opus 5.5 a
+Claude host falls back to Haiku 5.5, and to verbatim in red. Cairn masks code, configs and error strings
+before the model call and restores them byte-exact; in every golden-set brief all seven models kept every
+marker. `npm run calibrate -- --dry-run --golden` shows how many model calls a live run makes;
 `npm run calibrate -- --real --golden` measures all seven at effort `high` on your accounts. Cairn cannot
 override a Claude Code effort cap (`maxEffortLevel` in your user or managed settings, an Enterprise role
 cap) or a managed `env` setting, so make sure none of them sets less than `high` before a live run.

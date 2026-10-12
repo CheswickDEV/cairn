@@ -519,8 +519,9 @@ export function resolveProfile(id: string | undefined, profiles: ModelProfile[] 
  * the pool measured 0.912–0.970, the picks Claude Opus 5.5 0.9416 and GPT-6.1 Sol 0.9655. At 0.84
  * both clear even the red-zone +0.10 escalation (0.94), so a full context is still compacted rather
  * than handed over verbatim, while the local/generic fallbacks (≤0.60) stay below it. Signed off by
- * the user on 2026-10-12. Not the golden `floorProposal` (median ≈ 0.947): with the zone bumps it
- * would send every yellow and red handoff to verbatim.
+ * the user on 2026-10-12. Opus clears red by only 0.0016 (it scored 0.9476 and 0.9355 in the two runs),
+ * so recheck red after every recalibration. Not the golden `floorProposal` (median of the means,
+ * 0.947–0.949): it lies above Opus 5.5, so Claude hosts would go verbatim in every zone.
  */
 export const FIDELITY_FLOOR = 0.84;
 
