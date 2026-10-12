@@ -549,8 +549,8 @@ timeout and fail the handoff. The OpenAI adapter still sends the deprecated `max
 documents as incompatible with o-series models (`max_completion_tokens` replaces it). Both predate this
 ADR and are open points. Until 2026-10-12 a bridge-mode handoff also ignored `finishReason` and stored the
 text of a claude error result, the partial answer of a failed Codex run or an empty Codex answer as the
-brief, and the API adapters read an HTTP error body as an empty brief; that is fixed (see "Who writes the
-brief").
+brief, and the API adapters read a JSON error body as an empty brief (a body that was no JSON made the
+handoff fail); that is fixed (see "Who writes the brief").
 
 **Reviewers.** All seven pool models review, at exactly `high`, and each brief is scored by the six
 others (k = pool − 1); a model never reviews its own brief. Pool entries are normalised to base ids, so
@@ -708,12 +708,20 @@ recommendation:
   - after the bridge CLI's default: the line names the recommended model only.
 
   The handoff skill passes that line on and passes the host's own model id.
-- A failed or empty compaction stores nothing (user decision, 2026-10-12): a call that fails (a CLI
-  error, a network error, an API HTTP error), a claude error result, a failed Codex run (also one with a
-  partial answer) or an answer without text raises `CompactionFailedError`. A refusal before the call stays
-  `EgressNotConfiguredError`. No brief, decision or evidence of that handoff is written, so the previous
-  brief stays current. An API error carries the provider's `error.message` (the status only for a body that
-  is no JSON). A truncated answer (output cap reached) is still stored.
+- A failed or empty compaction stores nothing (user decision, 2026-10-12). `CompactionFailedError`
+  (`<mode> compaction …; nothing stored, the previous brief stays current`) is raised for:
+  - a call that fails: a CLI or network error, or an API HTTP error, which carries the provider's
+    `error.message` or a string `error` (at most 300 characters; the status only when the body has
+    neither);
+  - a claude error result, or a failed Codex run, also one with a partial answer;
+  - an answer the provider stopped for a policy reason, with or without partial text: Anthropic
+    `stop_reason: "refusal"`, OpenAI `finish_reason: "content_filter"`, or any Gemini finish reason other
+    than `STOP` and `MAX_TOKENS` (`SAFETY`, `RECITATION`, `BLOCKLIST`, `PROHIBITED_CONTENT` …);
+  - an answer without text (also only whitespace).
+
+  A refusal before the call stays `EgressNotConfiguredError`. No brief, decision or evidence of that
+  handoff is written, so the previous brief stays current. A truncated answer (output cap reached) is still
+  stored, and account mode stores the host's brief as given.
 - The result names the model that compacted (`compactedWith`), and the ledger credits the brief to it
   (`who`): the model the caller reports as answering (claude's `modelUsage`, a codex reroute, the sampling
   client's `model`) when it is not the requested one, else the requested one. Unknown (the CLI's default

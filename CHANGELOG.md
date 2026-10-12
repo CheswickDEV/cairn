@@ -63,12 +63,13 @@ independent reviews). See ADR-0012.
     selection, even if a fallback answered (the result names it in `compactedWith`) or the answer went
     unreported, and none for a gemini endpoint, which runs no pool model.
 - **A failed compaction stores nothing** `[CODE-IMPACTING]`: a failed call (CLI, network or API HTTP
-  error), a claude error result, a failed Codex run (also one with a partial answer) or an answer without
-  text now fails the handoff with `CompactionFailedError`, and nothing of it is stored, so the previous
-  brief stays current. Before, the
-  bridge stored the error text or partial answer as the brief, and the API adapters read an error body as
-  an empty brief, which then superseded the previous one. API errors carry the provider's message. A
-  truncated answer is still stored.
+  error), a claude error result, a failed Codex run (also one with a partial answer), an answer the
+  provider stopped for a policy reason (Anthropic `refusal`, OpenAI `content_filter`, a Gemini finish
+  reason other than `STOP`/`MAX_TOKENS`) or an answer without text now fails the handoff with
+  `CompactionFailedError`, and nothing of it is stored, so the previous brief stays current. Before, the
+  bridge stored the error text or partial answer as the brief, the API adapters read a JSON error body as
+  an empty brief, which then superseded the previous one, and a refused partial answer was stored. API
+  errors carry the provider's message. A truncated answer is still stored.
 - **Band rule** `[CODE-IMPACTING]`: the fidelity floor is checked over the whole top band. The cheapest
   band model that clears the zone floor is selected; verbatim only when none does. Before, only the cheapest
   band model was checked, and a miss went straight to verbatim although a stronger band model would

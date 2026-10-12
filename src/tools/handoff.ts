@@ -250,18 +250,19 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
       sample: deps.sample,
       bridge: deps.bridge,
     }).catch((e: unknown) => {
-      // A refusal before the call stays what it is; any failure of the call itself is a failed compaction.
-      if (e instanceof EgressNotConfiguredError || e instanceof CompactionFailedError) throw e;
+      // A refusal before the call stays what it is; any failure of the call itself (an API HTTP error, a CLI
+      // or network error) is a failed compaction.
+      if (e instanceof EgressNotConfiguredError) throw e;
       throw new CompactionFailedError(`${mode} compaction failed: ${e instanceof Error ? e.message : String(e)}; ${nothingStored}`);
     });
-    // A failed call (a claude error result, a failed Codex run's partial answer) or one without text is no
-    // brief: store nothing, so the previous brief stays current (ADR-0012).
-    if (result.finishReason === "error" || !result.text.trim()) {
+    // A failed call (a claude error result, a failed Codex run's partial answer), a blocked answer (a provider
+    // refusal or content filter) or one without text is no brief: store nothing, so the previous brief stays
+    // current (ADR-0012).
+    if (result.finishReason === "error" || result.blocked || !result.text.trim()) {
       const detail = result.text.trim().slice(0, 300);
-      throw new CompactionFailedError(
-        `${mode} compaction ${result.finishReason === "error" ? "failed" : "returned no text"}` +
-          `${detail ? `: ${detail}` : ""}; ${nothingStored}`,
-      );
+      const what =
+        result.finishReason === "error" ? "failed" : result.blocked ? `was stopped (${result.finishReason})` : "returned no text";
+      throw new CompactionFailedError(`${mode} compaction ${what}${detail ? `: ${detail}` : ""}; ${nothingStored}`);
     }
     compactedWith = creditedModel(mode, model, result.modelsUsed);
     effectiveBrief = restoreVerbatim(result.text, frozen.holds);

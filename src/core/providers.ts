@@ -46,6 +46,9 @@ export interface ModelCallResult {
   modelsUsed?: string[];
   /** Bridge (claude): every model id `modelUsage` lists, with or without output. */
   modelsReported?: string[];
+  /** API: the provider ended the answer for a policy reason (Anthropic `refusal`, OpenAI `content_filter`, a
+   *  Gemini finish reason other than `STOP` or `MAX_TOKENS`); any text is no brief (ADR-0012). */
+  blocked?: boolean;
 }
 
 export type FetchFn = typeof fetch;
@@ -104,7 +107,7 @@ export async function callAnthropic(
   };
   const text = (json.content ?? []).filter((c) => c.type === "text").map((c) => c.text ?? "").join("");
   const finishReason = json.stop_reason ?? "unknown";
-  return { text, truncated: finishReason === "max_tokens", finishReason };
+  return { text, truncated: finishReason === "max_tokens", finishReason, ...(finishReason === "refusal" ? { blocked: true } : {}) };
 }
 
 export async function callOpenAICompatible(
@@ -135,8 +138,16 @@ export async function callOpenAICompatible(
   };
   const choice = json.choices?.[0];
   const finishReason = choice?.finish_reason ?? "unknown";
-  return { text: choice?.message?.content ?? "", truncated: finishReason === "length", finishReason };
+  return {
+    text: choice?.message?.content ?? "",
+    truncated: finishReason === "length",
+    finishReason,
+    ...(finishReason === "content_filter" ? { blocked: true } : {}),
+  };
 }
+
+/** Gemini finish reasons of a regular answer (`FINISH_REASON_UNSPECIFIED` is documented as unused). */
+const GEMINI_NORMAL_FINISH = new Set(["STOP", "MAX_TOKENS", "FINISH_REASON_UNSPECIFIED"]);
 
 export async function callGemini(
   ep: EndpointConfig,
@@ -163,7 +174,9 @@ export async function callGemini(
   const cand = json.candidates?.[0];
   const text = (cand?.content?.parts ?? []).map((p) => p.text ?? "").join("");
   const finishReason = cand?.finishReason ?? "unknown";
-  return { text, truncated: finishReason === "MAX_TOKENS", finishReason };
+  // Every Gemini finish reason but these two stops the answer: SAFETY, RECITATION, BLOCKLIST, PROHIBITED_CONTENT …
+  const blocked = cand?.finishReason !== undefined && !GEMINI_NORMAL_FINISH.has(finishReason);
+  return { text, truncated: finishReason === "MAX_TOKENS", finishReason, ...(blocked ? { blocked: true } : {}) };
 }
 
 const ADAPTERS: Record<EndpointConfig["provider"], (

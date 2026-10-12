@@ -13,8 +13,8 @@ import {
 } from "../core/providers.js";
 import { HANDOFF_DECISION_KEY } from "../core/prompts.js";
 
-/* ADR-0012: a compaction call that failed or returned no text stores nothing - no brief, no decision, no
-   evidence - so the previous brief stays current. */
+/* ADR-0012: a compaction call that failed, was stopped by the provider or returned no text stores nothing -
+   no brief, no decision, no evidence - so the previous brief stays current. */
 
 const ep = { baseUrl: "https://api.example.test", apiKeyEnv: "KEY", model: "m" };
 const req = { prompt: "p", maxTokens: 10, model: "m" };
@@ -31,10 +31,38 @@ describe("the API adapters refuse an HTTP error with the provider's message", ()
     await expect(call({ ...ep, provider }, req, res(status, JSON.stringify(body)) as never, { KEY: "k" })).rejects.toThrow(message);
   });
 
-  it("a body that is no JSON (a gateway's error page) still fails, with the status only", async () => {
-    await expect(callAnthropic({ ...ep, provider: "anthropic" }, req, res(502, "<html>Bad Gateway</html>") as never, {})).rejects.toThrow(
-      /^anthropic API returned HTTP 502$/,
+  it("a body without a message (no JSON, null, no string) still fails, with the status only", async () => {
+    for (const body of ["<html>Bad Gateway</html>", "null", "{}", JSON.stringify({ error: { message: 42 } })]) {
+      await expect(callAnthropic({ ...ep, provider: "anthropic" }, req, res(502, body) as never, {})).rejects.toThrow(
+        /^anthropic API returned HTTP 502$/,
+      );
+    }
+  });
+
+  it("takes a plain string in `error` and keeps at most 300 characters of the message", async () => {
+    await expect(callOpenAICompatible({ ...ep, provider: "openai" }, req, res(429, JSON.stringify({ error: "quota exceeded" })) as never, {})).rejects.toThrow(
+      /^openai API returned HTTP 429: quota exceeded$/,
     );
+    const long = "x".repeat(400);
+    const err = await callGemini({ ...ep, provider: "gemini" }, req, res(500, JSON.stringify({ error: { message: long } })) as never, {}).catch((e: Error) => e);
+    expect((err as Error).message).toBe(`gemini API returned HTTP 500: ${"x".repeat(300)}`);
+  });
+});
+
+describe("the API adapters flag an answer the provider stopped for a policy reason", () => {
+  it.each([
+    ["anthropic", callAnthropic, { content: [{ type: "text", text: "1) DECISIONS par" }], stop_reason: "refusal" }, true],
+    ["anthropic", callAnthropic, { content: [{ type: "text", text: "x" }], stop_reason: "max_tokens" }, false],
+    ["openai", callOpenAICompatible, { choices: [{ message: { content: "" }, finish_reason: "content_filter" }] }, true],
+    ["openai", callOpenAICompatible, { choices: [{ message: { content: "x" }, finish_reason: "stop" }] }, false],
+    ["gemini", callGemini, { candidates: [{ content: { parts: [{ text: "x" }] }, finishReason: "SAFETY" }] }, true],
+    ["gemini", callGemini, { candidates: [{ content: { parts: [{ text: "x" }] }, finishReason: "RECITATION" }] }, true],
+    ["gemini", callGemini, { candidates: [{ content: { parts: [{ text: "x" }] }, finishReason: "STOP" }] }, false],
+    ["gemini", callGemini, { candidates: [{ content: { parts: [{ text: "x" }] }, finishReason: "MAX_TOKENS" }] }, false],
+    ["gemini", callGemini, { candidates: [{ content: { parts: [{ text: "x" }] } }] }, false], // no finish reason given
+  ] as const)("%s %j → blocked %s", async (provider, call, body, blocked) => {
+    const r = await call({ ...ep, provider }, req, res(200, JSON.stringify(body)) as never, {});
+    expect(r.blocked === true).toBe(blocked);
   });
 });
 
@@ -46,8 +74,12 @@ describe("a failed or empty compaction stores nothing; the previous brief stays 
       { brief: "1) DECISIONS earlier brief", host: { modelId: "claude-opus-5-5" }, sourceZone: "green", decisions: [{ decision: "keep", rationale: "r" }] },
       { store, config: loadConfig({}) },
     );
-    return { store, before: JSON.stringify(store.currentState()) };
+    store.addEvidence({ decisionId: store.currentState()[0].decisionId, claim: "seed", sourceRef: "s", type: "msg", verbatim: null });
+    return { store, before: dump(store) };
   };
+  /** Every decision row (superseded ones too) with its evidence. */
+  const dump = (store: SqliteStore) =>
+    JSON.stringify(store.queryDecisions().map((d) => ({ ...d, evidence: store.getEvidence(d.decisionId) })));
   const input = (mode: HandoffInput["mode"], modelId = "claude-opus-5-5"): HandoffInput => ({
     brief: "",
     source: "the raw context",
@@ -60,7 +92,7 @@ describe("a failed or empty compaction stores nothing; the previous brief stays 
   });
 
   const expectUnchanged = (store: SqliteStore, before: string) => {
-    expect(JSON.stringify(store.currentState())).toBe(before);
+    expect(dump(store)).toBe(before);
     expect(store.currentState().filter((d) => d.decision === HANDOFF_DECISION_KEY).map((d) => d.rationale)).toEqual(["1) DECISIONS earlier brief"]);
   };
 
@@ -71,12 +103,35 @@ describe("a failed or empty compaction stores nothing; the previous brief stays 
       storePath: ":memory:",
     };
     for (const [fetchFn, reason] of [
-      [res(529, JSON.stringify({ type: "error", error: { type: "overloaded_error", message: "Overloaded" } })), /HTTP 529: Overloaded/],
+      [
+        res(529, JSON.stringify({ type: "error", error: { type: "overloaded_error", message: "Overloaded" } })),
+        /^api compaction failed: anthropic API returned HTTP 529: Overloaded; nothing stored, the previous brief stays current$/,
+      ],
       [res(200, JSON.stringify({ content: [], stop_reason: "end_turn" })), /api compaction returned no text; nothing stored/],
       [res(200, JSON.stringify({ content: [{ type: "text", text: "  \n " }], stop_reason: "end_turn" })), /returned no text/],
     ] as const) {
       const { store, before } = await seeded();
       const run = runHandoff(input("api"), { store, config, fetchFn: fetchFn as never });
+      await expect(run).rejects.toThrow(CompactionFailedError);
+      await expect(run).rejects.toThrow(reason);
+      expectUnchanged(store, before);
+    }
+  });
+
+  it("API: an answer the provider stopped (refusal, content filter, Gemini SAFETY), partial text or not", async () => {
+    const cases = [
+      ["anthropic", { content: [{ type: "text", text: "1) DECISIONS par" }], stop_reason: "refusal" }, /^api compaction was stopped \(refusal\): 1\) DECISIONS par; nothing stored/],
+      ["openai", { choices: [{ message: { content: "1) DEC" }, finish_reason: "content_filter" }] }, /^api compaction was stopped \(content_filter\): 1\) DEC; nothing/],
+      ["gemini", { candidates: [{ content: { parts: [{ text: "" }] }, finishReason: "SAFETY" }] }, /^api compaction was stopped \(SAFETY\); nothing stored/],
+    ] as const;
+    for (const [provider, body, reason] of cases) {
+      const config: CairnConfig = {
+        enabledModes: ["account", "api"],
+        endpoints: { main: { provider, baseUrl: "https://api.example.test", model: "m" } },
+        storePath: ":memory:",
+      };
+      const { store, before } = await seeded();
+      const run = runHandoff(input("api"), { store, config, fetchFn: res(200, JSON.stringify(body)) as never });
       await expect(run).rejects.toThrow(CompactionFailedError);
       await expect(run).rejects.toThrow(reason);
       expectUnchanged(store, before);
@@ -138,6 +193,29 @@ describe("a failed or empty compaction stores nothing; the previous brief stays 
     const run = runHandoff(input("sampling"), { store, config: loadConfig({ CAIRN_ENABLE_MODES: "sampling" }), sample });
     await expect(run).rejects.toThrow(/sampling compaction returned no text; nothing stored, the previous brief stays current/);
     expectUnchanged(store, before);
+  });
+
+  it("a truncated answer with text is still stored (API and sampling)", async () => {
+    const config: CairnConfig = {
+      enabledModes: ["account", "api", "sampling"],
+      endpoints: { main: { provider: "anthropic", baseUrl: "https://api.example.test" } },
+      storePath: ":memory:",
+    };
+    const api = await seeded();
+    const fetchFn = res(200, JSON.stringify({ content: [{ type: "text", text: "1) DECISIONS cut" }], stop_reason: "max_tokens" }));
+    await runHandoff(input("api"), { store: api.store, config, fetchFn: fetchFn as never });
+    expect(api.store.currentState().filter((d) => d.decision === HANDOFF_DECISION_KEY).map((d) => d.rationale)).toEqual(["1) DECISIONS cut"]);
+    const smp = await seeded();
+    const sample = vi.fn<ModelCaller>(async () => ({ text: "1) DECISIONS cut too", truncated: true, finishReason: "maxTokens" }));
+    await runHandoff(input("sampling"), { store: smp.store, config, sample });
+    expect(smp.store.currentState().filter((d) => d.decision === HANDOFF_DECISION_KEY).map((d) => d.rationale)).toEqual(["1) DECISIONS cut too"]);
+  });
+
+  it("account mode is unchanged: it stores the host's brief as given, also an empty one", async () => {
+    const { store } = await seeded();
+    const r = await runHandoff({ brief: "", host: { modelId: "claude-opus-5-5" }, sourceZone: "green" }, { store, config: loadConfig({}) });
+    expect(r.egress).toBe(false);
+    expect(store.currentState().filter((d) => d.decision === HANDOFF_DECISION_KEY).map((d) => d.rationale)).toEqual([""]);
   });
 
   it("a successful compaction still supersedes the previous brief", async () => {
