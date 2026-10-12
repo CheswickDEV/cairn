@@ -49,12 +49,12 @@ export const LARGE_GROUND_TRUTH: GroundTruth = {
   weights: { recall: 0.4, hallucination: 0.3, supersession: 0.15, verbatim: 0.15 },
   mustSurvive: [
     // primacy constraints (stated first, decisive late)
-    { id: "lc_eu", kind: "constraint", primacy: true, sourceRef: "T01", text: "Alle Event-Daten und Projektionen müssen in der EU bleiben (DSGVO); keine US-Region.", keys: [["eu","dsgvo","gdpr"],["us"]] },
+    { id: "lc_eu", kind: "constraint", primacy: true, sourceRef: "T01", text: "Alle Event-Daten und Projektionen müssen in der EU bleiben (DSGVO); keine US-Region.", keys: [["eu","dsgvo","gdpr"],["us-cloud","us cloud","us-region","us region","us-east*","us-anbieter*","us provider*","us-provider*","usa","keine us","no us","not in the us","outside the eu","außerhalb der eu","nur in der eu","only in the eu","eu-only"]] },
     { id: "lc_zero", kind: "constraint", primacy: true, sourceRef: "T01", text: "Die Migration MUSS zero-downtime sein; kein Wartungsfenster erlaubt.", keys: [["zero-downtime","zero downtime","ohne downtime","keine downtime","no downtime","kein wartungsfenster","no maintenance window"]] },
-    { id: "lc_p99", kind: "constraint", sourceRef: "T01", text: "Lese-SLA: p99 < 200 ms für Projektions-Queries.", keys: [["200 ms","200ms","200-ms"],["p99"]] },
+    { id: "lc_p99", kind: "constraint", sourceRef: "T01", text: "Lese-SLA: p99 < 200 ms für Projektions-Queries.", keys: [["200 ms","200ms","200-ms*","200 millisek*","200 millisecond*"],["p99"]] },
     { id: "lc_audit", kind: "constraint", sourceRef: "T01", text: "Append-only Audit-Log ist Compliance-Pflicht (WORM, unveränderlich).", keys: [["audit*"],["worm","append-only","append only","unveränderlich*","immutable"]] },
     // supersession chains
-    { id: "ld_db0", kind: "decision", status: "superseded", supersededBy: "ld_db1", sourceRef: "T03", text: "Single PostgreSQL für Events und Projektionen (initialer Ansatz).", keys: [["postgres*"],["single","einzige*","gemeinsam*","shared","für beides","für events und projektionen","eine db","eine datenbank"]] },
+    { id: "ld_db0", kind: "decision", status: "superseded", supersededBy: "ld_db1", sourceRef: "T03", text: "Single PostgreSQL für Events und Projektionen (initialer Ansatz).", keys: [["postgres*"],["single","einzige*","gemeinsam*","shared","für beides","für alles","for both","for everything","für events und projektionen","eine db","eine datenbank","eine postgres*","one postgres*","one db","one database"]] },
     { id: "ld_db1", kind: "decision", status: "accepted", supersedes: "ld_db0", sourceRef: "T06", text: "Getrennt: EventStoreDB für den Event-Store, PostgreSQL nur für Read-Projektionen.", keys: [["eventstoredb","eventstore db","event store db","eventstore"]] },
     { id: "ld_bus0", kind: "decision", status: "discarded", sourceRef: "T08", text: "RabbitMQ als Event-Bus (vorgeschlagen, verworfen).", keys: [["rabbitmq","rabbit mq"]] },
     { id: "ld_bus1", kind: "decision", status: "accepted", supersedes: "ld_bus0", sourceRef: "T09", text: "Apache Kafka als Event-Bus (Replay, Retention, Ordering pro Partition).", keys: [["kafka"],["bus","eventbus","replay*","*retention*","ordering","reihenfolge"]] },
@@ -69,15 +69,15 @@ export const LARGE_GROUND_TRUTH: GroundTruth = {
     { id: "lv_error", kind: "verbatim", exact: true, sourceRef: "T10", text: "ConcurrencyError: expected version 41 but stream was at 43" },
     // numbers
     { id: "ln_tput", kind: "number", sourceRef: "T21", text: "Peak-Durchsatz ≈ 12.000 Events/Sekunde.", keys: [["12.000","12,000","12000","12 000","12k"]] },
-    { id: "ln_p99", kind: "number", sourceRef: "T21", text: "Projektions-p99 aktuell 140 ms (unter dem 200-ms-SLA).", keys: [["140 ms","140ms"]] },
-    { id: "ln_ret", kind: "number", sourceRef: "T14", text: "Kafka-Retention = 30 Tage.", keys: [["30 tag*","30 days","30d","retention_days=30"],["*retention*","aufbewahr*","kafka"]] },
+    { id: "ln_p99", kind: "number", sourceRef: "T21", text: "Projektions-p99 aktuell 140 ms (unter dem 200-ms-SLA).", keys: [["140 ms","140ms","140-ms*","140 millisek*","140 millisecond*"]] },
+    { id: "ln_ret", kind: "number", sourceRef: "T14", text: "Kafka-Retention = 30 Tage.", keys: [["30 tag*","30-tag*","30-tägig*","30 days","30 day","30-day*","30d","retention_days=30"],["*retention*","aufbewahr*","kafka"]] },
     { id: "ln_part", kind: "number", sourceRef: "T14", text: "Topic 'orders' hat 24 Partitionen.", keys: [["24"],["partition*"]] },
     // buried critical context (middle of the haystack)
     { id: "lcc_lock", kind: "critical_context", buried: true, sourceRef: "T10", text: "Aggregate MUSS optimistic-locked sein (Version-Check vor Apply); ein früheres Race führte zu Double-Apply. Nicht entfernen.", keys: [["optimistic*","optimistisch*"],["lock*","*sperr*","version*"]] },
     { id: "lcc_utc", kind: "critical_context", buried: true, sourceRef: "T10", text: "Alle Event-Timestamps in UTC; lokale Zeitzonen führten zu falscher Event-Ordering.", keys: [["utc"],["*timestamp*","*zeitstempel*","ordering","reihenfolge","sortier*"]] },
     { id: "lcc_idem", kind: "critical_context", buried: true, sourceRef: "T11", text: "Consumer müssen idempotent sein (Kafka liefert at-least-once).", keys: [["idempoten*"]] },
     // open decisions
-    { id: "lo_snap", kind: "open_decision", sourceRef: "T22", text: "OFFEN: Snapshotting-Strategie (alle N Events vs. zeitbasiert) — noch nicht entschieden.", keys: [["snapshot*"],["zeitbasiert*","time-based","time based","alle n","every n"]] },
+    { id: "lo_snap", kind: "open_decision", sourceRef: "T22", text: "OFFEN: Snapshotting-Strategie (alle N Events vs. zeitbasiert) — noch nicht entschieden.", keys: [["snapshot*"],["zeitbasiert*","time-based","time based","nach zeit","zeitgesteuert*","by time","alle n","every n"]] },
     { id: "lo_split", kind: "open_decision", sourceRef: "T23", text: "OFFEN: ob der 'billing'-Context in einen eigenen Service gesplittet wird — hängt an der Lastmessung.", keys: [["billing"]] },
     // recency
     { id: "lr_next", kind: "recency", sourceRef: "T24", text: "Nächster Schritt (zuletzt): Kafka-Consumer-Lag-Monitoring aufsetzen, einen Replay-Test über 1 Tag Produktivlast fahren und p99 erneut messen.", keys: [["lag"],["replay*"]] },

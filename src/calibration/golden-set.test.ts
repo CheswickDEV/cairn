@@ -63,7 +63,7 @@ describe("golden set (multi-probe aggregation)", () => {
       profiles: PROFILES,
       makeCompactor: (gt): Compactor => {
         // One keyed fact per probe whose key facts no other line of the fixture brief carries (ADR-0012).
-        const drop = gt.mustSurvive.find((i) => ["c_budget", "g2_n_hit", "g3_d_alg0", "g4_d_sync0", "g5_o_hpa"].includes(i.id))!;
+        const drop = gt.mustSurvive.find((i) => ["n_cost", "g2_n_hit", "g3_d_alg0", "g4_d_sync0", "g5_o_hpa"].includes(i.id))!;
         droppedIds.add(drop.id);
         const base = makeFixtureCompactor(gt);
         return async (req) => {

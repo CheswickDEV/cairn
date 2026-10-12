@@ -48,6 +48,32 @@ describe("key matching", () => {
     expect(matchesKeys("Budget 400", [["400"], ["€", "eur"]])).toBe(false);
   });
 
+  it("lets a number carry a unit but no further digits", () => {
+    expect(matchesKeys("p95 < 1.8s", [["1.8"]])).toBe(true);
+    expect(matchesKeys("Limit 4GiB", [["4gi*"]])).toBe(true);
+    expect(matchesKeys("a 30-day TTL", [["30-day*"]])).toBe(true);
+    expect(matchesKeys("p95 1.85 s", [["1.8"]])).toBe(false);
+    expect(matchesKeys("2400 Belege", [["240"]])).toBe(false);
+    expect(matchesKeys("12.5 ms", [["12"]])).toBe(false);
+  });
+
+  it.each([
+    ["ocr-beleg", "c_sla", "SLA: p95 below 1.8s per receipt", true],
+    ["ocr-beleg", "c_eu", "Let us keep the data in the EU.", false], // the pronoun is no US exclusion
+    ["ocr-beleg", "c_eu", "Data stays in the EU, no US cloud.", true],
+    ["ocr-beleg", "o_worker", "OPEN: another worker once volume grows", true],
+    ["api-gateway", "g2_c_stale", "the cache may be stale for one minute at most", true],
+    ["oauth-token", "g3_n_refresh", "refresh tokens live for a 30-day TTL", true],
+    ["db-migration", "g4_c_zero", "migration without downtime, no write lock over 1 s", true],
+    ["db-migration", "g4_n_p99", "p99 budget 50 Millisekunden across 16 shards", true],
+    ["k8s-rollout", "g5_n_replicas", "six replicas, memory limit 4GiB", true],
+    ["k8s-rollout", "g5_d_tag0", "use the latest docs", false],
+  ] as const)("%s/%s: %s → %s", (label, id, text, expected) => {
+    const gt = SETS.find(([l]) => l === label)![1];
+    const it = gt.mustSurvive.find((i) => i.id === id)!;
+    expect(matchesKeys(text, it.keys!)).toBe(expected);
+  });
+
   it("reads a decimal comma as a point but leaves thousands separators alone", () => {
     expect(normalizeForKeys("p95 1,6 s")).toBe("p95 1.6 s");
     expect(normalizeForKeys("12.000 Events")).toBe("12.000 events");

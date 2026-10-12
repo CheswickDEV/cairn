@@ -394,8 +394,8 @@ export async function runBridge(input: RunBridgeInput): Promise<ModelCallResult>
 export const PRODUCT_BRIDGE_EFFORT = "high";
 
 /** The bridge-mode caller the MCP server wires up for `CAIRN_BRIDGE`, always at PRODUCT_BRIDGE_EFFORT. */
-export function productBridge(cli: BridgeCli, lang: Lang, execFn?: ExecFn): ModelCaller {
-  return (req) => bridgeCompact({ cli, request: req, lang, effort: PRODUCT_BRIDGE_EFFORT, execFn });
+export function productBridge(cli: BridgeCli, lang: Lang, execFn?: ExecFn, timeoutMs?: number): ModelCaller {
+  return (req) => bridgeCompact({ cli, request: req, lang, effort: PRODUCT_BRIDGE_EFFORT, execFn, timeoutMs });
 }
 
 /** Run a COMPACTION on the given CLI's subscription session (7-bucket + brief-only directive). */

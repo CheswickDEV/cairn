@@ -88,6 +88,8 @@ export interface GoldenResult {
   reviewerEffects?: Record<string, number>;
   /** Median of `meanFidelityAdjusted` over the models. */
   floorProposalAdjusted?: number | null;
+  /** Why no reviewer correction was recorded (e.g. one reviewer per brief: effects not identifiable). */
+  reviewerEffectsSkipped?: string;
   /** Code and CLI versions behind the run (set by the CLI). */
   provenance?: RunProvenance;
 }
@@ -168,7 +170,14 @@ export async function runGoldenSet(input: RunGoldenSetInput): Promise<GoldenResu
 
   // Floor proposal: the median mean-fidelity across models (robust central value), or null if empty.
   const floorProposal = perModel.length ? median(perModel.map((m) => m.meanFidelity)) : null;
-  const corrected = correctForReviewers([perModel]);
+  // The correction is an add-on: it must never cost a paid run its artifact (ADR-0012).
+  let corrected: ReturnType<typeof correctForReviewers> = null;
+  let skipped: string | undefined;
+  try {
+    corrected = correctForReviewers([perModel]);
+  } catch (e) {
+    skipped = e instanceof Error ? e.message : String(e);
+  }
 
   return {
     date: input.date,
@@ -179,9 +188,10 @@ export async function runGoldenSet(input: RunGoldenSetInput): Promise<GoldenResu
     ...(corrected
       ? {
           reviewerEffects: corrected.effects,
-          floorProposalAdjusted: median(corrected.runs[0].map((m) => m.meanFidelityAdjusted!)),
+          floorProposalAdjusted: median(corrected.runs[0].map((m) => m.meanFidelityAdjusted!).filter(Number.isFinite)),
         }
       : {}),
+    ...(skipped ? { reviewerEffectsSkipped: skipped } : {}),
   };
 }
 
@@ -211,11 +221,41 @@ function correctForReviewers(runs: GoldenModelResult[][]): { effects: Record<str
     return {
       ...m,
       perProbe,
-      meanFidelityAdjusted: mean(scored.map((p) => p.fidelityAdjusted!)),
-      meanConfidenceAdjusted: mean(scored.map((p) => p.confidenceAdjusted!)),
+      meanFidelityAdjusted: scored.length ? mean(scored.map((p) => p.fidelityAdjusted!)) : NaN,
+      meanConfidenceAdjusted: scored.length ? mean(scored.map((p) => p.confidenceAdjusted!)) : NaN,
     };
   };
   return { effects: Object.fromEntries(e), runs: runs.map((perModel) => perModel.map(adjust)) };
+}
+
+/** One input for `--pool`: where it came from, its SHA-256, the parsed golden result. */
+export interface PoolInput {
+  path: string;
+  sha256: string;
+  res: GoldenResult;
+}
+
+/**
+ * Only runs of the same configuration pool (ADR-0012): no artifact twice, the same probes (and probe
+ * contents, where recorded), the same models and the same reviewer effort. Throws naming the input.
+ */
+export function checkPoolInputs(inputs: PoolInput[]): void {
+  if (inputs.length === 0) throw new Error("--pool needs at least one golden artifact");
+  const first = inputs[0];
+  const models = (r: GoldenResult) => r.perModel.map((m) => m.modelId).sort().join(",");
+  const hashes = (r: GoldenResult) => (r as { probeInfo?: { sha256: string }[] }).probeInfo?.map((p) => p.sha256).join(",");
+  const seen = new Set<string>();
+  for (const i of inputs) {
+    if (!Array.isArray(i.res.perModel) || !Array.isArray(i.res.probes)) throw new Error(`${i.path}: not a golden artifact`);
+    if (seen.has(i.sha256)) throw new Error(`${i.path}: the same artifact twice`);
+    seen.add(i.sha256);
+    if (i.res.probes.join(",") !== first.res.probes.join(",")) throw new Error(`${i.path}: other probes than ${first.path}`);
+    if (models(i.res) !== models(first.res)) throw new Error(`${i.path}: other models than ${first.path}`);
+    if (i.res.reviewerEffort !== first.res.reviewerEffort) throw new Error(`${i.path}: other reviewer effort than ${first.path}`);
+    const h = hashes(i.res);
+    const h0 = hashes(first.res);
+    if (h && h0 && h !== h0) throw new Error(`${i.path}: other probe contents than ${first.path}`);
+  }
 }
 
 /** One model across pooled golden runs (ADR-0012). */
@@ -258,6 +298,7 @@ export function poolGoldenResults(results: GoldenResult[], probes: GoldenProbe[]
   for (const run of corrected.runs) for (const m of run) byModel.set(m.modelId, [...(byModel.get(m.modelId) ?? []), m]);
   const perModel: PooledModelResult[] = [...byModel.values()].map((ms) => {
     const pp = ms.flatMap((m) => m.perProbe);
+    const adj = pp.filter((p) => p.fidelityAdjusted !== undefined); // a probe run whose reviews all failed has none
     let missing: number | null = 0;
     let checked = 0;
     let retaining = 0;
@@ -278,8 +319,8 @@ export function poolGoldenResults(results: GoldenResult[], probes: GoldenProbe[]
       effort: ms[0].effort,
       probeRuns: pp.length,
       meanFidelity: mean(pp.map((p) => p.fidelity)),
-      meanFidelityAdjusted: mean(pp.map((p) => p.fidelityAdjusted!)),
-      meanConfidenceAdjusted: mean(pp.map((p) => p.confidenceAdjusted!)),
+      meanFidelityAdjusted: adj.length ? mean(adj.map((p) => p.fidelityAdjusted!)) : NaN,
+      meanConfidenceAdjusted: adj.length ? mean(adj.map((p) => p.confidenceAdjusted!)) : NaN,
       meanVerbosityCoeff: mean(pp.map((p) => p.verbosityCoeff)),
       missingMustSurvive: missing,
       mustSurviveChecked: checked,
@@ -291,6 +332,9 @@ export function poolGoldenResults(results: GoldenResult[], probes: GoldenProbe[]
     reviewerEffects: corrected.effects,
     perModel,
     floorProposal: perModel.length ? median(perModel.map((m) => m.meanFidelity)) : null,
-    floorProposalAdjusted: perModel.length ? median(perModel.map((m) => m.meanFidelityAdjusted)) : null,
+    floorProposalAdjusted: (() => {
+      const xs = perModel.map((m) => m.meanFidelityAdjusted).filter(Number.isFinite);
+      return xs.length ? median(xs) : null;
+    })(),
   };
 }

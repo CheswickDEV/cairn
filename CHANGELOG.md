@@ -26,11 +26,12 @@ independent reviews). See ADR-0012.
     matrix favors the strictest reviewers, which do not review themselves; Haiku 5.5 and GPT-6 Luna would
     then sit just inside the 0.02 band. Corrected they are 0.003 and 0.004 outside it.
   - The fidelity floor moves from 0.85 to **0.84** (user sign-off), so both picks clear the red zone
-    (0.94, by about 0.02) and a full context is compacted rather than handed over verbatim. A handoff
+    (0.94, by 0.020 and 0.017) and a full context is compacted rather than handed over verbatim. A handoff
     without a zone counts as red and now reports Opus 5.5 on Claude hosts. Without Opus 5.5 a Claude host
     gets Haiku 5.5 in green and yellow and Fable 5.1 in red.
   - Cairn masks code, configs and error strings before the model call and restores them byte-exact.
-    All seven models kept every marker and every key fact in all 70 golden-set briefs. A 400K-token
+    All seven models kept every marker and every key fact in all 70 golden-set briefs (five of them only
+    inside the verbatim blocks), so the key-fact check does not separate them. A 400K-token
     control run (4d) kept facts from the start, middle and end of the probe, but scored lower than the
     golden set; it does not feed the profiles.
 - **The selected summarizer compacts** `[CODE-IMPACTING]`: bridge and API mode compact with the
@@ -40,6 +41,12 @@ independent reviews). See ADR-0012.
   default model went unused. Sampling names the selection as a model hint (the client decides). Account
   mode still makes no model call; when another model wrote the brief, the result and the handoff skill
   recommend switching to the selected summarizer (`recommendedModel`).
+- **Automatic compaction in account mode, opt-in** `[CODE-IMPACTING]` (`CAIRN_ACCOUNT_SUMMARIZER=auto`):
+  when another model wrote the brief, Cairn compacts the session transcript with the selected summarizer
+  through the host's own CLI at `high` and stores that brief (`autoCompacted`); on any miss the host's
+  brief stays with the reason (`autoSkipped`). It reads Claude Code's session transcript along the active
+  branch (rewinds left out) or the Codex rollout. Off by default: account mode then still makes no model
+  call. Skills, server instructions and README say so.
 - **Band rule** `[CODE-IMPACTING]`: the fidelity floor is checked over the whole top band. The cheapest
   band model that clears the zone floor compacts; verbatim only when none does. Before, only the cheapest
   band model was checked, and a miss went straight to verbatim although a stronger band model would

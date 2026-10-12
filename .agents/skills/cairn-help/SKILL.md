@@ -21,4 +21,4 @@ Shell commands: `cairn status`, `cairn list`, `cairn window`, `cairn tab`, `cair
 Cairn runs only on explicit requests. There are no automatic task/session, threshold, or
 compaction actions. Each invocation covers only that action; resume does not enable a later
 handoff. Passive status displays are informational. Account mode is local with no model call
-or egress through Cairn. Do not add a status check, handoff, or resume to a help response.
+or egress through Cairn, unless the operator set `CAIRN_ACCOUNT_SUMMARIZER=auto`. Do not add a status check, handoff, or resume to a help response.

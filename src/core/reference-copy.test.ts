@@ -20,6 +20,9 @@ describe("docs/reference/model-profiles.ts matches src", () => {
       { modelId: "gpt-6-luna" },
       { modelId: "gpt-5.5" },
       { modelId: "totally-unknown" },
+      { modelId: "anthropic.claude-opus-5-5" },
+      { modelId: "us.anthropic.claude-sonnet-5-5[1m]" },
+      { modelId: "openai/gpt-6.1-sol@high" },
     ];
     const reach: ((p: ModelProfile) => Promise<boolean>)[] = [
       async (p) => p.status === "active",

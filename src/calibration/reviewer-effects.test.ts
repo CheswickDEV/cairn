@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { fitReviewerEffects, type ReviewObservation } from "./score.js";
-import { runGoldenSet, goldenProbes, poolGoldenResults, type GoldenResult } from "./golden-set.js";
+import { runGoldenSet, goldenProbes, poolGoldenResults, checkPoolInputs, type GoldenResult } from "./golden-set.js";
 import { makeFixtureCompactor } from "./runner.js";
 import { heuristicReviewer } from "./review.js";
 import { PROFILES } from "../core/model-profiles.js";
@@ -135,5 +135,54 @@ describe("runGoldenSet records the correction (ADR-0012)", () => {
       expect(m.missingMustSurvive).toBe(0); // fixture briefs carry every key fact and every verbatim span
       expect(m.briefsRetainingAll).toBe(m.probeRuns);
     }
+  });
+});
+
+describe("the correction never costs a run its artifact (ADR-0012)", () => {
+  it("one reviewer per brief: the effects cannot be fitted, the golden result says why and keeps its values", async () => {
+    const res = await runGoldenSet({
+      probes: goldenProbes(),
+      candidates: ["claude-fable-5-1@high", "claude-opus-5-5@high", "gpt-6.1-sol@high"],
+      profiles: PROFILES,
+      makeCompactor: (gt) => makeFixtureCompactor(gt),
+      reviewer: heuristicReviewer,
+      reviewerPool: ["claude-fable-5-1", "claude-opus-5-5", "gpt-6.1-sol"],
+      reviewersPerBrief: 1,
+      date: "2026-10-12",
+      now: () => 0,
+    });
+    expect(res.reviewerEffectsSkipped).toMatch(/singular/);
+    expect(res.reviewerEffects).toBeUndefined();
+    expect(res.perModel).toHaveLength(3);
+    for (const m of res.perModel) expect(m.meanFidelityAdjusted).toBeUndefined();
+  });
+
+  it("a probe run without any review stays out of the pooled corrected mean", () => {
+    const a = artifact();
+    a.perModel[0].perProbe[0].reviews = [];
+    const m = poolGoldenResults([a]).perModel.find((x) => x.baseModelId === "a")!;
+    expect(Number.isFinite(m.meanFidelityAdjusted)).toBe(true);
+    expect(Number.isFinite(poolGoldenResults([a]).floorProposalAdjusted!)).toBe(true);
+  });
+});
+
+describe("checkPoolInputs", () => {
+  const input = (path: string, sha256: string, res: GoldenResult) => ({ path, sha256, res });
+  it("accepts two runs of the same configuration", () => {
+    expect(() => checkPoolInputs([input("a", "1", artifact()), input("b", "2", artifact())])).not.toThrow();
+  });
+  it.each([
+    ["the same artifact twice", (b: GoldenResult) => b, "1", /the same artifact twice/],
+    ["other probes", (b: GoldenResult) => ({ ...b, probes: ["x"] }), "2", /other probes/],
+    ["other models", (b: GoldenResult) => ({ ...b, perModel: b.perModel.slice(1) }), "2", /other models/],
+    ["another reviewer effort", (b: GoldenResult) => ({ ...b, reviewerEffort: "xhigh" }), "2", /other reviewer effort/],
+    ["other probe contents", (b: GoldenResult) => ({ ...b, probeInfo: [{ sha256: "x" }] }), "2", /other probe contents/],
+  ] as const)("refuses %s", (_, change, sha, error) => {
+    const first = { ...artifact(), reviewerEffort: "high", probeInfo: [{ sha256: "p" }] } as GoldenResult;
+    expect(() => checkPoolInputs([input("a", "1", first), input("b", sha, change({ ...first }))])).toThrow(error);
+  });
+  it("refuses an empty list and a non-golden file", () => {
+    expect(() => checkPoolInputs([])).toThrow(/at least one/);
+    expect(() => checkPoolInputs([input("x", "1", {} as GoldenResult)])).toThrow(/not a golden artifact/);
   });
 });

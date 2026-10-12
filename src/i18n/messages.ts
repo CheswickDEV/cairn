@@ -38,7 +38,9 @@ export interface Messages {
     selVerbatim: (p: { reason: string }) => string;
     missingVerbatim: (p: { spans: string }) => string;
     /** Optional modes: the model Cairn asked to compact (ADR-0012). */
-    compactedWith: (p: { model: string }) => string;
+    compactedWith: (p: { model: string; auto?: boolean }) => string;
+    /** Account mode, opt-in: the automatic compaction did not run; the host's brief was kept. */
+    autoSkipped: (p: { reason: string }) => string;
     /** Account mode: the host wrote the brief, the selection names another model (ADR-0012). */
     recommend: (p: { writer?: string; model: string }) => string;
     result: (p: {
@@ -164,7 +166,8 @@ const EN: Messages = {
     selModel: (p) => `model ${p.model} (${p.reason})`,
     selVerbatim: (p) => `VERBATIM FALLBACK (${p.reason})`,
     missingVerbatim: (p) => `⚠ Not preserved byte-exact: ${p.spans}`,
-    compactedWith: (p) => `Compacted with ${p.model}.`,
+    compactedWith: (p) => `Compacted with ${p.model}${p.auto ? " from the session transcript (automatic)" : ""}.`,
+    autoSkipped: (p) => `Automatic compaction skipped (${p.reason}); the session model's brief was kept.`,
     recommend: (p) =>
       `Brief written by ${p.writer ?? "the session model"}. The most faithful summarizer here is ${p.model}: ` +
       `switch the session model (/model) and run Cairn Handoff again for the best brief.`,
@@ -331,7 +334,8 @@ const DE: Messages = {
     selModel: (p) => `Modell ${p.model} (${p.reason})`,
     selVerbatim: (p) => `VERBATIM-FALLBACK (${p.reason})`,
     missingVerbatim: (p) => `⚠ Nicht byte-exakt erhalten: ${p.spans}`,
-    compactedWith: (p) => `Verdichtet mit ${p.model}.`,
+    compactedWith: (p) => `Verdichtet mit ${p.model}${p.auto ? " aus dem Session-Transkript (automatisch)" : ""}.`,
+    autoSkipped: (p) => `Automatische Verdichtung übersprungen (${p.reason}); der Brief des Session-Modells bleibt.`,
     recommend: (p) =>
       `Brief geschrieben von ${p.writer ?? "dem Session-Modell"}. Der treueste Summarizer hier ist ${p.model}: ` +
       `Session-Modell wechseln (/model) und Cairn Handoff erneut ausführen, für den besten Brief.`,

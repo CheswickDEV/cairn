@@ -208,12 +208,12 @@ describe("deterministic recall/verbatim metrics (real fixtures)", () => {
     expect(missingMustSurvive(allTexts, GT)).toEqual([]);
     expect(missingMustSurvive("nichts Relevantes", GT)).toEqual(GT.mustSurvive.map((i) => i.id));
     // Keyed items (ADR-0012): a paraphrase that keeps the key facts is no miss; dropping a key fact is.
-    const budget = GT.mustSurvive.find((i) => i.id === "c_budget")!;
-    expect(budget.keys).toBeDefined();
-    const paraphrased = allTexts.replace(budget.text, "Budget: höchstens 400 € pro Monat für die Infrastruktur.");
+    const cost = GT.mustSurvive.find((i) => i.id === "n_cost")!;
+    expect(cost.keys).toBeDefined();
+    const paraphrased = allTexts.replace(cost.text, "Kosten: etwa 290 € im Monat.");
     expect(missingMustSurvive(paraphrased, GT)).toEqual([]);
-    const dropped = allTexts.replace(budget.text, "Budget: gedeckelt.");
-    expect(missingMustSurvive(dropped, GT)).toEqual(["c_budget"]);
+    const dropped = allTexts.replace(cost.text, "Kosten: im Rahmen.");
+    expect(missingMustSurvive(dropped, GT)).toEqual(["n_cost"]);
     expect(computeRecall(dropped, GT)).toBe((GT.mustSurvive.length - 1) / GT.mustSurvive.length);
   });
 
@@ -226,7 +226,8 @@ describe("deterministic recall/verbatim metrics (real fixtures)", () => {
 
 describe("artifact keeps what a later check needs (ADR-0012)", () => {
   it("stores the brief the reviewers scored and the ids it misses, for a brief that drops facts", async () => {
-    const dropped = GT.mustSurvive.filter((i) => !i.exact).slice(0, 2);
+    // Two keyed facts whose key facts no other ground-truth line carries (ADR-0012).
+    const dropped = GT.mustSurvive.filter((i) => i.id === "c_eu" || i.id === "n_cost");
     const lossy: Compactor = async (req) => {
       const r = await COMPACTOR(req);
       return { ...r, brief: dropped.reduce((b, it) => b.replace(it.text, ""), r.brief) };

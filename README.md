@@ -59,7 +59,9 @@ The default path is **account mode**: the host agent writes the handoff brief in
 Claude or Codex session. Cairn only **stores and validates** it: **no** server-side
 model call, **no** API keys, **no** egress through Cairn. If your session model is not the most faithful
 summarizer (Claude Opus 5.5 on Claude, GPT-6.1 Sol on Codex), the handoff result says so, and you can
-switch the model (`/model`) and run Cairn Handoff again.
+switch the model (`/model`) and run Cairn Handoff again. With `CAIRN_ACCOUNT_SUMMARIZER=auto` (opt-in)
+Cairn does that itself: it reads the session transcript and compacts it with that model through your
+own logged-in `claude` or `codex` CLI, which is a model call on your account.
 
 ---
 
@@ -255,6 +257,7 @@ old Cairn block/copies too; old guidance otherwise remains active in that projec
 | `CAIRN_DB` | Path to the SQLite ledger | `~/.cairn/cairn.sqlite` |
 | `CAIRN_ENABLE_MODES` | Additional modes: `sampling`, `bridge`, `api` | `account` only |
 | `CAIRN_BRIDGE` | Bridge target: `claude` or `codex` | empty |
+| `CAIRN_ACCOUNT_SUMMARIZER` | `auto`: in account mode, when another model wrote the brief, compact the session transcript with the selected summarizer through the host's own CLI (a model call on your account; falls back to the host's brief) | off |
 | `CAIRN_ENDPOINT_<NAME>` | Explicit API/org endpoint `provider\|baseUrl\|apiKeyEnv\|model` | empty |
 | `CAIRN_CODEX_SESSIONS` | Alternative Codex sessions directory | `~/.codex/sessions` |
 | `CAIRN_CODEX_SESSION` | Pin a Codex rollout by UUID/path substring | newest matching session |
@@ -279,7 +282,8 @@ Without explicit configuration, Cairn **refuses** all non-account paths.
 - Append-only: decisions are **superseded**, not deleted
 - `stdout` stays reserved for MCP
 - No backend, no telemetry, no cloud sync
-- Default account mode needs **no** API keys and makes **no** model call in the server
+- Default account mode needs **no** API keys and makes **no** model call in the server; only
+  `CAIRN_ACCOUNT_SUMMARIZER=auto` lets it read the session transcript and call your local CLI
 
 ---
 
@@ -341,12 +345,16 @@ and strict reviewers would otherwise shift the ranking.
 | Claude Haiku 5.5 | 0.9366 | GPT-6 Luna | 0.9397 |
 | Claude Sonnet 5.5 | 0.9363 | | |
 
+Compare fidelity within one ecosystem: GPT reviewers rate GPT briefs about 0.02 higher than Claude briefs,
+and the correction does not remove that.
+
 With the fidelity floor at 0.84, Claude hosts get Claude Opus 5.5 and Codex hosts GPT-6.1 Sol in every
 zone, so the red zone (floor + 0.10 = 0.94) is compacted, not handed over verbatim. If the cheapest model
 of the top band misses a zone's floor, the next one that clears it compacts; verbatim follows only when no
 band model clears it. Without Opus 5.5 a Claude host gets Haiku 5.5 in green and yellow and Fable 5.1 in
 red. Cairn masks code, configs and error strings before the model call and restores them byte-exact; in
-every golden-set brief all seven models kept every marker and every key fact.
+every golden-set brief all seven models kept every marker and every key fact (five of them only inside
+the verbatim blocks).
 `npm run calibrate -- --dry-run --golden` shows how many model calls a live run makes;
 `npm run calibrate -- --real --golden` measures all seven at effort `high` on your accounts, and
 `npm run calibrate -- --pool <artifacts>` pools golden runs without a model call. Cairn cannot

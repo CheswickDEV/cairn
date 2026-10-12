@@ -517,7 +517,7 @@ export function resolveProfile(id: string | undefined, profiles: ModelProfile[] 
  * Fidelity floor (ADR-0004/0005/0012): below this a model must NOT compact → verbatim fallback.
  * Set from the 2026-10-12 golden-set calibration (two runs pooled, all reviewers, each reviewer's
  * leniency taken out): the pool measured 0.936–0.964, the picks Claude Opus 5.5 0.9596 and GPT-6.1
- * Sol 0.9573. At 0.84 both clear even the red-zone +0.10 escalation (0.94), by about 0.02, so a full
+ * Sol 0.9573. At 0.84 both clear even the red-zone +0.10 escalation (0.94), by 0.020 and 0.017, so a full
  * context is still compacted rather than handed over verbatim, while the local/generic fallbacks
  * (≤0.60) stay below it. Signed off by the user on 2026-10-12. Not the golden `floorProposal` (median
  * of the means, about 0.95): with the zone bumps it would send every yellow and red handoff to verbatim.

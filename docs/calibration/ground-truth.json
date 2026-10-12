@@ -10,16 +10,16 @@
   },
 
   "must_survive": [
-    { "id": "c_eu", "kind": "constraint", "source_ref": "T01", "text": "Belegdaten müssen DSGVO-konform in der EU bleiben; keine US-Cloud-Verarbeitung (auch nicht für OCR).", "primacy": true, "note": "Early binding constraint; must also be reflected as the REASON AcmeOCR was rejected (cross-ref T07).", "keys": [["eu","dsgvo","gdpr"],["us"]] },
+    { "id": "c_eu", "kind": "constraint", "source_ref": "T01", "text": "Belegdaten müssen DSGVO-konform in der EU bleiben; keine US-Cloud-Verarbeitung (auch nicht für OCR).", "primacy": true, "note": "Early binding constraint; must also be reflected as the REASON AcmeOCR was rejected (cross-ref T07).", "keys": [["eu","dsgvo","gdpr"],["us-cloud","us cloud","us-region","us region","us-east*","us-anbieter*","us provider*","us-provider*","usa","keine us","no us","not in the us","outside the eu","außerhalb der eu","nur in der eu","only in the eu","eu-only"]] },
     { "id": "c_budget", "kind": "constraint", "source_ref": "T01,T10b", "text": "Infra-Budget-Deckel 400 €/Monat.", "contradiction_resolution": "400 (T10b) overrides the 500 floated in T10.", "keys": [["400"],["€","eur","euro*"]] },
-    { "id": "c_sla", "kind": "constraint", "source_ref": "T01", "text": "Latenz-SLA p95 < 1.8 s pro Beleg.", "keys": [["1.8"],["p95"]] },
+    { "id": "c_sla", "kind": "constraint", "source_ref": "T01", "text": "Latenz-SLA p95 < 1.8 s pro Beleg.", "keys": [["1.8","1800 ms","1800ms"],["p95"]] },
 
     { "id": "d_db_0", "kind": "decision", "status": "superseded", "superseded_by": "d_db_1", "source_ref": "T02", "text": "SQLite als DB (initialer Prototyp-Ansatz).", "keys": [["sqlite"]] },
-    { "id": "d_db_1", "kind": "decision", "status": "accepted", "supersedes": "d_db_0", "source_ref": "T05", "text": "PostgreSQL als DB.", "rationale": "SQLite locked bei gleichzeitigen Writes mehrerer Worker.", "keys": [["postgresql"]] },
+    { "id": "d_db_1", "kind": "decision", "status": "accepted", "supersedes": "d_db_0", "source_ref": "T05", "text": "PostgreSQL als DB.", "rationale": "SQLite locked bei gleichzeitigen Writes mehrerer Worker.", "keys": [["postgresql","postgres als db","postgres als datenbank","postgres database","postgres db"]] },
 
     { "id": "d_ocr_acme", "kind": "decision", "status": "superseded", "superseded_by": "d_ocr_doctr", "source_ref": "T06,T07", "text": "AcmeOCR (Cloud) — vorgeschlagen, dann verworfen.", "rationale": "Verarbeitet nur in us-east-1, verletzt c_eu.", "keys": [["acmeocr","acme ocr","acme-ocr"]] },
     { "id": "d_ocr_paddle", "kind": "decision", "status": "discarded", "source_ref": "T08", "text": "PaddleOCR — getestet, verworfen.", "rationale": "Fehlerhaftes deutsches Umlaut-Handling (ä/ö/ü -> a/o/u).", "keys": [["paddleocr","paddle ocr","paddle-ocr"]] },
-    { "id": "d_ocr_doctr", "kind": "decision", "status": "accepted", "supersedes": "d_ocr_acme", "source_ref": "T08", "text": "OCR-Engine = docTR (self-hosted, korrekte Umlaute).", "keys": [["doctr"],["self-hosted","self hosted","selbst gehostet","selbstgehostet","on-prem*","lokal*","umlaut*"]] },
+    { "id": "d_ocr_doctr", "kind": "decision", "status": "accepted", "supersedes": "d_ocr_acme", "source_ref": "T08", "text": "OCR-Engine = docTR (self-hosted, korrekte Umlaute).", "keys": [["doctr"],["self-hosted","self hosted","selbst gehostet","selbstgehostet","selbst-gehostet","on-prem*","lokal*","locally","umlaut*"]] },
 
     { "id": "d_queue", "kind": "decision", "status": "accepted", "source_ref": "T11", "text": "Redis als Job-Queue / Broker.", "keys": [["redis"],["queue*","*broker*","warteschlange*"]] },
     { "id": "d_k8s", "kind": "decision", "status": "discarded", "source_ref": "T12", "text": "Kubernetes — verworfen (Overkill für 2 Worker, sprengt Budget).", "keys": [["kubernetes","k8s"]] },
@@ -43,9 +43,9 @@
     { "id": "cc_umlaut", "kind": "critical_context", "source_ref": "T08", "buried": true, "text": "docTR wurde wegen korrekter deutscher Umlaute gewählt; PaddleOCR scheiterte genau daran.", "keys": [["umlaut*"],["paddle*","doctr"]] },
 
     { "id": "o_threshold", "kind": "open_decision", "source_ref": "T19", "text": "DECIDE: CONFIDENCE_THRESHOLD 0.82 beibehalten vs. auf 0.78 senken (mehr Recall, höheres Fehlrisiko).", "keys": [["0.78"],["0.82"]] },
-    { "id": "o_worker", "kind": "open_decision", "source_ref": "T20", "text": "DECIDE: zweiter Worker bei steigendem Volumen — offen, hängt an Lastmessung nächste Woche.", "keys": [["worker*"],["zweit*","second","additional worker","zusätzlichen worker","zusätzlicher worker","weiteren worker","weiterer worker"]] },
+    { "id": "o_worker", "kind": "open_decision", "source_ref": "T20", "text": "DECIDE: zweiter Worker bei steigendem Volumen — offen, hängt an Lastmessung nächste Woche.", "keys": [["worker*"],["zweit*","second","another worker","additional worker*","extra worker*","zusätzliche* worker","zusätzlichen worker","zusätzlicher worker","weitere worker","weiteren worker","weiterer worker"]] },
 
-    { "id": "r_next", "kind": "recency", "source_ref": "T21", "text": "Nächster Schritt (zuletzt angefragt): Threshold testweise auf 0.78 senken, einen Tag Produktivlast fahren, p95 erneut messen, Ergebnis posten — als Basis für die Entscheidung o_threshold.", "keys": [["0.78"],["p95"],["tag","day","produktivlast","production"]] }
+    { "id": "r_next", "kind": "recency", "source_ref": "T21", "text": "Nächster Schritt (zuletzt angefragt): Threshold testweise auf 0.78 senken, einen Tag Produktivlast fahren, p95 erneut messen, Ergebnis posten — als Basis für die Entscheidung o_threshold.", "keys": [["0.78"],["p95"],["tag","day","produktivlast","production","prod","24 h","24h","24 stunden"]] }
   ],
 
   "must_not_appear": [

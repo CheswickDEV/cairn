@@ -40,7 +40,7 @@ export function normalizeForKeys(text: string): string {
 }
 
 const keyPatterns = new Map<string, RegExp>();
-/** One key alternative as a regex: a word boundary on each alphanumeric edge unless that side has `*`. */
+/** One key alternative as a regex: a boundary on each alphanumeric edge unless that side has `*` (see below). */
 function keyPattern(key: string): RegExp {
   let re = keyPatterns.get(key);
   if (!re) {
@@ -49,7 +49,15 @@ function keyPattern(key: string): RegExp {
     const core = normalizeForKeys(key.slice(open ? 1 : 0, close ? -1 : undefined));
     const esc = core.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const lead = !open && /^[\p{L}\p{N}]/u.test(core) ? "(?<![\\p{L}\\p{N}])" : "";
-    const trail = !close && /[\p{L}\p{N}]$/u.test(core) ? "(?![\\p{L}\\p{N}])" : "";
+    // A number may carry a unit right after it ("1.8s", "4GiB", "30-day") but no further digits
+    // ("240" is not "2400", "1.8" not "1.85"); a word must end where the key ends.
+    const trail = close
+      ? ""
+      : /\p{N}$/u.test(core)
+        ? "(?![\\p{N}]|[.,]\\p{N})"
+        : /\p{L}$/u.test(core)
+          ? "(?![\\p{L}\\p{N}])"
+          : "";
     re = new RegExp(lead + esc + trail, "u");
     keyPatterns.set(key, re);
   }

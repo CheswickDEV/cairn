@@ -473,9 +473,17 @@ export interface HostSignal {
   provider?: string;
 }
 
+/** As in src: lower case, without a trailing `[1m]`/`(…)`, an `@effort` or a provider/region prefix. */
+export function normalizeModelId(id: string): string {
+  let s = id.trim().toLowerCase();
+  s = s.replace(/[[(][^\])]*[\])]\s*$/, ""); // trailing "[1m]" / "(…)"
+  s = s.replace(/@[^@]*$/, ""); // trailing "@effort"
+  s = s.replace(/^(?:(?:[a-z]{2,4}|global|us-gov)\.)?(?:anthropic|openai|google|meta|bedrock|vertex)[./]/, ""); // provider/region prefix
+  return s.trim();
+}
+
 export function detectEcosystem(h: HostSignal): Ecosystem {
-  // src normalises the id first (normalizeModelId), so Bedrock ids like `anthropic.claude-opus-5-5` count as Claude.
-  const id = (h.modelId ?? "").toLowerCase();
+  const id = normalizeModelId(h.modelId ?? ""); // so Bedrock ids like `anthropic.claude-opus-5-5` count as Claude
   const prov = (h.provider ?? "").toLowerCase();
   if (prov === "ollama" || prov === "lmstudio" || id.startsWith("ollama")) return "local";
   if (id.startsWith("claude") || prov === "anthropic" || prov === "bedrock") return "anthropic";
@@ -627,7 +635,7 @@ async function demo() {
 
   const inCodexRed = await selectSummarizer({
     host: { provider: "openai", modelId: "gpt-6.1-sol" },
-    sourceZone: "red", // red raises the floor by 0.10 (0.94); GPT-6.1 Sol (0.9655) clears it
+    sourceZone: "red", // red raises the floor by 0.10 (0.94); GPT-6.1 Sol (0.9573) clears it
     cost,
     fidelityFloor: 0.84,
   });
@@ -645,7 +653,7 @@ async function demo() {
     host: { modelId: "claude-haiku-5-5" },
     sourceZone: "red",
     cost,
-    fidelityFloor: 0.84, // red bumps to 0.94; Haiku 5.5's 0.9123 can't clear it -> verbatim
+    fidelityFloor: 0.84, // red bumps to 0.94; Haiku 5.5's 0.9366 can't clear it -> verbatim
     reachable: async (p) => p.id === "claude-haiku-5-5", // only Haiku 5.5 reachable
   });
   console.log("  Only weak model reachable, RED zone ->", render(onlyWeakReachable));

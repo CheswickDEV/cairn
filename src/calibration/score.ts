@@ -121,7 +121,8 @@ function solveLinear(a: number[][], b: number[]): number[] {
  * brief, so each brief's mean misses exactly its author's effect; subtracting every reviewer's effect from its
  * reviews removes that. Solved exactly from the normal equations with the brief qualities eliminated:
  * (A + 11ᵀ)·e = c, where A[r][s] = n_r·[r=s] − Σ_{briefs b scored by r and s} 1/k_b and
- * c[r] = Σ_{b scored by r} (y_br − ȳ_b). A reviewer set of one has no relative effect (empty map).
+ * c[r] = Σ_{b scored by r} (y_br − ȳ_b). A single reviewer has no relative effect (it gets 0). A design whose
+ * reviewers never share a brief cannot be fitted and throws; the golden run then records why and keeps going.
  */
 export function fitReviewerEffects(obs: ReviewObservation[]): Map<string, number> {
   const reviewers = [...new Set(obs.map((o) => o.reviewer))].sort();

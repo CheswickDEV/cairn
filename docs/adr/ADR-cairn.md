@@ -386,8 +386,9 @@ rather than mislabeled.
 
 ## ADR-0012 — Summarizer pool = current generation; calibration at effort `high` with a full reviewer matrix (2026-10-11)
 
-Accepted. Extends ADR-0004/0005/0011. Selection rules and zones are unchanged; the fidelity floor moves
-from 0.85 to 0.84 with the calibration (see "Calibration result"). The reviewer rule of ADR-0005 (≥2
+Accepted. Extends ADR-0004/0005/0011. Zones are unchanged. The selection checks the floor over the whole
+band ("Band rule" below), and the fidelity floor moves from 0.85 to 0.84 with the calibration (see
+"Calibration result"). The reviewer rule of ADR-0005 (≥2
 strongest foreign reviewers) becomes a full matrix.
 
 **Context.** Until now the calibrated pick on Claude hosts was Claude Haiku 4.5. Anthropic dates its
@@ -609,7 +610,10 @@ takes each reviewer's leniency out of the scores.
 each run 245 calls (35 briefs + 210 reviews) without a skip, with claude 2.1.296 and codex-cli 0.162.1.
 `npm run calibrate -- --pool <artifacts>` pools them without a model call: 10 probe runs per model, one
 reviewer-effect fit over all 420 reviews, and the stored briefs checked again against the current ground
-truth. It writes `…-pooled-golden.json` with the inputs' SHA-256. Between the runs the model means moved by
+truth. It writes `…-pooled-golden.json` with the inputs' SHA-256, and refuses an artifact given twice or
+runs of other probes, probe contents, models or reviewer effort. If the effects cannot be fitted (one
+reviewer per brief leaves them unidentifiable), a golden run records why (`reviewerEffectsSkipped`) and
+still writes its artifact. Between the runs the model means moved by
 up to 0.011, more than half the 0.02 band, so one run cannot settle a model near the band edge.
 
 Reviewer bias:
@@ -662,10 +666,24 @@ writes the brief, and the optional modes passed the host's own model id to the c
 - Account mode makes no model call. When the selected summarizer is not the host model that wrote the
   brief, the result recommends it (`recommendedModel`), and the handoff skill passes that line on: switch
   the session model (`/model`) and run Cairn Handoff again. The skill now passes the host's own model id.
+- Opt-in (`CAIRN_ACCOUNT_SUMMARIZER=auto`): instead of recommending, Cairn compacts the session
+  transcript itself with the selected summarizer through the host's own CLI at `high` (claude for a
+  Claude model, codex for a GPT model; up to 15 minutes). That is a model call on the user's account, the
+  same vendor as the session. The transcript: Claude Code's `<config>/projects/<project dir>/<session
+  id>.jsonl` (from `CLAUDE_PROJECT_DIR` and `CLAUDE_CODE_SESSION_ID`, which Claude Code passes to its MCP
+  servers), read along the active branch only (a rewind leaves the abandoned branch in the file) and from
+  the last `compact_boundary` on; Codex's session rollout (pin `CAIRN_CODEX_SESSION`, else the newest for
+  the cwd) from the last compaction on, without its developer and context messages. Side chains, meta
+  messages, thinking and harness reminders stay out. Only the verbatim holds the brief kept become
+  evidence. If anything misses (no transcript, no caller, a transcript too large for the window, an
+  error, a truncated or empty answer), the host's brief stays and the result names the reason
+  (`autoSkipped`). Limits: a near-full Codex context does not fit GPT-6.1 Sol's 258,400 window through
+  `codex` with the 1.7× request allowance; the Claude Code `compact_boundary` handling follows the Agent
+  SDK's message type and is not yet observed in a real transcript.
 
 **Fidelity floor 0.84**, signed off by the user on 2026-10-12. Opus 5.5 (0.9596) and GPT-6.1 Sol (0.9573)
-clear even the red zone (0.84 + 0.10 = 0.94), by about 0.02, so a full context is compacted, not handed
-over verbatim. Per run they scored 0.9650/0.9541 and 0.9543/0.9603, above 0.94 in both.
+clear even the red zone (0.84 + 0.10 = 0.94), by 0.020 and 0.017, so a full context is compacted, not
+handed over verbatim. Fitted run by run, they scored 0.9650/0.9541 and 0.9543/0.9603, above 0.94 in both.
 - Without Opus 5.5 a Claude host gets Haiku 5.5 in green and yellow and Fable 5.1 in red (Haiku 5.5 and
   Sonnet 5.5 miss 0.94).
 - Without GPT-6.1 Sol a Codex host gets Astra in every zone.
@@ -679,11 +697,15 @@ items (code, configs, error strings, identifiers) came back byte-exact (hard ver
 reviewers rated recall 0.966–0.998; the main deduction is the hallucination criterion (0.807–0.893).
 
 The deterministic must-survive check now matches every non-exact item by its key facts (`keys`: AND over
-groups, any alternative per group, word boundaries, decimal comma read as a point) instead of the whole
-ground-truth sentence, which a paraphrase never repeats. Every item's own text carries its keys, and a
-brief of bare bucket headings carries none. Rechecked without a model call, all seven models keep all
-69 key facts in all 70 golden briefs, and all 20 in the four high-fill briefs. On these probes the models
-do not differ in what they keep; they differ in what they add, which only the reviewers judge.
+groups, any alternative per group; words end where the key ends, a number may carry a unit but no further
+digits, a decimal comma reads as a point) instead of the whole ground-truth sentence, which a paraphrase
+never repeats. The keys cover German and English forms and unit spellings. Every item's own text carries
+its keys, and a brief of bare bucket headings carries none. Rechecked without a model call, every model
+keeps all 69 key facts in all 70 golden briefs and all 20 in the four high-fill briefs. Five of them (the
+batch size, the refresh-token TTL, the key rotation, the replicas, the disruption budget) appear only
+inside the verbatim blocks the model kept, in every brief of every model; 19 of the 89 items can be met
+by restored verbatim blocks alone. The deterministic check therefore finds no difference between the
+models on these probes; the reviewers' recall (0.966–0.998) and hallucination scores do.
 
 **High-fill control (4d, 2026-10-12).** At `CAIRN_CALIB_PROBE_TOKENS=400000` (1.6 MB probe, 28 calls), the
 four Claude models were measured; GPT-6 does not fit Codex's window.
@@ -718,5 +740,5 @@ hold.
 The measured values are in the profiles, the floor in `FIDELITY_FLOOR`. Done on 2026-10-12: the band rule,
 the reviewer-effect correction and the key-fact check (above). Open points:
 - A third run or more probes would settle Haiku 5.5 and GPT-6 Luna, 0.003 and 0.004 outside the band.
-- On the golden probes every model keeps every key fact; harder or longer probes would show differences
-  in what the models keep.
+- On the golden probes every model keeps every key fact; harder or longer probes, with more facts in
+  prose than in verbatim blocks, would show differences in what the models keep.

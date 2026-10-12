@@ -32,7 +32,7 @@ import { parseVariant } from "./variants.js";
 import { makeAccountCompactor } from "./account-compactor.js";
 import { makeModelReviewer } from "./model-reviewer.js";
 import { buildLargeProbe, LARGE_GROUND_TRUTH } from "./large-probe.js";
-import { runGoldenSet, goldenProbes, poolGoldenResults, type GoldenResult } from "./golden-set.js";
+import { runGoldenSet, goldenProbes, poolGoldenResults, checkPoolInputs, type GoldenResult, type PoolInput } from "./golden-set.js";
 import { resolveCalibConfig, assertCalibPreflight, artifactSuffix, type CalibConfig } from "./calib-config.js";
 import { collectProvenance, collectsCliVersions, probeInfo } from "./provenance.js";
 import type { GroundTruth } from "./ground-truth.js";
@@ -45,17 +45,12 @@ const RESULTS_DIR = "calibration/results";
 
 /** `--pool <artifact.json>…`: pool golden artifacts, no model call (ADR-0012). */
 function poolArtifacts(paths: string[], now: Date, out: NodeJS.WriteStream): void {
-  if (paths.length === 0) throw new Error("--pool needs at least one golden artifact");
-  const inputs = paths.map((path) => {
+  const inputs: PoolInput[] = paths.map((path) => {
     const body = readFileSync(path, "utf8");
-    const res = JSON.parse(body) as GoldenResult;
-    if (!Array.isArray(res.perModel) || !Array.isArray(res.probes)) throw new Error(`${path}: not a golden artifact`);
-    return { path, sha256: createHash("sha256").update(body).digest("hex"), res };
+    return { path, sha256: createHash("sha256").update(body).digest("hex"), res: JSON.parse(body) as GoldenResult };
   });
+  checkPoolInputs(inputs);
   const probes = inputs[0].res.probes.join(",");
-  for (const i of inputs) {
-    if (i.res.probes.join(",") !== probes) throw new Error(`${i.path}: other probes than ${inputs[0].path}`);
-  }
   const pooled = poolGoldenResults(inputs.map((i) => i.res));
   const date = isoDate(now);
   const time = now.toISOString().slice(10, 19).replace(/:/g, "-");

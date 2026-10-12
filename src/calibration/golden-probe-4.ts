@@ -20,11 +20,11 @@ const SHARD_CFG = `sharding:
 export const GOLDEN4_GROUND_TRUTH: GroundTruth = {
   weights: { recall: 0.4, hallucination: 0.3, supersession: 0.15, verbatim: 0.15 },
   mustSurvive: [
-    { id: "g4_c_zero", kind: "constraint", primacy: true, sourceRef: "D01", text: "Zero-Downtime ist Pflicht; kein Write-Lock > 1 s auf Hot-Tables.", keys: [["zero-downtime","zero downtime","ohne downtime","keine downtime","no downtime"],["lock*","*sperr*"]] },
+    { id: "g4_c_zero", kind: "constraint", primacy: true, sourceRef: "D01", text: "Zero-Downtime ist Pflicht; kein Write-Lock > 1 s auf Hot-Tables.", keys: [["zero-downtime","zero downtime","ohne downtime","keine downtime","kein downtime","no downtime","without downtime","ohne ausfallzeit","keine ausfallzeit"],["lock*","*sperr*"]] },
     { id: "g4_c_compat", kind: "constraint", primacy: true, sourceRef: "D01", text: "Alte und neue App-Version müssen parallel laufen (expand/contract).", keys: [["parallel*","gleichzeitig*","side by side","side-by-side","koexist*","abwärtskompatib*","backward*"],["version*","app*"]] },
     { id: "g4_d_mode0", kind: "decision", status: "superseded", supersededBy: "g4_d_mode1", sourceRef: "D02", text: "Big-Bang-Offline-Migration im Wartungsfenster (initialer Ansatz).", keys: [["big-bang","big bang","bigbang","wartungsfenster","maintenance window","offline-migration","offline migration"]] },
     { id: "g4_d_mode1", kind: "decision", status: "accepted", supersedes: "g4_d_mode0", sourceRef: "D03", text: "Online-Migration per expand/contract.", keys: [["expand*"],["contract*"]] },
-    { id: "g4_d_sync0", kind: "decision", status: "discarded", sourceRef: "D04", text: "App-seitiges Dual-Write vorgeschlagen, verworfen (fehleranfällig).", keys: [["dual-write","dual write","dualwrite","doppelschreib*"]] },
+    { id: "g4_d_sync0", kind: "decision", status: "discarded", sourceRef: "D04", text: "App-seitiges Dual-Write vorgeschlagen, verworfen (fehleranfällig).", keys: [["dual-write*","dual write*","dualwrite*","doppelschreib*"]] },
     { id: "g4_d_sync1", kind: "decision", status: "accepted", sourceRef: "D04", text: "CDC via logical replication (Debezium) für den Sync.", keys: [["cdc","debezium","logical replication","logische replikation"]] },
     { id: "g4_d_shard", kind: "decision", status: "discarded", sourceRef: "D05", text: "Range-Sharding verworfen (Hotspots); Hash-Sharding auf user_id gewählt.", keys: [["hash*"],["range*"]] },
     { id: "g4_v_ddl", kind: "verbatim", exact: true, sourceRef: "D06", text: EXPAND_DDL },
@@ -32,9 +32,9 @@ export const GOLDEN4_GROUND_TRUTH: GroundTruth = {
     { id: "g4_v_idx", kind: "verbatim", exact: true, sourceRef: "D06", text: "idx_orders_user_id_created" },
     { id: "g4_v_slot", kind: "verbatim", exact: true, sourceRef: "D08", text: "pg_create_logical_replication_slot" },
     { id: "g4_cc_backfill", kind: "critical_context", buried: true, sourceRef: "D07", text: "Backfill MUSS gebatcht + gedrosselt laufen (5000 Zeilen); ein ungebatchter UPDATE hat die Tabelle einmal gelockt (Incident). Nicht ändern.", keys: [["5000","5.000","5 000","5,000","5k"],["*batch*","*drossel*","throttl*"]] },
-    { id: "g4_n_rows", kind: "number", sourceRef: "D09", text: "Tabelle orders ~2,3 Mrd Zeilen.", keys: [["2.3"],["mrd*","milliard*","billion*","bn"]] },
-    { id: "g4_n_p99", kind: "number", sourceRef: "D09", text: "p99-Latenz-Budget = 50 ms; 16 Shards.", keys: [["50 ms","50ms"],["16"]] },
-    { id: "g4_o_drop", kind: "open_decision", sourceRef: "D10", text: "OFFEN: ob die Alt-Tabellen nach Cutover sofort gedroppt oder 30 Tage behalten werden — noch nicht entschieden.", keys: [["*drop*","lösch*","entfern*"],["30 tag*","30 days","30d"]] },
+    { id: "g4_n_rows", kind: "number", sourceRef: "D09", text: "Tabelle orders ~2,3 Mrd Zeilen.", keys: [["2.3"],["mrd*","milliard*","billion*","bn","2.3b"]] },
+    { id: "g4_n_p99", kind: "number", sourceRef: "D09", text: "p99-Latenz-Budget = 50 ms; 16 Shards.", keys: [["50 ms","50ms","50-ms*","50 millisek*","50 millisecond*"],["16"]] },
+    { id: "g4_o_drop", kind: "open_decision", sourceRef: "D10", text: "OFFEN: ob die Alt-Tabellen nach Cutover sofort gedroppt oder 30 Tage behalten werden — noch nicht entschieden.", keys: [["*drop*","lösch*","entfern*","delete*","remove*"],["30 tag*","30-tag*","30-tägig*","30 days","30 day","30-day*","30d"]] },
     { id: "g4_r_next", kind: "recency", sourceRef: "D11", text: "Nächster Schritt: Shadow-Reads gegen beide Stores vergleichen (Konsistenz-Check) vor dem Cutover.", keys: [["shadow*"],["read*","les*","vergleich*","compare*","konsisten*"]] },
   ],
   mustNotAppear: [
