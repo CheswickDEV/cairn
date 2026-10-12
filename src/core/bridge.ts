@@ -95,8 +95,9 @@ function systemFor(request: ModelCallRequest, lang: Lang): string {
 }
 
 /** Only pass a model name that looks like a real id (must start alphanumeric) - never let an
- *  untrusted value like "-flag" be parsed as a CLI option. */
-const SAFE_MODEL = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
+ *  untrusted value like "-flag" be parsed as a CLI option. A bracket suffix is Claude Code's context
+ *  variant (`claude-opus-5-5[1m]`), which `--model` accepts and a session model id can carry. */
+const SAFE_MODEL = /^[A-Za-z0-9][A-Za-z0-9._:-]*(?:\[[A-Za-z0-9]+\])?$/;
 /** Effort tier must be a bare lowercase word (low|medium|high|xhigh|max) - no arg/config injection. */
 const SAFE_EFFORT = /^[a-z]+$/;
 /** Set for every claude child, in its environment and via `--settings` (ADR-0012): no CLAUDE.md or auto

@@ -83,6 +83,18 @@ describe("bridgeCompact — claude -p (hardened)", () => {
     expect(r.text).toBe("1) DECISIONS\n...");
   });
 
+  it("passes Claude Code's context variant (`[1m]`) as --model: a session model id can carry it", async () => {
+    const exec = vi.fn<ExecFn>(async () => ({ stdout: JSON.stringify({ result: "1) DECISIONS" }), stderr: "", code: 0 }));
+    await bridgeCompact({ cli: "claude", request: { ...req, model: "claude-opus-5-5[1m]" }, execFn: exec });
+    const args = exec.mock.calls[0][1];
+    expect(args[args.indexOf("--model") + 1]).toBe("claude-opus-5-5[1m]");
+    for (const bad of ["claude[1m]x", "claude[1m][2]", "claude[]", "claude[1 m]"]) {
+      const e = vi.fn<ExecFn>(async () => ({ stdout: JSON.stringify({ result: "1) DECISIONS" }), stderr: "", code: 0 }));
+      await bridgeCompact({ cli: "claude", request: { ...req, model: bad }, execFn: e });
+      expect(e.mock.calls[0][1]).not.toContain("--model");
+    }
+  });
+
   it("drops an unsafe --model value (no flag injection via host.modelId)", async () => {
     const exec = vi.fn<ExecFn>(async () => ({ stdout: JSON.stringify({ result: "1) DECISIONS" }), stderr: "", code: 0 }));
     await bridgeCompact({ cli: "claude", request: { ...req, model: "--dangerously-skip-permissions" }, execFn: exec });

@@ -22,6 +22,8 @@ describe("bridge mode compacts with the session model where it runs, else the CL
     ["codex", { modelId: "claude-opus-5-5" }, "", "gpt-6.1-sol"], // a Claude host with a codex bridge
     ["codex", { modelId: "gpt-6-luna" }, "gpt-6-luna", "gpt-6.1-sol"],
     ["codex", { modelId: "gpt-6.1-sol" }, "gpt-6.1-sol", undefined],
+    ["claude", { modelId: "gpt-6-luna", provider: "anthropic" }, "", "claude-opus-5-5"], // the id wins over a contradicting provider
+    ["claude", { modelId: "opus", provider: "anthropic" }, "opus", "claude-opus-5-5"], // an alias: the provider decides
   ] as const)("CAIRN_BRIDGE=%s, host %o → asks for %j, recommends %s", async (cli, host, asked, recommended) => {
     const bridge = echo();
     const r = await runHandoff(
@@ -144,7 +146,7 @@ describe("the recommendation text follows where the writing model came from", ()
     expect(await line({ brief: "", source: "s", host: { modelId: "gpt-6-luna" }, sourceZone: "red", mode: "api" }, apiEnv)).toMatch(
       /^Brief written by my-deployment, the model set for endpoint 'main'\./,
     );
-    expect(await line({ brief: "", source: "s", host: { modelId: "gpt-6.1-sol" }, sourceZone: "red", mode: "sampling" }, { CAIRN_ENABLE_MODES: "sampling" })).toMatch(
+    expect(await line({ brief: "", source: "s", host: { modelId: "gpt-6-luna" }, sourceZone: "red", mode: "sampling" }, { CAIRN_ENABLE_MODES: "sampling" })).toMatch(
       /^The most faithful summarizer here is GPT-6\.1 Sol\. If the session runs another model/,
     );
   });
@@ -157,6 +159,16 @@ describe("the tool text", () => {
     registerHandoff(server, { store: store(), config: loadConfig({ CAIRN_ENABLE_MODES: "bridge", CAIRN_BRIDGE: "claude" }), bridge: echo() });
     return (await handler!({ brief: "", source: "src", host, sourceZone: "red", mode: "bridge" })).content[0].text;
   };
+
+  it("no recommendation when the session model already is the selection and a fallback answered", async () => {
+    const bridge = vi.fn<ModelCaller>(async () => ({ text: "1) DECISIONS x", truncated: false, finishReason: "success", modelsUsed: ["claude-sonnet-5-5"] }));
+    const r = await runHandoff(
+      { brief: "", source: "src", host: { modelId: "claude-opus-5-5" }, sourceZone: "red", mode: "bridge" },
+      { store: store(), config: loadConfig({ CAIRN_ENABLE_MODES: "bridge", CAIRN_BRIDGE: "claude" }), bridge },
+    );
+    expect(r.compactedWith).toBe("claude-sonnet-5-5"); // named in the result instead
+    expect(r.recommendedModel).toBeUndefined();
+  });
 
   it("names the writer once: in the recommendation when there is one, else as 'Compacted with'", async () => {
     const recommended = await toolText({ modelId: "claude-sonnet-5-5" });
@@ -196,10 +208,12 @@ describe("API mode model fallbacks (ADR-0012)", () => {
     expect(r.compactedWith).toBe("claude-sonnet-5-5");
   });
 
-  it("an endpoint outside the pool (gemini) keeps its own default model", async () => {
+  it("an endpoint outside the pool (gemini) keeps its own default model, and nothing is recommended for it", async () => {
     const { r, url } = await api("gemini");
     expect(url).toContain("/models/gemini-x:generateContent");
     expect(r.compactedWith).toBe("gemini-x");
+    expect(r.modelId).toBe("claude-opus-5-5"); // the host's ecosystem: no model the endpoint runs
+    expect(r.recommendedModel).toBeUndefined();
   });
 
   const runApi = async (endpoint: { provider: "anthropic" | "openai" | "gemini"; model?: string }, modelId: string, fidelityFloor?: number) => {
@@ -253,6 +267,16 @@ describe("API mode model fallbacks (ADR-0012)", () => {
     const r = await run;
     const body = JSON.parse(fetchFn.mock.calls[0][1].body as string);
     expect([body.model, body.reasoning_effort, r.compactedWith, r.recommendedModel]).toEqual(["gpt-6-luna", "high", "gpt-6-luna", "gpt-6.1-sol"]);
+  });
+
+  it("the session model goes to the API without Claude Code's context suffix", async () => {
+    const { run, fetchFn } = await runApi({ provider: "anthropic" }, "claude-sonnet-5-5[1m]");
+    const r = await run;
+    const body = JSON.parse(fetchFn.mock.calls[0][1].body as string);
+    expect([body.model, body.output_config?.effort, r.compactedWith]).toEqual(["claude-sonnet-5-5", "high", "claude-sonnet-5-5"]);
+    const configured = await runApi({ provider: "anthropic", model: "claude-opus-5-5[1m]" }, "claude-sonnet-5-5");
+    await configured.run;
+    expect(JSON.parse(configured.fetchFn.mock.calls[0][1].body as string).model).toBe("claude-opus-5-5[1m]"); // the user's own setting
   });
 
   it("without any model id the API call is refused before egress, never sent with an empty model", async () => {

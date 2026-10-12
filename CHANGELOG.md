@@ -36,13 +36,19 @@ independent reviews). See ADR-0012.
     golden set; it does not feed the profiles.
 - **The session model writes the brief, the selection is a recommendation** `[CODE-IMPACTING]`: in every
   mode the model you work with writes the brief. When the selected summarizer is another model, or the
-  writer is unknown, the result recommends it (`recommendedModel`) and says how to get it: switch the
-  session model (`/model`) and run Cairn Handoff again, or set the endpoint's model. Account mode still
+  writer is unknown, the result recommends it (`recommendedModel`). After the session model it says to
+  switch it (`/model`) and run Cairn Handoff again, after an endpoint's model to set that endpoint's model;
+  after a bridge CLI's default it only names the model. Account mode still
   makes no model call, and Cairn does not re-compact the session on its own, which would be a second model
   call over the whole context.
   - Bridge and API ask for the session model where it runs: in the bridge CLI's ecosystem or at the
     endpoint's provider. Before, they passed it everywhere, so a Codex host with a claude bridge sent a GPT
-    id to claude; now the bridge passes no model there and the CLI uses its own default.
+    id to claude; now the bridge passes no model there and the CLI uses its own default. The model id
+    decides the ecosystem when it names one, so a contradicting provider no longer sends a GPT id to
+    claude either.
+  - The claude bridge passes Claude Code's context variant (`claude-opus-5-5[1m]`) as `--model`; before, it
+    dropped such an id and the CLI's default wrote the brief. API mode sends the session model's id without
+    that suffix, which is Claude Code's and no part of the API model id.
   - An API endpoint with a configured model keeps it (gateways and Azure deployments name their own
     models). Without any model id Cairn refuses the API call before egress instead of sending an empty one.
     Effort `high` goes only to pool models of the endpoint's own provider, and a gemini endpoint gets no
@@ -51,8 +57,10 @@ independent reviews). See ADR-0012.
   - The result names the model that compacted (`compactedWith`), and the brief's `who` in the ledger names
     the model that answered when the caller reports one (claude's `modelUsage`, a codex reroute, the
     sampling client's `model`).
-  - A host that names only its provider gets the recommendation as "if the session runs another model",
-    not as a claim that another model wrote the brief.
+  - In account mode, a host that names only its provider gets the recommendation as "if the session runs
+    another model", not as a claim that another model wrote the brief.
+  - No recommendation when the session model already is the selection and another model answered as a
+    fallback (the result names it in `compactedWith`), or for a gemini endpoint, which runs no pool model.
 - **Band rule** `[CODE-IMPACTING]`: the fidelity floor is checked over the whole top band. The cheapest
   band model that clears the zone floor is selected; verbatim only when none does. Before, only the cheapest
   band model was checked, and a miss went straight to verbatim although a stronger band model would

@@ -95,7 +95,8 @@ export interface HandoffResult {
    *  sampling client). Also the brief's `who` in the ledger. */
   compactedWith?: string;
   /** Every mode: the selected summarizer when the model that wrote the brief (the host's in account mode, else
-   *  `compactedWith`) is another one or unknown (ADR-0012). */
+   *  `compactedWith`) is another one or unknown, unless the model asked for already is it (a fallback answered)
+   *  or the API endpoint's provider has no pool (gemini) (ADR-0012). */
   recommendedModel?: string;
   storedDecisionId: string;
   verbatimHolds: number;
@@ -148,9 +149,11 @@ export type ModelSource = "session" | "endpoint" | "cli";
  * The model an optional mode asks for (ADR-0012): the session model writes the brief in every mode (user
  * decision, 2026-10-12). An API endpoint's configured model wins: a gateway or an Azure deployment names its
  * own models. Otherwise the host's model where it runs: in sampling as a hint (the client decides), in
- * bridge/API only when it belongs to the bridge CLI's or the endpoint's ecosystem. Else none: the bridge
- * CLI's default; API refuses the call before egress. An endpoint outside the pool (gemini) without a model:
- * the host's, as before.
+ * bridge/API only when it belongs to the bridge CLI's or the endpoint's ecosystem (judged by the id when it
+ * names one, so a contradicting provider does not send a GPT id to claude). Else none: the bridge CLI's
+ * default; API refuses the call before egress. An endpoint outside the pool (gemini) without a model: the
+ * host's, as before. API mode drops Claude Code's context suffix (`claude-opus-5-5[1m]`): it is no part of
+ * a provider's model id.
  */
 export function compactionPlan(
   mode: CompactionMode,
@@ -161,7 +164,10 @@ export function compactionPlan(
   const endpointModel = mode === "api" && endpointKey ? config.endpoints[endpointKey]?.model : undefined;
   if (endpointModel) return { model: endpointModel, source: "endpoint" };
   const target = compactionEcosystem(mode, config, endpointKey);
-  if (!target || (host.modelId && detectEcosystem(host) === target)) return { model: host.modelId, source: "session" };
+  const byId = detectEcosystem({ modelId: host.modelId });
+  const sessionEcosystem = byId === "generic" ? detectEcosystem(host) : byId;
+  const model = mode === "api" ? host.modelId?.replace(/\[[A-Za-z0-9]+\]$/, "") : host.modelId;
+  if (!target || (host.modelId && sessionEcosystem === target)) return { model, source: "session" };
   return { source: mode === "bridge" ? "cli" : "session" };
 }
 
@@ -183,6 +189,7 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
   const endpointKey = endpointKeyFor(input, deps.config);
   // Bridge/API recommend in the ecosystem they run in, so a Codex host with a claude bridge gets a Claude model.
   const target = compactionEcosystem(mode, deps.config, endpointKey);
+  const plan = compactionPlan(mode, host, deps.config, endpointKey);
 
   // Quality-first selection. The session model writes the brief, so in every mode the selection is a
   // recommendation, made in the ecosystem the brief is written in (ADR-0012).
@@ -214,7 +221,7 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
   } else {
     // Effort + its larger budget only where they reach the provider: the API adapters. The bridge pins
     // `high` itself, and sampling cannot carry an effort (ADR-0012).
-    const { model } = compactionPlan(mode, host, deps.config, endpointKey);
+    const model = plan.model;
     // A pool model's effort only goes to its own provider: not to a gemini endpoint, and not to a model of the
     // other ecosystem behind an endpoint (an OpenAI-compatible gateway serving Claude).
     const effort = mode === "api" && target && resolveProfile(model).ecosystem === target ? compactionEffort(model) : undefined;
@@ -301,10 +308,16 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
   }
 
   // The brief's writer: the host in account mode, else the model that compacted. If the selection names
-  // another model, or the writer is unknown, recommend the selection (ADR-0012).
+  // another model, or the writer is unknown, recommend the selection (ADR-0012). Not when the model asked for
+  // already is the selection (a fallback answered: switching would change nothing), and not for an endpoint
+  // whose provider has no pool (gemini), where the selection names a model it cannot run.
+  const isSelected = (id: string | undefined) =>
+    selection.kind === "model" && !!id && resolveProfile(id).id === selection.model.id;
   const writer = mode === "account" ? host.modelId : compactedWith;
   const recommendedModel =
-    selection.kind === "model" && !(writer && resolveProfile(writer).id === selection.model.id) ? selection.model.id : undefined;
+    selection.kind === "model" && !isSelected(writer) && !isSelected(plan.model) && !(mode === "api" && !target)
+      ? selection.model.id
+      : undefined;
 
   return {
     mode,

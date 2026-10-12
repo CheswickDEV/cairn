@@ -268,10 +268,11 @@ old Cairn block/copies too; old guidance otherwise remains active in that projec
 | `account` | Default | **No** | Host agent produces the brief in-session; Cairn only persists it. |
 | `bridge` | `CAIRN_ENABLE_MODES=bridge` | yes, local via another CLI | Condensation via the other logged-in account at effort `high`, with your session model if it runs in that CLI, else the CLI's default. |
 | `sampling` | `CAIRN_ENABLE_MODES=sampling` | client-dependent | MCP sampling, when the host supports it. The client picks the model; Cairn names your session model as a hint. |
-| `api` | `CAIRN_ENABLE_MODES=api` + endpoint | yes | Headless org runs with explicit credentials: the endpoint's configured model, else your session model if it belongs to that provider (else refused); effort `high` for pool models of that provider (details in ADR-0012). |
+| `api` | `CAIRN_ENABLE_MODES=api` + endpoint | yes | Headless org runs with explicit credentials: the endpoint's configured model, else your session model (at an Anthropic or OpenAI endpoint only one of that provider, else refused); effort `high` for pool models of that provider (details in ADR-0012). |
 
 In every mode the handoff result also names the most faithful summarizer (Claude Opus 5.5 or GPT-6.1 Sol,
-in the ecosystem the brief is written in), unless that model wrote the brief, and how to switch to it.
+in the ecosystem the brief is written in) unless that model wrote the brief, and, after your session model
+or an endpoint's model, how to switch to it (details in ADR-0012).
 
 Without explicit configuration, Cairn **refuses** all non-account paths.
 
@@ -350,7 +351,7 @@ and the correction does not remove that.
 
 With the fidelity floor at 0.84, Claude hosts get Claude Opus 5.5 and Codex hosts GPT-6.1 Sol in every
 zone, so the red zone (floor + 0.10 = 0.94) is compacted, not handed over verbatim. If the cheapest model
-of the top band misses a zone's floor, the next one that clears it compacts; verbatim follows only when no
+of the top band misses a zone's floor, the next one that clears it is selected; verbatim follows only when no
 band model clears it. Without Opus 5.5 a Claude host gets Haiku 5.5 in green and yellow and Fable 5.1 in
 red. Cairn masks code, configs and error strings before the model call and restores them byte-exact; in
 every golden-set brief all seven models kept every marker and every key fact (five of them only inside
