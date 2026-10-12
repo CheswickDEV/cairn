@@ -49,32 +49,48 @@ describe("the API adapters refuse an HTTP error with the provider's message", ()
   });
 });
 
-describe("the API adapters flag an answer the provider stopped for a policy reason", () => {
+describe("the API adapters flag an answer the provider stopped short of a regular end", () => {
+  const call = { anthropic: callAnthropic, openai: callOpenAICompatible, gemini: callGemini } as const;
+  const anth = (stop_reason?: string) => ({ content: [{ type: "text", text: "1) DECISIONS par" }], ...(stop_reason ? { stop_reason } : {}) });
+  const oai = (finish_reason: string) => ({ choices: [{ message: { content: "x" }, finish_reason }] });
+  const gem = (finishReason?: string | null) => ({ candidates: [{ content: { parts: [{ text: "x" }] }, ...(finishReason !== undefined ? { finishReason } : {}) }] });
   it.each([
-    ["anthropic", callAnthropic, { content: [{ type: "text", text: "1) DECISIONS par" }], stop_reason: "refusal" }, true],
-    ["anthropic", callAnthropic, { content: [{ type: "text", text: "x" }], stop_reason: "max_tokens" }, false],
-    ["openai", callOpenAICompatible, { choices: [{ message: { content: "" }, finish_reason: "content_filter" }] }, true],
-    ["openai", callOpenAICompatible, { choices: [{ message: { content: "x" }, finish_reason: "stop" }] }, false],
-    ["gemini", callGemini, { candidates: [{ content: { parts: [{ text: "x" }] }, finishReason: "SAFETY" }] }, true],
-    ["gemini", callGemini, { candidates: [{ content: { parts: [{ text: "x" }] }, finishReason: "RECITATION" }] }, true],
-    ["gemini", callGemini, { candidates: [{ content: { parts: [{ text: "x" }] }, finishReason: "STOP" }] }, false],
-    ["gemini", callGemini, { candidates: [{ content: { parts: [{ text: "x" }] }, finishReason: "MAX_TOKENS" }] }, false],
-    ["gemini", callGemini, { candidates: [{ content: { parts: [{ text: "x" }] } }] }, false], // no finish reason given
-  ] as const)("%s %j → blocked %s", async (provider, call, body, blocked) => {
-    const r = await call({ ...ep, provider }, req, res(200, JSON.stringify(body)) as never, {});
+    ["anthropic", anth("refusal"), true],
+    ["anthropic", anth("end_turn"), false],
+    ["anthropic", anth("max_tokens"), false],
+    ["anthropic", anth("stop_sequence"), false],
+    ["anthropic", anth(), false], // no stop reason given
+    ["openai", oai("content_filter"), true],
+    ["openai", oai("stop"), false],
+    ["openai", oai("length"), false],
+    ["openai", oai("tool_calls"), false],
+    ["gemini", gem("SAFETY"), true],
+    ["gemini", gem("RECITATION"), true],
+    ["gemini", gem("OTHER"), true],
+    ["gemini", gem("PROHIBITED_CONTENT"), true],
+    ["gemini", gem("BLOCKLIST"), true],
+    ["gemini", gem("STOP"), false],
+    ["gemini", gem("MAX_TOKENS"), false],
+    ["gemini", gem("FINISH_REASON_UNSPECIFIED"), false], // documented as unused
+    ["gemini", gem(), false], // no finish reason: the model has not stopped
+    ["gemini", gem(null), false],
+  ] as const)("%s %j → blocked %s", async (provider, body, blocked) => {
+    const r = await call[provider]({ ...ep, provider }, req, res(200, JSON.stringify(body)) as never, {});
     expect(r.blocked === true).toBe(blocked);
   });
 });
 
 describe("a failed or empty compaction stores nothing; the previous brief stays current", () => {
-  /** A store holding one earlier brief, a host decision and evidence. */
+  /** A store holding a superseded and a current brief, a host decision and evidence. */
   const seeded = async () => {
     const store = new SqliteStore({ path: ":memory:" });
+    await runHandoff({ brief: "1) DECISIONS older brief", host: { modelId: "claude-opus-5-5" }, sourceZone: "green" }, { store, config: loadConfig({}) });
     await runHandoff(
       { brief: "1) DECISIONS earlier brief", host: { modelId: "claude-opus-5-5" }, sourceZone: "green", decisions: [{ decision: "keep", rationale: "r" }] },
       { store, config: loadConfig({}) },
     );
     store.addEvidence({ decisionId: store.currentState()[0].decisionId, claim: "seed", sourceRef: "s", type: "msg", verbatim: null });
+    expect(store.queryDecisions().filter((d) => d.status === "superseded").map((d) => d.rationale)).toEqual(["1) DECISIONS older brief"]);
     return { store, before: dump(store) };
   };
   /** Every decision row (superseded ones too) with its evidence. */
@@ -121,6 +137,8 @@ describe("a failed or empty compaction stores nothing; the previous brief stays 
   it("API: an answer the provider stopped (refusal, content filter, Gemini SAFETY), partial text or not", async () => {
     const cases = [
       ["anthropic", { content: [{ type: "text", text: "1) DECISIONS par" }], stop_reason: "refusal" }, /^api compaction was stopped \(refusal\): 1\) DECISIONS par; nothing stored/],
+      // The reported text is cut to 300 characters.
+      ["anthropic", { content: [{ type: "text", text: `  ${"y".repeat(400)}` }], stop_reason: "refusal" }, new RegExp(`^api compaction was stopped \\(refusal\\): ${"y".repeat(300)}; nothing stored`)],
       ["openai", { choices: [{ message: { content: "1) DEC" }, finish_reason: "content_filter" }] }, /^api compaction was stopped \(content_filter\): 1\) DEC; nothing/],
       ["gemini", { candidates: [{ content: { parts: [{ text: "" }] }, finishReason: "SAFETY" }] }, /^api compaction was stopped \(SAFETY\); nothing stored/],
     ] as const;

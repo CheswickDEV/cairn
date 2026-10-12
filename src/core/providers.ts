@@ -46,8 +46,9 @@ export interface ModelCallResult {
   modelsUsed?: string[];
   /** Bridge (claude): every model id `modelUsage` lists, with or without output. */
   modelsReported?: string[];
-  /** API: the provider ended the answer for a policy reason (Anthropic `refusal`, OpenAI `content_filter`, a
-   *  Gemini finish reason other than `STOP` or `MAX_TOKENS`); any text is no brief (ADR-0012). */
+  /** API: the provider stopped the answer short of a regular end or the output cap (Anthropic `refusal`,
+   *  OpenAI `content_filter`, a Gemini finish reason other than `STOP`, `MAX_TOKENS` and the unused
+   *  `FINISH_REASON_UNSPECIFIED`); any text is no brief (ADR-0012). */
   blocked?: boolean;
 }
 
@@ -174,8 +175,9 @@ export async function callGemini(
   const cand = json.candidates?.[0];
   const text = (cand?.content?.parts ?? []).map((p) => p.text ?? "").join("");
   const finishReason = cand?.finishReason ?? "unknown";
-  // Every Gemini finish reason but these two stops the answer: SAFETY, RECITATION, BLOCKLIST, PROHIBITED_CONTENT …
-  const blocked = cand?.finishReason !== undefined && !GEMINI_NORMAL_FINISH.has(finishReason);
+  // Every other Gemini finish reason stops the answer short: SAFETY, RECITATION, BLOCKLIST, PROHIBITED_CONTENT …
+  // An absent (or null) one means the model has not stopped: no verdict.
+  const blocked = cand?.finishReason != null && !GEMINI_NORMAL_FINISH.has(finishReason);
   return { text, truncated: finishReason === "MAX_TOKENS", finishReason, ...(blocked ? { blocked: true } : {}) };
 }
 
