@@ -163,6 +163,19 @@ describe("API mode model fallbacks (ADR-0012)", () => {
     expect(r.compactedWith).toBe("my-azure-deployment");
   });
 
+  it("an endpoint model of the other ecosystem gets no effort (an OpenAI-compatible gateway serving Claude)", async () => {
+    const { run, fetchFn } = await runApi({ provider: "openai", model: "claude-opus-5-5" }, "gpt-6-luna");
+    const r = await run;
+    const body = JSON.parse(fetchFn.mock.calls[0][1].body as string);
+    expect(body.model).toBe("claude-opus-5-5");
+    expect(body).not.toHaveProperty("reasoning_effort");
+    expect(body.max_tokens ?? body.max_completion_tokens).toBe(6_144);
+    expect(r.compactedWith).toBe("claude-opus-5-5");
+    const same = await runApi({ provider: "openai", model: "gpt-6.1-sol" }, "gpt-6-luna");
+    await same.run;
+    expect(JSON.parse(same.fetchFn.mock.calls[0][1].body as string).reasoning_effort).toBe("high");
+  });
+
   it("without any model id the API call is refused before egress, never sent with an empty model", async () => {
     const { run, fetchFn, s } = await runApi({ provider: "anthropic" }, "gpt-6.1-sol", 0.99);
     await expect(run).rejects.toThrow(EgressNotConfiguredError);

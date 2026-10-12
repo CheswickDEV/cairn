@@ -51,13 +51,14 @@ function keyPattern(key: string): RegExp {
     const lead = !open && /^[\p{L}\p{N}]/u.test(core) ? "(?<![\\p{L}\\p{N}])" : "";
     // A number ends where the key ends: no further digits ("240" is not "2400", "1.8" not "1.85") and no
     // letters ("400" is not "400k", "16" not "16GB"); a key lists the unit forms it accepts ("1.8s").
-    // A word ends there too, and a URL scheme is not the word ("postgres://…" is no "postgres").
+    // A word ends there too; an identifier that goes on with "_" and a URL scheme are not the word
+    // ("POSTGRES_PASSWORD", "postgres://…" are no "postgres").
     const trail = close
       ? ""
       : /\p{N}$/u.test(core)
         ? "(?![\\p{L}\\p{N}]|[.,]\\p{N})"
         : /\p{L}$/u.test(core)
-          ? "(?![\\p{L}\\p{N}]|:\\/\\/)"
+          ? "(?![\\p{L}\\p{N}_]|:\\/\\/)"
           : "";
     re = new RegExp(lead + esc + trail, "u");
     keyPatterns.set(key, re);

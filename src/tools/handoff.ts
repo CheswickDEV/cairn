@@ -16,6 +16,7 @@ import {
   selectSummarizer,
   resolveProfile,
   normalizeModelId,
+  isSameModel,
   summarizerPool,
   detectEcosystem,
   FIDELITY_FLOOR,
@@ -26,7 +27,6 @@ import {
 } from "../core/model-profiles.js";
 import { freezeVerbatim, restoreVerbatim, missingVerbatim } from "../core/verbatim.js";
 import { runOptionalCompaction, dynamicMaxTokens, type FetchFn, type ModelCaller } from "../core/providers.js";
-import { isSameModel } from "../calibration/variants.js";
 import { HANDOFF_DECISION_KEY, LEGACY_HANDOFF_TITLE_DE } from "../core/prompts.js";
 import { t, type Lang } from "../i18n/index.js";
 import type { CairnConfig, CompactionMode } from "../core/config.js";
@@ -207,8 +207,9 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
     // Effort + its larger budget only where they reach the provider: the API adapters. The bridge pins
     // `high` itself, and sampling cannot carry an effort (ADR-0012).
     const model = compactionModel(mode, selection, host, target, endpointKey ? deps.config.endpoints[endpointKey]?.model : undefined);
-    // A pool model's effort only goes to its own provider; a gemini endpoint keeps its defaults.
-    const effort = mode === "api" && target ? compactionEffort(model) : undefined;
+    // A pool model's effort only goes to its own provider: not to a gemini endpoint, and not to a model of the
+    // other ecosystem behind an endpoint (an OpenAI-compatible gateway serving Claude).
+    const effort = mode === "api" && target && resolveProfile(model).ecosystem === target ? compactionEffort(model) : undefined;
     const briefTokens = dynamicMaxTokens(input.expectedBriefTokens ?? 4_096, 8_192);
     const maxTokens = effort ? Math.max(briefTokens, EFFORT_MAX_TOKENS) : briefTokens;
     const result = await runOptionalCompaction({

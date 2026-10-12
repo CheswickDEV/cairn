@@ -455,6 +455,16 @@ export function normalizeModelId(id: string): string {
   return s.trim();
 }
 
+/** What may follow a model id and still name the same model: a snapshot date and/or a provider version
+ *  (`-v1:0`). A version step (`claude-opus-5` → `claude-opus-5-5`) is a different model. */
+const SAME_MODEL_SUFFIX = /^(?:-(?:\d{8}|\d{4}-\d{2}-\d{2}))?(?:-v\d+(?::\d+)?)?$/;
+
+/** True if a reported model id names the requested one (`requested` normalized, see `normalizeModelId`). */
+export function isSameModel(reported: string, requested: string): boolean {
+  const n = normalizeModelId(reported);
+  return n.startsWith(requested) && SAME_MODEL_SUFFIX.test(n.slice(requested.length));
+}
+
 /**
  * Deprecated model ids → the profile they migrated to (separator-bounded prefix match), so old
  * sessions still render against a sensible window instead of the 128k generic fallback.

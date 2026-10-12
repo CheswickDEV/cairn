@@ -6,7 +6,7 @@
  * effort: since ADR-0012 every model is calibrated at exactly `high`, never below.
  */
 
-import { PROFILES, normalizeModelId, type Ecosystem, type ModelProfile } from "../core/model-profiles.js";
+import { PROFILES, isSameModel, type Ecosystem, type ModelProfile } from "../core/model-profiles.js";
 import type { BridgeCli } from "../core/bridge.js";
 
 export type CalibEcosystem = "anthropic" | "openai";
@@ -78,15 +78,6 @@ export function assertExactEffort(effort: string, required: Effort, label = "eff
  *  mid-stream): its `result` is the error message, not a brief or a review. */
 export function assertNotError(finishReason: string, label: string): void {
   if (finishReason === "error") throw new Error(`${label}: the CLI returned an error result, not an answer`);
-}
-
-/** What may follow a model id and still name the same model: a snapshot date and/or a provider version
- *  (`-v1:0`). A version step (`claude-opus-5` → `claude-opus-5-5`) is a different model. */
-const SAME_MODEL_SUFFIX = /^(?:-(?:\d{8}|\d{4}-\d{2}-\d{2}))?(?:-v\d+(?::\d+)?)?$/;
-
-export function isSameModel(reported: string, requested: string): boolean {
-  const n = normalizeModelId(reported);
-  return n.startsWith(requested) && SAME_MODEL_SUFFIX.test(n.slice(requested.length));
 }
 
 /**

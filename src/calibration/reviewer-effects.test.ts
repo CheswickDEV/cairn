@@ -168,10 +168,10 @@ describe("the correction never costs a run its artifact (ADR-0012)", () => {
 
 describe("checkPoolInputs", () => {
   const input = (path: string, sha256: string, res: GoldenResult) => ({ path, sha256, res });
-  // A second run of the same configuration: same probes and models, other results.
+  // A second run of the same configuration: same probes and models, another brief.
   const rerun = () => {
     const b = artifact();
-    b.perModel[0].perProbe[0].fidelity = 0.5;
+    b.perModel[0].perProbe[0].brief = "another brief";
     return b;
   };
   it("accepts two runs of the same configuration and notes missing probe hashes", () => {
@@ -182,11 +182,30 @@ describe("checkPoolInputs", () => {
     const withInfo = (r: GoldenResult) => ({ ...r, probeInfo: [{ sha256: "p" }] }) as GoldenResult;
     expect(checkPoolInputs([input("a", "1", withInfo(artifact())), input("b", "2", withInfo(rerun()))])).toEqual([]);
   });
-  it("refuses a re-serialized copy of the same run (other file hash, same results)", () => {
-    const a = artifact();
+  it.each([
+    ["re-serialized with other key order", (c: GoldenResult): void => {
+      c.perModel = c.perModel.map((m) => Object.fromEntries(Object.entries(m).reverse()) as typeof m);
+    }],
+    ["with the models reordered", (c: GoldenResult): void => void c.perModel.reverse()],
+    ["with the probes reordered", (c: GoldenResult): void => c.perModel.forEach((m) => m.perProbe.reverse())],
+    ["re-scored (derived fields changed or added)", (c: GoldenResult): void => c.perModel.forEach((m) => {
+      m.meanFidelity = 0.1;
+      (m as unknown as Record<string, unknown>).extra = true;
+      m.perProbe.forEach((p) => { p.fidelity = 0.2; p.missingMustSurvive = ["x"]; p.retainedAllMustSurvive = true; });
+    })],
+  ] as const)("refuses a copy of the same run %s (same briefs and reviews)", (_, change) => {
+    const a = rerun();
     const copy = JSON.parse(JSON.stringify({ ...a, date: "2026-10-13" })) as GoldenResult;
-    copy.perModel = copy.perModel.map((m) => Object.fromEntries(Object.entries(m).reverse()) as typeof m);
+    change(copy);
     expect(() => checkPoolInputs([input("a", "1", a), input("b", "2", copy)])).toThrow(/b: the same run as a \(identical results\)/);
+  });
+  it("compares probe contents against the first input that records them, after one without", () => {
+    const withInfo = (r: GoldenResult, sha: string) => ({ ...r, probeInfo: [{ sha256: sha }] }) as GoldenResult;
+    const third = artifact();
+    third.perModel[1].perProbe[0].brief = "a third brief";
+    expect(() =>
+      checkPoolInputs([input("a", "1", artifact()), input("b", "2", withInfo(rerun(), "p")), input("c", "3", withInfo(third, "q"))]),
+    ).toThrow(/c: other probe contents than b/);
   });
   it.each([
     ["the same artifact twice", (b: GoldenResult) => b, "1", /the same artifact twice/],

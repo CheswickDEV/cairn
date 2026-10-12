@@ -26,7 +26,7 @@ const BUCKET_FN = `def allow(bucket, now_monotonic):
 export const GOLDEN2_GROUND_TRUTH: GroundTruth = {
   weights: { recall: 0.4, hallucination: 0.3, supersession: 0.15, verbatim: 0.15 },
   mustSurvive: [
-    { id: "g2_c_burst", kind: "constraint", primacy: true, sourceRef: "G01", text: "Rate-Limit: 100 req/s pro API-Key, Burst bis 200 (Token-Bucket).", keys: [["100","100req*","100rps"],["200"],["burst*"]] },
+    { id: "g2_c_burst", kind: "constraint", primacy: true, sourceRef: "G01", text: "Rate-Limit: 100 req/s pro API-Key, Burst bis 200 (Token-Bucket).", keys: [["100","100req*","100rps"],["200","200req*","200rps"],["burst*"]] },
     { id: "g2_c_stale", kind: "constraint", primacy: true, sourceRef: "G01", text: "Cache darf maximal 60 s stale sein (Compliance).", keys: [["60 s","60s","60-s*","60 sek*","60-sek*","60sek*","60 sec*","60-sec*","60sec*","60 second*","60-second*","sixty second*","sechzig sekund*","eine minute","one minute","1 minute","1 min"],["stale*","cache*"]] },
     { id: "g2_d_store0", kind: "decision", status: "superseded", supersededBy: "g2_d_store1", sourceRef: "G02", text: "In-Memory-Counter pro Instanz fürs Rate-Limiting (initialer Ansatz).", keys: [["in-memory","in memory","inmemory","pro instanz","pro-instanz","je instanz","jede instanz","jeder instanz","per instance","per-instance","each instance","local counter*","lokale counter*","lokalen counter*","lokale zähler*","lokalen zähler*"]] },
     { id: "g2_d_store1", kind: "decision", status: "accepted", supersedes: "g2_d_store0", sourceRef: "G04", text: "Redis (zentral) für die Rate-Limit-Counter.", keys: [["redis"],["counter*","zähler*","rate-limit*","rate limit*"]] },

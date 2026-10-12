@@ -18,6 +18,11 @@ describe("key facts of the ground truths", () => {
     expect(matchesKeys(it.text, it.keys!)).toBe(true);
   });
 
+  it("no key has a `*` inside (only a leading or trailing one lifts a boundary)", () => {
+    const inner = ITEMS.flatMap(([ref, it]) => it.keys!.flat().filter((k) => k.slice(1, -1).includes("*")).map((k) => `${ref}: ${k}`));
+    expect(inner).toEqual([]);
+  });
+
   it("a brief skeleton (bucket headings only) carries no item", () => {
     const skeleton = "1) DECISIONS\n2) EVIDENCE\n3) OPEN QUESTIONS\n4) CONSTRAINTS\n5) VERBATIM\n6) NEXT STEPS\n7) DISCARDED\n";
     for (const [, gt] of SETS) {
@@ -64,10 +69,15 @@ describe("key matching", () => {
     expect(matchesKeys("12.5 ms", [["12"]])).toBe(false);
   });
 
+  it("does not read an identifier that goes on with _ as the word", () => {
+    expect(matchesKeys("POSTGRES_PASSWORD steht in der .env", [["postgres"]])).toBe(false);
+    expect(matchesKeys("MAX_BATCH=32", [["max_batch"], ["32"]])).toBe(true);
+  });
+
   it("does not read a URL scheme as the word", () => {
     expect(matchesKeys("DB_DSN=postgres://beleg@localhost/beleg_prod", [["postgres"]])).toBe(false);
     expect(matchesKeys("broker at redis://localhost:6379/0", [["redis"]])).toBe(false);
-    expect(matchesKeys("REDIS_URL=redis://localhost:6379/0", [["redis"]])).toBe(true); // the variable names it
+    expect(matchesKeys("REDIS_URL=redis://localhost:6379/0", [["redis"]])).toBe(false); // an identifier and a scheme
     expect(matchesKeys("Postgres replaced SQLite", [["postgres"]])).toBe(true);
     expect(matchesKeys("Redis: queue", [["redis"]])).toBe(true);
   });
@@ -181,6 +191,22 @@ describe("key matching", () => {
     ["large/lc_eu", "All event data must remain within the EU (GDPR); US regions are excluded.", true],
     ["large/lo_snap", "OPEN: snapshot every N events or on a timer.", true],
     ["large/lo_snap", "OPEN: snapshot by event count or periodically.", true],
+    // Second review round (r1-A/B on 2de9308): German worker forms, look-alikes of the widened keys.
+    ["ocr-beleg/o_worker", "OFFEN: einen weiteren Worker hinzunehmen, je nach Lastmessung.", true],
+    ["ocr-beleg/o_worker", "OFFEN: zusätzlicher Worker bei mehr Volumen.", true],
+    ["ocr-beleg/o_worker", "OFFEN: zusätzliche Worker, wenn das Volumen steigt.", true],
+    ["ocr-beleg/o_worker", "OFFEN: noch einen Worker dazunehmen.", true],
+    ["ocr-beleg/o_worker", "OFFEN: weitere Worker nach der Lastmessung.", true],
+    ["ocr-beleg/c_eu", "EU-Kunden zahlen mit American Express.", false],
+    ["ocr-beleg/c_eu", "EU customers and American customers share one login.", false],
+    ["ocr-beleg/d_db_1", "POSTGRES_PASSWORD steht in der .env, die DB ist noch SQLite.", false],
+    ["oauth-token/g3_n_refresh", "Refresh tokens rotate; review the dashboard again in a month.", false],
+    ["oauth-token/g3_n_rot", "Refresh-Token-Rotation ist Pflicht; quarterly review of the scopes.", false],
+    ["db-migration/g4_o_drop", "Drop the cache warm-up; look at it again in a month.", false],
+    ["k8s-rollout/g5_d_tag0", "The `latest` digest is pinned by sha256.", false],
+    ["k8s-rollout/g5_n_pdb", "At least 5 pods are scheduled per node.", false],
+    ["api-gateway/g2_c_burst", "100 req/s per API key, burst up to 200rps (token bucket).", true],
+    ["db-migration/g4_cc_backfill", "Backfill in 5000er-Batches, gedrosselt.", true],
   ] as const)("%s: %s → %s", (ref, text, expected) => {
     const [label, id] = ref.split("/");
     const gt = SETS.find(([l]) => l === label)![1];

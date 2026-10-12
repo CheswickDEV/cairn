@@ -611,9 +611,10 @@ each run 245 calls (35 briefs + 210 reviews) without a skip, with claude 2.1.296
 `npm run calibrate -- --pool <artifacts>` pools them without a model call: 10 probe runs per model, one
 reviewer-effect fit over all 420 reviews, and the stored briefs checked again against the current ground
 truth. It writes `…-pooled-golden.json` with the inputs' SHA-256, and refuses an artifact given twice (by
-file hash, or by its results when re-serialized) or runs of other probes, probe contents, models or
-reviewer effort. An artifact without `probeInfo` (older than that field, like both runs here) gets a note
-(`inputNotes`): its probe contents cannot be compared. If the effects cannot be fitted (one
+file hash, or by its briefs and reviews in any order, so a re-serialized, reordered or re-scored copy too)
+or runs of other probes, probe contents, models or reviewer effort. An artifact without `probeInfo` (older
+than that field, like both runs here) gets a note (`inputNotes`): its probe contents cannot be compared;
+the others are compared with the first one that records them. If the effects cannot be fitted (one
 reviewer per brief leaves them unidentifiable), a golden run records why (`reviewerEffectsSkipped`) and
 still writes its artifact. Between the runs the model means moved by
 up to 0.011, more than half the 0.02 band, so one run cannot settle a model near the band edge.
@@ -663,6 +664,8 @@ writes the brief, and the optional modes passed the host's own model id to the c
   in: the bridge CLI's (`CAIRN_BRIDGE=claude` → Claude Opus 5.5, `codex` → GPT-6.1 Sol, whatever the
   host) or the API endpoint's provider. An endpoint with a configured model always uses it, since a gateway
   or an Azure deployment names its own models; the selection applies only to an endpoint without one.
+  Effort `high` goes only to a pool model of the endpoint's own provider; any other model keeps its
+  provider's default.
   After a verbatim fallback the bridge keeps a host model of its ecosystem, else the CLI's default; an API
   endpoint keeps a host model of its provider, else Cairn refuses the call before any egress instead of
   sending an empty model id. An endpoint outside the pool (gemini) uses its model, else the host's, and
@@ -701,10 +704,12 @@ reviewers rated recall 0.966–0.998; the main deduction is the hallucination cr
 
 The deterministic must-survive check now matches every non-exact item by its key facts (`keys`: AND over
 groups, any alternative per group; words and numbers end where the key ends, so "400" does not match
-"400k" or "4000" and a key lists the unit forms it accepts ("1.8s"); a word before `://` is a URL scheme,
-not the word; a decimal comma reads as a point) instead of the whole ground-truth sentence, which a
-paraphrase never repeats. The keys cover German and English forms and unit spellings, and a test holds 89
-paraphrases and look-alikes from the review to their expected result. Every item's own text carries
+"400k" or "4000" and a key lists the unit forms it accepts ("1.8s"); a word that goes on with `_` or
+`://` is an identifier or a URL scheme, not the word; a decimal comma reads as a point; a `*` lifts the
+boundary only at the edge of a key) instead of the whole ground-truth sentence, which a paraphrase never
+repeats. The keys cover German and English forms and unit spellings, and a test holds 104 paraphrases and
+look-alikes from two review rounds to their expected result. The check stays a bag of keys: it ignores
+negation and distance between groups, so some look-alikes still pass (ADR follow-up below). Every item's own text carries
 its keys, and a brief of bare bucket headings carries none. Rechecked without a model call, every model
 keeps all 69 key facts in all 70 golden briefs and all 20 in the four high-fill briefs. Five of them (the
 batch size, the refresh-token TTL, the key rotation, the replicas, the disruption budget) appear only
@@ -747,3 +752,6 @@ the reviewer-effect correction and the key-fact check (above). Open points:
 - A third run or more probes would settle Haiku 5.5 and GPT-6 Luna, 0.003 and 0.004 outside the band.
 - On the golden probes every model keeps every key fact; harder or longer probes, with more facts in
   prose than in verbatim blocks, would show differences in what the models keep.
+- The key check is a bag of keys: a negated mention ("evaluated Postgres but stayed on SQLite"), groups
+  far apart ("HTTP 400 … 290 €") or a unit after a space ("16 GB") can still meet an item, and some
+  paraphrases (number words, "U.S.", "replicaCount: 6") still miss it. The reviewers judge those cases.

@@ -246,10 +246,19 @@ function canonicalJson(v: unknown): string {
   return JSON.stringify(v) ?? "null";
 }
 
+/** What identifies a run: each (model, probe) brief with its reviews, in any order; derived fields left out. */
+function runFingerprint(r: GoldenResult): string {
+  const rows = r.perModel.flatMap((m) =>
+    m.perProbe.map((p) => canonicalJson([m.modelId, p.label, p.brief ?? null, p.reviews ?? []])),
+  );
+  return createHash("sha256").update(rows.sort().join("\n")).digest("hex");
+}
+
 /**
- * Only runs of the same configuration pool (ADR-0012): no artifact twice (by file hash, or by its results
- * when re-serialized), the same probes (and probe contents, where recorded), the same models and the same
- * reviewer effort. Throws naming the input; returns notes on what could not be compared.
+ * Only runs of the same configuration pool (ADR-0012): no artifact twice (by file hash, or by its briefs and
+ * reviews when re-serialized, reordered or re-scored), the same probes (and probe contents, where recorded),
+ * the same models and the same reviewer effort. Throws naming the input; returns notes on what could not be
+ * compared.
  */
 export function checkPoolInputs(inputs: PoolInput[]): string[] {
   if (inputs.length === 0) throw new Error("--pool needs at least one golden artifact");
@@ -259,11 +268,12 @@ export function checkPoolInputs(inputs: PoolInput[]): string[] {
   const seen = new Set<string>();
   const runs = new Map<string, string>();
   const notes: string[] = [];
+  let probeRef: PoolInput | undefined;
   for (const i of inputs) {
     if (!Array.isArray(i.res.perModel) || !Array.isArray(i.res.probes)) throw new Error(`${i.path}: not a golden artifact`);
     if (seen.has(i.sha256)) throw new Error(`${i.path}: the same artifact twice`);
     seen.add(i.sha256);
-    const run = createHash("sha256").update(canonicalJson(i.res.perModel)).digest("hex");
+    const run = runFingerprint(i.res);
     const twin = runs.get(run);
     if (twin) throw new Error(`${i.path}: the same run as ${twin} (identical results)`);
     runs.set(run, i.path);
@@ -271,9 +281,13 @@ export function checkPoolInputs(inputs: PoolInput[]): string[] {
     if (models(i.res) !== models(first.res)) throw new Error(`${i.path}: other models than ${first.path}`);
     if (i.res.reviewerEffort !== first.res.reviewerEffort) throw new Error(`${i.path}: other reviewer effort than ${first.path}`);
     const h = hashes(i.res);
-    const h0 = hashes(first.res);
-    if (h && h0 && h !== h0) throw new Error(`${i.path}: other probe contents than ${first.path}`);
-    if (!h) notes.push(`${i.path}: no probeInfo (written before it was recorded), so its probe contents are not compared`);
+    if (!h) {
+      notes.push(`${i.path}: no probeInfo (written before it was recorded), so its probe contents are not compared`);
+    } else if (!probeRef) {
+      probeRef = i;
+    } else if (h !== hashes(probeRef.res)) {
+      throw new Error(`${i.path}: other probe contents than ${probeRef.path}`);
+    }
   }
   return notes;
 }

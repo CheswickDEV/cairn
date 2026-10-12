@@ -38,9 +38,9 @@ independent reviews). See ADR-0012.
   selection of the ecosystem they run in (the bridge CLI's or the endpoint's provider), at effort `high`,
   and report it (`compactedWith`). Before, they passed the host's own model id, so a Sonnet session
   compacted with Sonnet and a Codex host with a claude bridge sent a GPT id to claude. An API endpoint
-  with a configured model keeps it (gateways and Azure deployments name their own models); without any
-  model id Cairn refuses the API call before egress instead of sending an empty one, and a gemini endpoint
-  gets no effort budget. `compactedWith` and the brief's `who` in the ledger name the model that answered
+  with a configured model keeps it (gateways and Azure deployments name their own models), at `high` only
+  when it is a pool model of that provider; without any model id Cairn refuses the API call before egress
+  instead of sending an empty one, and a gemini endpoint gets no effort budget. `compactedWith` and the brief's `who` in the ledger name the model that answered
   when the caller reports one (claude's `modelUsage`, a codex reroute, the sampling client's `model`).
   Sampling names the selection as a model hint (the client decides). Account
   mode still makes no model call; when another model wrote the brief, the result and the handoff skill
@@ -56,14 +56,16 @@ independent reviews). See ADR-0012.
   - `npm run calibrate -- --pool <golden artifacts>` pools runs without a model call: one reviewer-effect
     fit over all reviews, corrected means and confidence, the stored briefs checked again against the
     current ground truth, and a `…-pooled-golden.json` with the inputs' SHA-256. It refuses an artifact
-    given twice, also re-serialized, and runs of another configuration, and notes inputs without
+    given twice, also re-serialized, reordered or re-scored (it compares the briefs and reviews), and
+    runs of another configuration, and notes inputs without
     `probeInfo` (`inputNotes`). Golden artifacts also record the reviewer effects and the corrected values
     per probe and model.
   - Must-survive facts are checked by their key facts (`keys` in the ground truth) instead of the whole
     sentence, which a paraphrase never repeats; before, nearly every fact counted as missed. Words and
-    numbers end where the key ends ("400" is not "400k"), a key lists its unit forms, and a URL scheme
-    (`postgres://`) is not the word. Every item's own text carries its keys, and 89 paraphrases and
-    look-alikes from the review hold their expected result (tested).
+    numbers end where the key ends ("400" is not "400k"), a key lists its unit forms, and neither an
+    identifier going on with `_` (`POSTGRES_PASSWORD`) nor a URL scheme (`postgres://`) is the word. Every
+    item's own text carries its keys, and 104 paraphrases and look-alikes from two review rounds hold their
+    expected result (tested).
   - Artifacts record each probe's length and SHA-256 (`probeInfo`) and the candidates pre-excluded by
     window (`preExcluded`).
 - **Handoff cost estimate**: the selection estimates the input in tokens of the text it compacts (about
