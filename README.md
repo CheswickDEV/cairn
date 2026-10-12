@@ -327,9 +327,24 @@ These decorations resolve to the base entry: `[1m]`, `@effort`, provider and reg
 `us.`/`eu.`/`global.`/`us-gov.anthropic.`, `openai/`), dated snapshots, and suffixes after a `-`, `.` or `:`
 separator such as `-codex`. The longest known id wins, so `gpt-5.5-pro` stays GPT-5.5 Pro.
 
-The pool models are not calibrated yet (ADR-0012). Until then they rank on house priors: Claude hosts get
-Claude Opus 5.5 and Codex hosts GPT-6.1 Sol in the green and yellow zones, and the red zone falls back to
-verbatim. `npm run calibrate -- --dry-run --golden` shows how many model calls a live run makes;
+The pool models were calibrated on 2026-10-12 (ADR-0012). The golden set ran twice at effort `high`, and
+each brief was scored by the six other pool models. The profiles carry the pooled mean from the
+foreign-family reviewers only, because Claude reviewers rate Claude briefs 0.03–0.05 higher than GPT
+reviewers do.
+
+| Model | Fidelity | Model | Fidelity |
+|---|---|---|---|
+| GPT-6 Astra | 0.9697 | Claude Opus 5.5 | 0.9416 |
+| GPT-6.1 Sol | 0.9655 | Claude Fable 5.1 | 0.9298 |
+| GPT-6 Luna | 0.9486 | Claude Sonnet 5.5 | 0.9183 |
+| | | Claude Haiku 5.5 | 0.9123 |
+
+Compare fidelity only within one ecosystem: the two columns were scored by different reviewers.
+
+With the fidelity floor at 0.84, Claude hosts get Claude Opus 5.5 and Codex hosts GPT-6.1 Sol in every
+zone, so the red zone (floor + 0.10 = 0.94) is compacted, not handed over verbatim. Without Opus 5.5 a
+Claude host falls back to Haiku 5.5, and to verbatim in red. In every golden-set brief the code, configs
+and error strings came through byte-exact. `npm run calibrate -- --dry-run --golden` shows how many model calls a live run makes;
 `npm run calibrate -- --real --golden` measures all seven at effort `high` on your accounts. Cairn cannot
 override a Claude Code effort cap (`maxEffortLevel` in your user or managed settings, an Enterprise role
 cap) or a managed `env` setting, so make sure none of them sets less than `high` before a live run.

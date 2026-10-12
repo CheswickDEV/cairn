@@ -381,8 +381,9 @@ rather than mislabeled.
 
 ## ADR-0012 — Summarizer pool = current generation; calibration at effort `high` with a full reviewer matrix (2026-10-11)
 
-Accepted. Extends ADR-0004/0005/0011. Selection rules, zones and the fidelity floor value are unchanged;
-the reviewer rule of ADR-0005 (≥2 strongest foreign reviewers) becomes a full matrix.
+Accepted. Extends ADR-0004/0005/0011. Selection rules and zones are unchanged; the fidelity floor moves
+from 0.85 to 0.84 with the calibration (see "Calibration result"). The reviewer rule of ADR-0005 (≥2
+strongest foreign reviewers) becomes a full matrix.
 
 **Context.** Until now the calibrated pick on Claude hosts was Claude Haiku 4.5. Anthropic dates its
 retirement "not sooner than October 15, 2026". GPT-5.5 leaves ChatGPT and Codex on 2026-10-14 (the
@@ -403,15 +404,13 @@ measured values stay as history. They still resolve, so the statusline and `cont
 right window (Opus 4.8 1M, Haiku 4.5 200K, GPT-5.5 1,050,000), but they are never selected, calibrated
 or used as reviewers.
 
-**Until the calibration lands.** The new profiles start uncalibrated with house priors: Fable 5.1 0.93,
-Opus 5.5 0.92, Sonnet 5.5 0.85, Haiku 5.5 0.70, GPT-6 Astra 0.93, GPT-6.1 Sol 0.92, GPT-6 Luna 0.70. With
-the 0.85 floor this gives, on purpose: Claude hosts pick Opus 5.5 in green and yellow (Fable 5.1 shares
-the 0.02 band, Opus is cheaper), Codex hosts pick GPT-6.1 Sol; in red (floor 0.95) both fall back to
-verbatim. `runHandoff` assumes red when no zone is given, so until then every handoff without a zone
-reports verbatim. In account mode that is informational only; the brief is stored anyway. In the
-sampling, bridge and API modes the selection is informational too: the configured caller compacts
-regardless, so such a handoff reports "verbatim fallback" but stores the model's brief. That predates
-this ADR (a bridge test requires the call); it now hits the default path, and it is an open point.
+**Before the calibration.** The new profiles started uncalibrated with house priors (`provisionalFidelity`,
+kept in the profiles as history): Fable 5.1 0.93, Opus 5.5 0.92, Sonnet 5.5 0.85, Haiku 5.5 0.70, GPT-6
+Astra 0.93, GPT-6.1 Sol 0.92, GPT-6 Luna 0.70. With the 0.85 floor that gave Opus 5.5 / GPT-6.1 Sol in
+green and yellow and verbatim in red. The calibration below replaces it. In the sampling, bridge and API
+modes the selection is informational: the configured caller compacts even when the selection reports
+"verbatim fallback" and stores the model's brief. That predates this ADR (a bridge test requires the
+call) and stays an open point.
 
 **Effort.** Every model is calibrated at exactly `high`, and Cairn never requests less for a calibration
 or bridge call. The bridge silently drops an effort it does not accept, and the CLI then uses its default:
@@ -600,15 +599,83 @@ and the 800K default fits no model). Bridge windows:
 earlier precedent of keeping the single-probe score for cross-profile comparability (GPT-5.4) is not
 needed here, because all seven models are measured in the same run.
 
+**Calibration result (2026-10-12).** The golden set ran twice on commit `b220756` (06:17 and 07:31 UTC),
+each run 245 calls (35 briefs + 210 reviews) without a skip, with claude 2.1.296 and codex-cli 0.162.1.
+The profiles use both runs pooled, 10 probe runs per model. Between the runs the model means moved by up
+to 0.011, about half the 0.02 band, so one run cannot settle a model near the band edge.
+
+Reviewer bias:
+- Claude reviewers rate both families alike. GPT reviewers are stricter overall and rate GPT briefs about
+  0.02 higher than Claude briefs. Per author, Claude briefs get 0.028–0.052 more from their own family.
+- The full matrix leaves every model without its own strictness (no self-review), which moves its mean
+  by about −(own strictness)/6. Haiku 5.5 and GPT-6 Luna, the strictest reviewers of their families, gain
+  0.0035 and 0.0049. With all reviewers both land just inside the band (0.0005 and 0.0007 from the edge)
+  and would be picked as the cheapest.
+- The profiles therefore carry the mean from the foreign-family reviewers only: the one reviewer set that
+  is the same for every candidate of an ecosystem. On that scale Claude briefs score 0.014–0.026 lower and
+  GPT briefs 0.003–0.007 higher than with all reviewers, so compare values within an ecosystem only.
+
+| Model | Fidelity | Verbosity | Confidence |
+|---|---|---|---|
+| GPT-6 Astra | 0.9697 | 0.90 | 0.98 |
+| GPT-6.1 Sol | 0.9655 | 0.88 | 0.98 |
+| GPT-6 Luna | 0.9486 | 0.76 | 0.98 |
+| Claude Opus 5.5 | 0.9416 | 1.11 | 0.99 |
+| Claude Fable 5.1 | 0.9298 | 1.13 | 0.99 |
+| Claude Sonnet 5.5 | 0.9183 | 1.10 | 0.98 |
+| Claude Haiku 5.5 | 0.9123 | 1.15 | 0.98 |
+
+Fidelity is the mean of the foreign reviews (3 per Claude brief, 4 per GPT brief). Confidence is
+1 − spread among those reviewers, averaged over the probe runs. Verbosity does not depend on the reviewer.
+
+Selection with these values:
+- Claude hosts get Claude Opus 5.5 in every zone. Fable 5.1 shares the band but costs more; Sonnet 5.5 and
+  Haiku 5.5 are outside.
+- Codex hosts get GPT-6.1 Sol in every zone. Astra shares the band but costs more; Luna is 0.0211 below
+  Astra.
+- A typical handoff (180K input, 6K brief × verbosity) costs about $0.85 with Opus 5.5 and $0.41 with
+  GPT-6.1 Sol.
+
+**Fidelity floor 0.84**, signed off by the user on 2026-10-12. Opus 5.5 (0.9416) and GPT-6.1 Sol (0.9655)
+clear even the red zone (0.84 + 0.10 = 0.94), so a full context is compacted, not handed over verbatim.
+- Without Opus 5.5 a Claude host gets Haiku 5.5 in green and yellow, and verbatim in red (0.9123 < 0.94).
+- Without GPT-6.1 Sol a Codex host gets Astra in every zone.
+- The golden `floorProposal` (median of the means, about 0.947) is not used: with the +0.05/+0.10 zone bumps
+  it would send every yellow and red handoff to verbatim.
+
+**What the briefs kept.** All 22 exact must-survive items (code, configs, error strings, identifiers) came
+through byte-exact in all 70 briefs. The reviewers rated recall 0.966–0.998; the main deduction is the
+hallucination criterion (0.807–0.893). The deterministic `missingMustSurvive` flags nearly every non-exact
+item, because it needs the whole ground-truth sentence verbatim. It does not separate the models.
+
+**High-fill control (4d, 2026-10-12).** At `CAIRN_CALIB_PROBE_TOKENS=400000` (1.6 MB probe, 28 calls), the
+four Claude models were measured; GPT-6 does not fit Codex's window.
+- Every brief kept facts from the start, middle and end of the probe, and every exact item.
+- Fidelity with all reviewers: Opus 5.5 0.9295, Sonnet 5.5 0.9250, Fable 5.1 0.9165, Haiku 5.5 0.9165.
+  With the three foreign reviewers only: 0.86–0.90.
+- That is lower than the golden values and below the red threshold. It is one probe with three foreign
+  reviews per brief, a control measurement, and does not feed the profiles.
+
+Limits:
+- The golden probes are 0.3–1.3K tokens; behaviour at large inputs (Haiku 5.5's tier above 100K) is
+  covered only by the single 4d probe.
+- Verbosity counts the brief's characters / 4, not the reasoning tokens that `high` adds to the bill.
+
 **Codex alternative.** `host_status` now suggests GPT-6.1 Sol for Codex. ADR-0011 names GPT-6 Sol: that is
 Codex's direct replacement for the retiring GPT-5.5 on Plus, Pro, Business, Enterprise and Edu plans.
 GPT-6.1 Sol is the model the Codex models page recommends (`codex exec -m gpt-6.1-sol`). Both statements
 hold.
 
-**Follow-up.** Live calibration in stages, each only after explicit approval:
-- 4b single probe (done 2026-10-11, 49 calls, no skips);
-- 4b' measurement of the GPT-6 Codex window (done 2026-10-11);
-- 4c golden set;
-- optional 4d high-fill. Then write the measured
-`fidelityScore`, `verbosityCoeff`, `confidence`, `effort: "high"` and date into the profiles; the fidelity
-floor changes only after the user signs it off.
+**Follow-up.** Live calibration in stages, each only after explicit approval, all done:
+- 4b single probe (2026-10-11, 49 calls, no skips);
+- 4b' measurement of the GPT-6 Codex window (2026-10-11);
+- 4c golden set (2026-10-12, two runs of 245 calls, pooled);
+- 4d high-fill at 400K (2026-10-12, 28 calls, control only).
+
+The measured values and the floor are in the profiles. Open points, unchanged here:
+- The selection checks the floor only on the cheapest model of the band. If that one fails, the
+  handoff goes verbatim even when another band model would clear the floor.
+- The full matrix without self-review is not corrected for reviewer strictness in code; the foreign-only
+  basis above sidesteps it for the decision.
+- A third run or more probes would settle the models at the band edge (Haiku 5.5, GPT-6 Luna).
+- `missingMustSurvive` and the single-probe floor need the whole ground-truth sentence (see above).

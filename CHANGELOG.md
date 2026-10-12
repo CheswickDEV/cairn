@@ -16,12 +16,22 @@ independent reviews). See ADR-0012.
 - **Earlier generation suspended**: Claude Opus 4.8, Sonnet 4.6, Haiku 4.5 and GPT-5.5, GPT-5.5 Pro,
   GPT-5.4, GPT-5.4 Pro (Fable 5 already was). They keep their measured values and still resolve with the
   right window, but are never selected, calibrated or used as reviewers.
-- **Selection until the calibration** (intended): the new profiles rank on house priors. Claude hosts get
-  Opus 5.5 and Codex hosts GPT-6.1 Sol in green and yellow; red (floor 0.95) falls back to verbatim. A
-  handoff without a zone counts as red, so it reports verbatim too; account mode stores the brief anyway.
-  In sampling, bridge and API mode the configured caller still compacts, so such a handoff reports
-  verbatim but stores the model's brief (existing behavior, now on the default path). Before, the calibrated pick on
-  Claude hosts was Haiku 4.5.
+- **Calibrated selection** `[CODE-IMPACTING]` (golden set 2026-10-12; see ADR-0012, "Calibration
+  result"): Claude hosts get Claude Opus 5.5 and Codex hosts GPT-6.1 Sol, in every zone. Before, the
+  calibrated pick on Claude hosts was Haiku 4.5.
+  - The golden set ran twice at effort `high`, 245 calls each, and the runs are pooled.
+  - The profiles carry the mean from the foreign-family reviewers only: fidelity 0.9416 for Opus 5.5 and
+    0.9655 for GPT-6.1 Sol, plus verbosity, confidence, effort `high` and the date for all seven pool
+    models. Claude reviewers rated Claude briefs 0.03–0.05 higher, and the full matrix without self-review
+    favors the strictest reviewers; with all reviewers Haiku 5.5 and GPT-6 Luna would sit just inside
+    the 0.02 band.
+  - The fidelity floor moves from 0.85 to **0.84** (user sign-off), so both picks clear the red zone
+    (0.94) and a full context is compacted rather than handed over verbatim. A handoff without a zone
+    counts as red and now reports Opus 5.5 on Claude hosts. Without Opus 5.5 a Claude host gets
+    Haiku 5.5, and verbatim in red.
+  - All exact must-survive items (code, configs, error strings) came through byte-exact in all 70
+    golden-set briefs. A 400K-token control run (4d) kept facts from the whole probe, but scored lower
+    than the golden set; it does not feed the profiles.
 - **Effort floor `high`** `[CODE-IMPACTING]`: calibration runs every model at exactly `high` (was
   `medium`…`max`); reviewers run at exactly `high`. The CLI configuration and pre-flight require exactly
   `high`, reviewer creation too; `buildVariants` and the account compactor (skip without a call) enforce

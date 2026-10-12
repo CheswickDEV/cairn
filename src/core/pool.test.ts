@@ -180,31 +180,82 @@ describe("suspended models (ADR-0012)", () => {
   });
 });
 
-describe("provisional selection until the Phase-6 calibration (ADR-0012 transition)", () => {
+// Phase 6 (ADR-0012): the provisional transition block is replaced by the calibrated selection. Basis:
+// golden set 2026-10-12, two runs pooled, scored by the foreign-family reviewers only; floor 0.84 signed
+// off by the user so that Opus 5.5 and GPT-6.1 Sol compact in every zone (red = floor + 0.10 = 0.94).
+describe("calibrated selection (ADR-0012, golden set 2026-10-12, floor 0.84)", () => {
   const cost: CostInput = { inputTokens: 180_000, expectedBriefTokens: 6_000 };
-  const pick = (host: { modelId?: string; provider?: string }, sourceZone: Zone) =>
-    selectSummarizer({ host, sourceZone, cost, fidelityFloor: FIDELITY_FLOOR });
+  const ZONES: Zone[] = ["green", "yellow", "red"];
+  const pick = (host: { modelId?: string; provider?: string }, sourceZone: Zone, reachable?: (p: ModelProfile) => Promise<boolean>) =>
+    selectSummarizer({ host, sourceZone, cost, fidelityFloor: FIDELITY_FLOOR, reachable });
 
-  it("Claude host: green and yellow → Opus 5.5 (Fable 5.1 shares the band, Opus is cheaper); red → verbatim (0.92 < 0.95)", async () => {
-    for (const zone of ["green", "yellow"] as Zone[]) {
+  // id, fidelityScore, verbosityCoeff, confidence (foreign reviewers, 10 probe runs each)
+  const MEASURED: [string, number, number, number][] = [
+    ["claude-fable-5-1", 0.9298, 1.13, 0.99],
+    ["claude-opus-5-5", 0.9416, 1.11, 0.99],
+    ["claude-sonnet-5-5", 0.9183, 1.10, 0.98],
+    ["claude-haiku-5-5", 0.9123, 1.15, 0.98],
+    ["gpt-6-astra", 0.9697, 0.90, 0.98],
+    ["gpt-6.1-sol", 0.9655, 0.88, 0.98],
+    ["gpt-6-luna", 0.9486, 0.76, 0.98],
+  ];
+
+  it.each(MEASURED)("%s carries the measured values at effort 'high'", (id, fidelity, verbosity, confidence) => {
+    expect(profile(id).summarizer).toEqual({
+      fidelityScore: fidelity,
+      verbosityCoeff: verbosity,
+      provisionalFidelity: profile(id).summarizer.provisionalFidelity,
+      calibrated: true,
+      calibrationDate: "2026-10-12",
+      confidence,
+      effort: "high",
+    });
+  });
+
+  it("the signed-off floor is 0.84, and both picks clear its red-zone escalation", () => {
+    expect(FIDELITY_FLOOR).toBe(0.84);
+    expect(profile("claude-opus-5-5").summarizer.fidelityScore!).toBeGreaterThanOrEqual(FIDELITY_FLOOR + 0.10);
+    expect(profile("gpt-6.1-sol").summarizer.fidelityScore!).toBeGreaterThanOrEqual(FIDELITY_FLOOR + 0.10);
+  });
+
+  it("Claude host: Opus 5.5 in every zone (Fable 5.1 shares the band, Opus is cheaper; Sonnet and Haiku are outside)", async () => {
+    for (const zone of ZONES) {
       const r = await pick({ modelId: "claude-opus-5-5" }, zone);
       expect(r.kind === "model" && r.model.id).toBe("claude-opus-5-5");
+      expect(r.kind === "model" && r.reason).toContain("calibrated");
     }
-    const red = await pick({ modelId: "claude-opus-5-5" }, "red");
+  });
+
+  it("Codex host: GPT-6.1 Sol in every zone (Astra shares the band, Sol is cheaper; Luna is 0.0211 below Astra)", async () => {
+    for (const zone of ZONES) {
+      const r = await pick({ provider: "openai", modelId: "gpt-6.1-sol" }, zone);
+      expect(r.kind === "model" && r.model.id).toBe("gpt-6.1-sol");
+    }
+  });
+
+  // Deliberately recorded (user sign-off 2026-10-12): without Opus the band reaches down to Haiku 5.5,
+  // the cheapest, whose 0.9123 clears green and yellow but not red (0.94) → verbatim in red.
+  it("Claude host without Opus 5.5: Haiku 5.5 in green and yellow, red → verbatim", async () => {
+    const noOpus = async (p: ModelProfile) => p.status === "active" && p.id !== "claude-opus-5-5";
+    for (const zone of ["green", "yellow"] as Zone[]) {
+      const r = await pick({ modelId: "claude-opus-5-5" }, zone, noOpus);
+      expect(r.kind === "model" && r.model.id).toBe("claude-haiku-5-5");
+    }
+    const red = await pick({ modelId: "claude-opus-5-5" }, "red", noOpus);
     expect(red.kind).toBe("verbatim-fallback");
     expect(red.reason).toContain("below effective floor");
   });
 
-  it("Codex host: green and yellow → GPT-6.1 Sol (Astra shares the band, Sol is cheaper); red → verbatim", async () => {
-    for (const zone of ["green", "yellow"] as Zone[]) {
-      const r = await pick({ provider: "openai", modelId: "gpt-6.1-sol" }, zone);
-      expect(r.kind === "model" && r.model.id).toBe("gpt-6.1-sol");
+  it("Codex host without GPT-6.1 Sol: Astra in every zone (Luna stays outside the band)", async () => {
+    const noSol = async (p: ModelProfile) => p.status === "active" && p.id !== "gpt-6.1-sol";
+    for (const zone of ZONES) {
+      const r = await pick({ modelId: "gpt-6.1-sol" }, zone, noSol);
+      expect(r.kind === "model" && r.model.id).toBe("gpt-6-astra");
     }
-    expect((await pick({ modelId: "gpt-6.1-sol" }, "red")).kind).toBe("verbatim-fallback");
   });
 
   it("never crosses ecosystems, also from a suspended host model", async () => {
-    for (const zone of ["green", "yellow"] as Zone[]) {
+    for (const zone of ZONES) {
       for (const id of ["claude-opus-4-8", "claude-haiku-5-5", "claude-fable-5-1"]) {
         const r = await pick({ modelId: id }, zone);
         expect(r.kind === "model" && r.model.ecosystem).toBe("anthropic");
@@ -216,10 +267,11 @@ describe("provisional selection until the Phase-6 calibration (ADR-0012 transiti
     }
   });
 
-  it("runHandoff without a zone assumes red → verbatim; account mode still stores the brief", async () => {
+  it("runHandoff without a zone assumes red → Opus 5.5 (no verbatim); account mode stores the brief without egress", async () => {
     const store = new SqliteStore({ path: ":memory:" });
     const r = await runHandoff({ brief: "1) DECISIONS x", host: { modelId: "claude-opus-5-5" } }, { store, config: loadConfig({}) });
-    expect(r.selectionKind).toBe("verbatim-fallback");
+    expect(r.selectionKind).toBe("model");
+    expect(r.modelId).toBe("claude-opus-5-5");
     expect(r.egress).toBe(false);
     expect(store.getDecision(r.storedDecisionId)?.rationale).toBe("1) DECISIONS x");
   });
