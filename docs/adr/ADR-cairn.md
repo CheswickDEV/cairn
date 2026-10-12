@@ -613,10 +613,10 @@ each run 245 calls (35 briefs + 210 reviews) without a skip, with claude 2.1.296
 reviewer-effect fit over all 420 reviews, and the stored briefs checked again against the current ground
 truth. It writes `…-pooled-golden.json` with the inputs' SHA-256, and refuses an artifact given twice (by
 file hash, or by its briefs and the reviewers' own scores in any order, so a re-serialized, reordered or
-re-scored copy too)
-or runs of other probes, probe contents, models or reviewer effort. An artifact without `probeInfo` (older
-than that field, like both runs here) gets a note (`inputNotes`): its probe contents cannot be compared;
-the others are compared with the first one that records them. If the effects cannot be fitted (one
+re-scored copy too; an old artifact without briefs and reviews is compared by its whole rows) or runs of
+other probes, probe contents, models or reviewer effort. An artifact without `probeInfo` (older than that
+field, like both runs here) gets a note (`inputNotes`): its probe contents cannot be compared; the others
+are compared with the first one that records them. If the effects cannot be fitted (one
 reviewer per brief leaves them unidentifiable), a golden run records why (`reviewerEffectsSkipped`) and
 still writes its artifact. Between the runs the model means moved by
 up to 0.011, more than half the 0.02 band, so one run cannot settle a model near the band edge.
@@ -754,6 +754,10 @@ the reviewer-effect correction and the key-fact check (above). Open points:
 - A third run or more probes would settle Haiku 5.5 and GPT-6 Luna, 0.003 and 0.004 outside the band.
 - On the golden probes every model keeps every key fact; harder or longer probes, with more facts in
   prose than in verbatim blocks, would show differences in what the models keep.
-- The key check is a bag of keys: a negated mention ("evaluated Postgres but stayed on SQLite"), groups
-  far apart ("HTTP 400 … 290 €") or a unit after a space ("16 GB") can still meet an item, and some
-  paraphrases (number words, "U.S.", "replicaCount: 6") still miss it. The reviewers judge those cases.
+- The key check is a bag of keys: a negated mention ("evaluated Postgres but stayed on SQLite"), a
+  mention inside an identifier (`POSTGRES_PASSWORD`), groups far apart ("HTTP 400 … 290 €"), a unit after
+  a space ("16 GB") or an alternative met in another context ("the HPA keeps at least 5 pods", "no
+  American Express") can still meet an item, and some paraphrases (number words, "U.S.", "replicaCount:
+  6", "every quarter") still miss it. Three review rounds showed that widening the keys adds look-alikes
+  and narrowing them loses paraphrases; matching within one sentence would be the next step. The
+  reviewers judge these cases, and the profiles do not depend on the check.

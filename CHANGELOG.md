@@ -57,10 +57,8 @@ independent reviews). See ADR-0012.
     fit over all reviews, corrected means and confidence, the stored briefs checked again against the
     current ground truth, and a `…-pooled-golden.json` with the inputs' SHA-256. It refuses an artifact
     given twice, also re-serialized, reordered or re-scored (it compares the briefs and the reviewers'
-    own scores), and
-    runs of another configuration, and notes inputs without
-    `probeInfo` (`inputNotes`). Golden artifacts also record the reviewer effects and the corrected values
-    per probe and model.
+    own scores), and runs of another configuration, and notes inputs without `probeInfo` (`inputNotes`).
+    Golden artifacts also record the reviewer effects and the corrected values per probe and model.
   - Must-survive facts are checked by their key facts (`keys` in the ground truth) instead of the whole
     sentence, which a paraphrase never repeats; before, nearly every fact counted as missed. Words and
     numbers end where the key ends ("400" is not "400k"), a key lists its unit forms, and a URL scheme

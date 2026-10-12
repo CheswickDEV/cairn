@@ -218,9 +218,25 @@ describe("checkPoolInputs", () => {
       return r;
     };
     expect(() => checkPoolInputs([input("a", "1", old(0.9)), input("b", "2", old(0.8))])).not.toThrow();
-    const broken = artifact();
-    (broken.perModel[0] as unknown as Record<string, unknown>).perProbe = undefined;
-    expect(() => checkPoolInputs([input("x", "1", broken)])).toThrow(/x: not a golden artifact/);
+    const nullBrief = (fidelity: number) => {
+      const r = old(fidelity);
+      r.perModel.forEach((m) => m.perProbe.forEach((p) => { (p as unknown as Record<string, unknown>).brief = null; }));
+      return r;
+    };
+    expect(() => checkPoolInputs([input("a", "1", nullBrief(0.9)), input("b", "2", nullBrief(0.8))])).not.toThrow();
+    const broken = (damage: (r: GoldenResult) => void) => {
+      const r = artifact();
+      damage(r);
+      return r;
+    };
+    for (const damage of [
+      (r: GoldenResult) => { (r.perModel[0] as unknown as Record<string, unknown>).perProbe = undefined; },
+      (r: GoldenResult) => { (r.perModel[0].perProbe as unknown[])[0] = null; },
+      (r: GoldenResult) => { (r.perModel[0].perProbe[0] as unknown as Record<string, unknown>).reviews = {}; },
+      (r: GoldenResult) => { (r.perModel[0].perProbe[0].reviews as unknown[])[0] = null; },
+    ]) {
+      expect(() => checkPoolInputs([input("x", "1", broken(damage))])).toThrow(/x: not a golden artifact/);
+    }
   });
   it("compares probe contents against the first input that records them, after one without", () => {
     const withInfo = (r: GoldenResult, sha: string) => ({ ...r, probeInfo: [{ sha256: sha }] }) as GoldenResult;

@@ -249,7 +249,7 @@ function canonicalJson(v: unknown): string {
 /**
  * What identifies a run: each (model, probe) brief with its reviewers' own scores, in any order. Derived
  * values (fidelities, the hard verbatim score, missing items) are left out, so a re-scored copy matches. A
- * row with neither brief nor reviews (an old artifact) falls back to the whole row.
+ * row with neither brief nor reviews (an old artifact) falls back to the whole row, derived values included.
  */
 function runFingerprint(r: GoldenResult): string {
   const rows = r.perModel.flatMap((m) =>
@@ -257,7 +257,7 @@ function runFingerprint(r: GoldenResult): string {
       const reviews = (p.reviews ?? [])
         .map((v) => canonicalJson([v.reviewerModelId, v.rubric?.recall, v.rubric?.hallucination, v.rubric?.supersession]))
         .sort();
-      return p.brief === undefined && reviews.length === 0
+      return p.brief == null && reviews.length === 0
         ? canonicalJson([m.modelId, p])
         : canonicalJson([m.modelId, p.label, p.brief ?? null, reviews]);
     }),
@@ -281,9 +281,17 @@ export function checkPoolInputs(inputs: PoolInput[]): string[] {
   const notes: string[] = [];
   let probeRef: PoolInput | undefined;
   for (const i of inputs) {
-    if (!Array.isArray(i.res.perModel) || !Array.isArray(i.res.probes) || !i.res.perModel.every((m) => Array.isArray(m?.perProbe))) {
-      throw new Error(`${i.path}: not a golden artifact`);
-    }
+    const wellFormed =
+      Array.isArray(i.res.perModel) &&
+      Array.isArray(i.res.probes) &&
+      i.res.perModel.every(
+        (m) =>
+          Array.isArray(m?.perProbe) &&
+          m.perProbe.every(
+            (p) => p && typeof p === "object" && (p.reviews === undefined || (Array.isArray(p.reviews) && p.reviews.every((v) => v && typeof v === "object"))),
+          ),
+      );
+    if (!wellFormed) throw new Error(`${i.path}: not a golden artifact`);
     if (seen.has(i.sha256)) throw new Error(`${i.path}: the same artifact twice`);
     seen.add(i.sha256);
     const run = runFingerprint(i.res);
