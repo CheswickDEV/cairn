@@ -116,6 +116,32 @@ describe("provider adapters — truncation guard", () => {
   });
 });
 
+describe("openai adapter — output cap field (ADR-0012)", () => {
+  const sent = async (model: string) => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: "x" }, finish_reason: "stop" }] })));
+    await callOpenAICompatible({ provider: "openai", baseUrl: "https://o" }, { ...baseReq, model }, fetchFn as unknown as typeof fetch, {});
+    return JSON.parse((fetchFn.mock.calls[0] as unknown as [string, RequestInit])[1].body as string) as Record<string, unknown>;
+  };
+
+  it.each(["gpt-6.1-sol", "GPT-6-Luna", "gpt-5.5-pro", "gpt-4o", "openai/gpt-6-astra", "o3-mini", "o1"])(
+    "OpenAI's own model %s gets max_completion_tokens, not the deprecated max_tokens",
+    async (model) => {
+      const body = await sent(model);
+      expect(body.max_completion_tokens).toBe(1024);
+      expect(body).not.toHaveProperty("max_tokens");
+    },
+  );
+
+  it.each(["claude-opus-5-5", "llama3.1:8b", "gpt-oss:20b", "gpt-oss-120b", "my-azure-deployment", "my-gpt-6-deployment", "qwen3", "omni-7b", "m"])(
+    "another model behind an OpenAI-compatible server (%s) keeps max_tokens",
+    async (model) => {
+      const body = await sent(model);
+      expect(body.max_tokens).toBe(1024);
+      expect(body).not.toHaveProperty("max_completion_tokens");
+    },
+  );
+});
+
 describe("dynamicMaxTokens", () => {
   it("scales with the expected brief but caps at the model max output", () => {
     expect(dynamicMaxTokens(6_000, 128_000)).toBe(9_000); // 6000 * 1.5

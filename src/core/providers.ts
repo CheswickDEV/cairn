@@ -9,6 +9,7 @@
 
 import type { CairnConfig, CompactionMode, EndpointConfig } from "./config.js";
 import type { Env } from "./env.js";
+import { normalizeModelId } from "./model-profiles.js";
 
 export class EgressNotConfiguredError extends Error {
   constructor(message: string) {
@@ -115,6 +116,14 @@ export async function callAnthropic(
   return { text, truncated: finishReason === "max_tokens", finishReason, ...(finishReason === "refusal" ? { blocked: true } : {}) };
 }
 
+/** The output cap field for Chat Completions (ADR-0012). OpenAI's own models (`gpt…`, `o<digit>…`) get
+ *  `max_completion_tokens`, which bounds visible output plus reasoning tokens; OpenAI documents `max_tokens` as
+ *  deprecated and incompatible with o-series models. Any other model behind an OpenAI-compatible server (Ollama,
+ *  vLLM, a gateway serving Claude, the open-weight `gpt-oss`) keeps `max_tokens`, the field such servers read. */
+export function openAITokenField(model: string): "max_completion_tokens" | "max_tokens" {
+  return /^(?:gpt(?!-oss)|o\d)/.test(normalizeModelId(model)) ? "max_completion_tokens" : "max_tokens";
+}
+
 export async function callOpenAICompatible(
   ep: EndpointConfig,
   req: ModelCallRequest,
@@ -129,7 +138,7 @@ export async function callOpenAICompatible(
     },
     body: JSON.stringify({
       model: req.model,
-      max_tokens: req.maxTokens,
+      [openAITokenField(req.model)]: req.maxTokens,
       messages: [
         ...(req.systemPrompt ? [{ role: "system", content: req.systemPrompt }] : []),
         { role: "user", content: req.prompt },

@@ -557,9 +557,13 @@ Enterprise role cap; for the latter the docs say the clamp is silent with `json`
 mock API the other caps gave no notice either. Managed settings, including a managed `env`, outrank
 `--settings`. Cairn does not override managed settings or caps and cannot see the applied level, so check for a cap below `high` before a live
 run. The API adapters do not stream, so a very long generation at `high` can hit fetch's ~300 s header
-timeout and fail the handoff. The OpenAI adapter still sends the deprecated `max_tokens`, which OpenAI
-documents as incompatible with o-series models (`max_completion_tokens` replaces it). Both predate this
-ADR and are open points. Until 2026-10-12 a bridge-mode handoff also ignored `finishReason` and stored the
+timeout and fail the handoff; this predates this ADR and is an open point. Until 2026-10-13 the OpenAI
+adapter sent the deprecated `max_tokens` for every model, which OpenAI documents as incompatible with
+o-series models. It now sends `max_completion_tokens`, which bounds visible output plus reasoning tokens, for
+OpenAI's own ids (`gpt…` other than the open-weight `gpt-oss`, and `o<digit>…`, also behind an `openai/`
+prefix), and keeps `max_tokens` for any other model behind an OpenAI-compatible server, the field such
+servers read. An endpoint model named otherwise (an Azure deployment name, for example) gets `max_tokens`.
+Until 2026-10-12 a bridge-mode handoff also ignored `finishReason` and stored the
 text of a claude error result, the partial answer of a failed Codex run or an empty Codex answer as the
 brief; every optional mode stored an answer without text; the API adapters read a JSON error body as an
 empty brief (a body that was no JSON made the handoff fail) and kept the partial text of a refused

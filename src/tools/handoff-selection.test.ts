@@ -266,7 +266,8 @@ describe("API mode model fallbacks (ADR-0012)", () => {
     const body = JSON.parse(fetchFn.mock.calls[0][1].body as string);
     expect(body.model).toBe("claude-opus-5-5");
     expect(body).not.toHaveProperty("reasoning_effort");
-    expect(body.max_tokens ?? body.max_completion_tokens).toBe(6_144);
+    expect(body.max_tokens).toBe(6_144); // not an OpenAI model: the field OpenAI-compatible servers read
+    expect(body).not.toHaveProperty("max_completion_tokens");
     expect(r.compactedWith).toBe("claude-opus-5-5");
     const same = await runApi({ provider: "openai", model: "gpt-6.1-sol" }, "gpt-6-luna");
     await same.run;
@@ -278,6 +279,9 @@ describe("API mode model fallbacks (ADR-0012)", () => {
     const r = await run;
     const body = JSON.parse(fetchFn.mock.calls[0][1].body as string);
     expect([body.model, body.reasoning_effort, r.compactedWith, r.recommendedModel]).toEqual(["gpt-6-luna", "high", "gpt-6-luna", "gpt-6.1-sol"]);
+    // At `high` the raised budget goes out as max_completion_tokens, which also bounds the reasoning tokens.
+    expect(body.max_completion_tokens).toBe(32_000);
+    expect(body).not.toHaveProperty("max_tokens");
   });
 
   it("the session model goes to the API without Claude Code's context suffix", async () => {

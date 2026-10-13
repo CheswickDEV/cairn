@@ -96,6 +96,12 @@ independent reviews). See ADR-0012.
   claude error result without `result` text its `errors`, claude JSON without a result `claude's JSON
   output has no result`, an OpenAI refusal its text, a blocked Gemini prompt `prompt blocked: <reason>`.
   A truncated answer is still stored.
+- **OpenAI output cap** `[CODE-IMPACTING]`: in API mode the OpenAI adapter sends `max_completion_tokens`
+  for OpenAI's own models (`gpt…` other than the open-weight `gpt-oss`, and `o<digit>…`), which bounds visible
+  output plus reasoning tokens. Before, it sent `max_tokens` for every model, which OpenAI documents as
+  deprecated and incompatible with o-series models. Any other model behind an OpenAI-compatible server
+  (Ollama, vLLM, a gateway serving Claude) keeps `max_tokens`, as does an endpoint model named otherwise,
+  such as an Azure deployment name.
 - **Band rule** `[CODE-IMPACTING]`: the fidelity floor is checked over the whole top band. The cheapest
   band model that clears the zone floor is selected; verbatim only when none does. Before, only the cheapest
   band model was checked, and a miss went straight to verbatim although a stronger band model would
@@ -154,8 +160,7 @@ independent reviews). See ADR-0012.
     Sampling mode cannot set an effort (MCP has no such field); documented as a limit.
   - Limits: a Claude Code effort cap below `high` (`maxEffortLevel` in user or managed settings, also per
     model, or an Enterprise role cap) or a managed `env` still clamps the bridge, without notice. The API adapters do not stream (a very long generation can hit the
-    ~300 s fetch header timeout) and the OpenAI adapter still sends the deprecated `max_tokens` (both
-    pre-existing). A Codex error message is no longer taken as the answer: a failed Codex run without an answer fails the bridge call, with Codex's
+    ~300 s fetch header timeout; pre-existing). A Codex error message is no longer taken as the answer: a failed Codex run without an answer fails the bridge call, with Codex's
     error message (or stderr) as the reason.
 - **Bridge context isolation** `[CODE-IMPACTING]`: a bridge call carries far less of the user's own
   context. It still carries Codex's global AGENTS.md and any skill named with `$<skill>` (see limits
