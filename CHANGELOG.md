@@ -18,7 +18,7 @@ ledger stays.
 
 The sections below list the changes in the order they landed, newest first.
 
-### Summarizer pool on the current generation, effort `high` (2026-10-11)
+### Summarizer pool on the current generation, effort `high` (2026-10-11 to 2026-10-13)
 
 Sources: Anthropic models overview, model pages, pricing, model deprecations and effort docs; OpenAI
 model pages, API pricing and reasoning guide; OpenAI Codex models and config docs; Claude Code model
@@ -97,11 +97,13 @@ independent reviews). See ADR-0012.
   output has no result`, an OpenAI refusal its text, a blocked Gemini prompt `prompt blocked: <reason>`.
   A truncated answer is still stored.
 - **OpenAI output cap** `[CODE-IMPACTING]`: in API mode the OpenAI adapter sends `max_completion_tokens`
-  for OpenAI's own models (`gpt…` other than the open-weight `gpt-oss`, and `o<digit>…`), which bounds visible
-  output plus reasoning tokens. Before, it sent `max_tokens` for every model, which OpenAI documents as
-  deprecated and incompatible with o-series models. Any other model behind an OpenAI-compatible server
-  (Ollama, vLLM, a gateway serving Claude) keeps `max_tokens`, as does an endpoint model named otherwise,
-  such as an Azure deployment name.
+  for ids in OpenAI's naming (`gpt-<digit>…`, `o<digit>…`, also fine-tunes `ft:<base>:…`, in any case and
+  with a provider prefix such as `openai/` or a `@…` suffix), which bounds visible output plus reasoning tokens. Before, it sent
+  `max_tokens` for every model, which OpenAI documents as deprecated and incompatible with o-series models.
+  Every other id keeps `max_tokens`: other models behind an OpenAI-compatible server (Ollama, vLLM, a gateway
+  serving Claude, open-weight `gpt-oss`, `gpt2` or `gpt-j`) and an endpoint model named otherwise, such as an
+  Azure deployment name. An OpenAI reasoning model outside the pool keeps the plain budget (at most 8,192
+  tokens), which now also bounds its reasoning (ADR-0012).
 - **Band rule** `[CODE-IMPACTING]`: the fidelity floor is checked over the whole top band. The cheapest
   band model that clears the zone floor is selected; verbatim only when none does. Before, only the cheapest
   band model was checked, and a miss went straight to verbatim although a stronger band model would

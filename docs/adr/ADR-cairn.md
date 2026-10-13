@@ -26,7 +26,7 @@
 ## ADR-0001 — MCP core with a skill/hook skin
 
 ### Status
-Accepted
+Accepted; its hooks are superseded by ADR-0010.
 
 ### Context
 The tool needs (a) persistent decision/evidence storage across sessions *and* models, (b) a context oracle that can be queried at runtime ("where am I, is it about to get dumb?"), and (c) a proactive indicator. These three requirements cannot be satisfied by a pure instruction artifact: a skill is only loaded into the agent context, holds no state, and cannot be queried as a passive service. A browser-based approach (capture/resume via a rendered DOM behind a login) would be coupled to brittle DOM selectors, would break on every UI redesign, is not CLI-portable, and is unnecessary for the target surfaces because the agent harness already holds the conversation. Both main clients speak MCP natively (Claude Code since late 2024; Codex via `~/.codex/config.toml` or `codex mcp add`, including `ollama`/`lmstudio` as built-in providers). The proactive indicator is only fully ambient in Claude Code (statusline JSON with `context_window.used_percentage`, `context_window_size`; `PreCompact` hook), on-demand in Codex (tool call), and only model-invoked in ChatGPT web.
@@ -206,7 +206,7 @@ Consequence for the selector (ADR-0002/0004): in account mode the candidate pool
 ## ADR-0007 — Handoff trigger (warn-instead-of-auto) and continuation flow
 
 ### Status
-Accepted
+Accepted; invocation and hooks are superseded by ADR-0010.
 
 ### Context
 ADR-0001/0006 establish the MCP core + account mode. Open was: what happens concretely on a zone transition, and what is the result — only a brief or a new session? An MCP server is **passive**: it acts only on a tool call, cannot push a message into the chat on its own, and cannot open an interactive user session. "Proactive" emerges from the interplay of the statusline (ambient, Claude Code only), the skill (makes the agent capable of acting), and the PreCompact hook (safety net). Condensation consumes account usage budget (ADR-0006) → it must not fire unprompted in every yellow zone.
@@ -560,10 +560,15 @@ run. The API adapters do not stream, so a very long generation at `high` can hit
 timeout and fail the handoff; this predates this ADR and is an open point. Until 2026-10-13 the OpenAI
 adapter sent the deprecated `max_tokens` for every model, which OpenAI documents as incompatible with
 o-series models. It now sends `max_completion_tokens`, which bounds visible output plus reasoning tokens, for
-OpenAI's own ids (`gpt…` other than the open-weight `gpt-oss`, and `o<digit>…`, also behind an `openai/`
-prefix), and keeps `max_tokens` for any other model behind an OpenAI-compatible server, the field such
-servers read. An endpoint model named otherwise (an Azure deployment name, for example) gets `max_tokens`.
-Until 2026-10-12 a bridge-mode handoff also ignored `finishReason` and stored the
+ids in OpenAI's naming (`gpt-<digit>…` and `o<digit>…`, also as a fine-tune `ft:<base>:…`, read after the id
+normalization of the model profiles: any case, a provider prefix such as `openai/`, a `[…]` or `@…` suffix),
+and keeps `max_tokens` for any other id, the field OpenAI-compatible servers read: other models (Ollama, vLLM,
+a gateway serving Claude, open-weight `gpt-oss`, `gpt2` or `gpt-j`) and an endpoint model named otherwise (an
+Azure deployment name, for example). An o-series model behind such a name therefore still gets `max_tokens`,
+which OpenAI documents as incompatible; name such a deployment after the model id. An OpenAI reasoning model
+outside the pool (a suspended GPT-5.x, an o-series model) runs at its provider default effort with the plain budget of at most 8,192 tokens, which now also bounds its reasoning; if
+that runs out, the answer is empty (the handoff fails, nothing stored) or truncated (stored, like any truncated
+answer). Until 2026-10-12 a bridge-mode handoff also ignored `finishReason` and stored the
 text of a claude error result, the partial answer of a failed Codex run or an empty Codex answer as the
 brief; every optional mode stored an answer without text; the API adapters read a JSON error body as an
 empty brief (a body that was no JSON made the handoff fail) and kept the partial text of a refused

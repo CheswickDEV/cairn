@@ -123,7 +123,10 @@ describe("openai adapter — output cap field (ADR-0012)", () => {
     return JSON.parse((fetchFn.mock.calls[0] as unknown as [string, RequestInit])[1].body as string) as Record<string, unknown>;
   };
 
-  it.each(["gpt-6.1-sol", "GPT-6-Luna", "gpt-5.5-pro", "gpt-4o", "openai/gpt-6-astra", "o3-mini", "o1"])(
+  it.each([
+    "gpt-6.1-sol", "GPT-6-Luna", "gpt-5.5-pro", "gpt-4o", "openai/gpt-6-astra", "us.openai.gpt-6.1-sol", " gpt-6-luna@high",
+    "o1", "o3-mini", "o4-mini", "o5", "ft:o4-mini-2025-04-16:my-org::abc123", "ft:gpt-4o-mini-2024-07-18:my-org::x1",
+  ])(
     "OpenAI's own model %s gets max_completion_tokens, not the deprecated max_tokens",
     async (model) => {
       const body = await sent(model);
@@ -132,7 +135,10 @@ describe("openai adapter — output cap field (ADR-0012)", () => {
     },
   );
 
-  it.each(["claude-opus-5-5", "llama3.1:8b", "gpt-oss:20b", "gpt-oss-120b", "my-azure-deployment", "my-gpt-6-deployment", "qwen3", "omni-7b", "m"])(
+  it.each([
+    "claude-opus-5-5", "llama3.1:8b", "gpt-oss:20b", "gpt-oss-120b", "gpt2", "gpt-j-6b", "gpt-neox-20b", "gpt4all",
+    "my-azure-deployment", "my-gpt-6-deployment", "my-o3", "qwen3", "omni-7b", "olmo2:7b", "solar-pro2", "ft:llama3-8b:org::x", "m",
+  ])(
     "another model behind an OpenAI-compatible server (%s) keeps max_tokens",
     async (model) => {
       const body = await sent(model);

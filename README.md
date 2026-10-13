@@ -372,7 +372,7 @@ cap) or a managed `env` setting, so make sure none of them sets less than `high`
 - Passive Claude Code statusline · Codex ambient zone via rollout reader · no automatic hooks
 - Named trigger skills: `Cairn resume` · `Cairn Handoff` · `Cairn Help`
 - Lean ledger: a new handoff supersedes the previous brief
-- Summarizer selection calibrated on the current generation at effort `high` (Claude Opus 5.5 / GPT-6.1 Sol); the session model writes the brief, the selection is a recommendation
+- Summarizer selection calibrated on the current generation at effort `high` (Claude Opus 5.5 / GPT-6.1 Sol); it is a recommendation: the brief is written by your session model, or in the optional modes by the model the mode uses (see Condensation Modes)
 - A failed compaction stores nothing; the previous brief stays current
 - Strict TypeScript + Vitest
 - English-primary, with selectable German for both commands (`cairn install --lang de`) and runtime output (`CAIRN_LANG=de`)
