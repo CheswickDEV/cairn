@@ -35,6 +35,7 @@ import { buildLargeProbe, LARGE_GROUND_TRUTH } from "./large-probe.js";
 import { runGoldenSet, goldenProbes, poolGoldenResults, checkPoolInputs, type GoldenResult, type PoolInput } from "./golden-set.js";
 import { resolveCalibConfig, assertCalibPreflight, artifactSuffix, type CalibConfig } from "./calib-config.js";
 import { collectProvenance, collectsCliVersions, probeInfo } from "./provenance.js";
+import { compactionPromptSha256 } from "./account-compactor.js";
 import type { GroundTruth } from "./ground-truth.js";
 import type { Compactor } from "./runner.js";
 import type { Reviewer } from "./review.js";
@@ -62,6 +63,8 @@ function poolArtifacts(paths: string[], now: Date, out: NodeJS.WriteStream): voi
       inputs: inputs.map(({ path, sha256 }) => ({ path, sha256 })),
       ...(notes.length ? { inputNotes: notes } : {}),
       probes: inputs[0].res.probes,
+      // checkPoolInputs admits only inputs of one prompt, so the first input's hash is every input's.
+      ...(inputs[0].res.promptSha256 ? { promptSha256: inputs[0].res.promptSha256 } : {}),
       ...pooled,
       provenance,
     },
@@ -171,7 +174,7 @@ async function main(): Promise<void> {
       onSkip,
     });
     const info = probes.map((p) => probeInfo(p.label, p.probe));
-    const gpath = persistArtifact(RESULTS_DIR, { ...res, probeInfo: info, provenance }, suffix);
+    const gpath = persistArtifact(RESULTS_DIR, { ...res, probeInfo: info, promptSha256: compactionPromptSha256(), provenance }, suffix);
     out.write(`\nWrote ${gpath} (skipped ${skips.length})\n\nPer model (mean over ${res.probes.length} probes):\n`);
     for (const m of [...res.perModel].sort((a, b) => b.meanFidelity - a.meanFidelity)) {
       const pp = m.perProbe.map((p) => `${p.label}=${p.fidelity.toFixed(3)}`).join("  ");
@@ -200,7 +203,11 @@ async function main(): Promise<void> {
       date,
       groundTruth: gt,
     });
-    const path = persistArtifact(RESULTS_DIR, { ...artifact, probeInfo: [probeInfo("standard", loadProbeContext())], provenance }, suffix);
+    const path = persistArtifact(
+      RESULTS_DIR,
+      { ...artifact, probeInfo: [probeInfo("standard", loadProbeContext())], promptSha256: compactionPromptSha256(), provenance },
+      suffix,
+    );
     const updated = applyCalibration(PROFILES, artifact);
     out.write(`Cairn calibration (OFFLINE/fixture mode) — ${date}\n`);
     out.write(`Wrote versioned artifact: ${path}\n`);
@@ -268,7 +275,7 @@ async function main(): Promise<void> {
 
   const info = probeInfo(cfg.probe === "large" ? "large" : "standard", probe ?? loadProbeContext(), cfg.probe === "large" ? cfg.probeTokens ?? 800_000 : undefined);
   const preExcluded = part.excluded.map((e) => ({ id: e.id, window: e.window, request: e.request }));
-  const path = persistArtifact(RESULTS_DIR, { ...artifact, probeInfo: [info], preExcluded, provenance }, suffix);
+  const path = persistArtifact(RESULTS_DIR, { ...artifact, probeInfo: [info], promptSha256: compactionPromptSha256(), preExcluded, provenance }, suffix);
   out.write(`\nWrote versioned artifact: ${path}\n`);
   out.write(`Scored variants: ${artifact.models.length}/${candidates.length} (skipped ${skips.length})\n\n`);
   out.write(`Per (model × effort):\n`);

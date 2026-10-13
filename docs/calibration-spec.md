@@ -34,7 +34,7 @@ A curated list alongside the probe context — the facts/decisions/evidence that
 
 ## 3. Condensation Run
 
-Every reachable candidate condenses the same probe context with the same 7-bucket prompt and the same `freezeVerbatim` path. Per brief, the runner records: brief text, output token count, chosen model, runtime.
+Every reachable candidate condenses the same probe context with the same 7-bucket prompt and the same `freezeVerbatim` path. Per brief, the runner records: brief text, output token count, chosen model, runtime. The artifact records the SHA-256 of the compaction system prompt (`promptSha256`, ADR-0013); `--pool` pools only runs of the same prompt.
 
 - `verbosityCoeff[m] = output_tokens[m] / median(output_tokens over all m)` — objective, no review.
 

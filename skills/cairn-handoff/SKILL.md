@@ -13,6 +13,12 @@ This invocation does not enable automatic saves or resumes on later turns.
 1. Write a concise, faithful brief from the current conversation: **DECISIONS** (including
    superseded decisions), **EVIDENCE** (source references), **OPEN QUESTIONS**, **CONSTRAINTS**,
    **VERBATIM** (required exact values), **NEXT STEPS**, **DISCARDED**. Avoid repeating transcripts.
+   Write only what the conversation states:
+   - Give a decision or constraint the user set in the user's exact words in double quotes; use
+     double quotes for nothing else.
+   - A measured value is evidence, not a target. A deferred option is an open question or a next
+     step, not discarded. Give a reason only where one was stated.
+   - Mark anything you infer yourself by appending (derived). An empty bucket says none.
 2. Call `handoff` in default `account` mode with `brief` and the necessary `requiredVerbatim`.
    Pass your own model id as `host.modelId` when you know it, and the zone when known. Include
    structured `decisions`/`evidence` when available; do not call status tools merely to fill

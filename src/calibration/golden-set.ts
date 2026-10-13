@@ -93,6 +93,8 @@ export interface GoldenResult {
   reviewerEffectsSkipped?: string;
   /** Code and CLI versions behind the run (set by the CLI). */
   provenance?: RunProvenance;
+  /** SHA-256 of the compaction system prompt (set by the CLI; ADR-0013, `compactionPromptSha256`). */
+  promptSha256?: string;
 }
 
 export interface RunGoldenSetInput {
@@ -268,8 +270,9 @@ function runFingerprint(r: GoldenResult): string {
 /**
  * Only runs of the same configuration pool (ADR-0012): no artifact twice (by file hash, or by its briefs and
  * reviews when re-serialized, reordered or re-scored), the same probes (and probe contents, where recorded),
- * the same models and the same reviewer effort. Throws naming the input; returns notes on what could not be
- * compared.
+ * the same models, the same reviewer effort and the same compaction prompt (ADR-0013). An artifact without a
+ * prompt hash predates it and ran the prompt before 2.0.0: it pools only with others without one. Throws
+ * naming the input; returns notes on what could not be compared.
  */
 export function checkPoolInputs(inputs: PoolInput[]): string[] {
   if (inputs.length === 0) throw new Error("--pool needs at least one golden artifact");
@@ -301,6 +304,8 @@ export function checkPoolInputs(inputs: PoolInput[]): string[] {
     if (i.res.probes.join(",") !== first.res.probes.join(",")) throw new Error(`${i.path}: other probes than ${first.path}`);
     if (models(i.res) !== models(first.res)) throw new Error(`${i.path}: other models than ${first.path}`);
     if (i.res.reviewerEffort !== first.res.reviewerEffort) throw new Error(`${i.path}: other reviewer effort than ${first.path}`);
+    if (i.res.promptSha256 !== first.res.promptSha256) throw new Error(`${i.path}: another compaction prompt than ${first.path}`);
+    if (!i.res.promptSha256) notes.push(`${i.path}: no promptSha256 (written before it was recorded), so its compaction prompt is not compared`);
     const h = hashes(i.res);
     if (!h) {
       notes.push(`${i.path}: no probeInfo (written before it was recorded), so its probe contents are not compared`);

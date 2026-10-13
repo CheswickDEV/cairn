@@ -116,6 +116,33 @@ describe("catalog locale parity (en ⇿ de)", () => {
   });
 });
 
+describe("7-bucket prompt — grounding rules (ADR-0013)", () => {
+  const BUCKETS = ["1) DECISIONS", "2) EVIDENCE", "3) OPEN QUESTIONS", "4) CONSTRAINTS", "5) VERBATIM", "6) NEXT STEPS", "7) DISCARDED"];
+  it.each(["en", "de"] as const)("%s: the seven buckets in order, then the rules, and the hold markers", (lang) => {
+    const p = t(lang).prompts.sevenBucket;
+    const at = BUCKETS.map((b) => p.indexOf(b));
+    expect(at.every((i) => i >= 0)).toBe(true);
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
+    expect(p).toContain("[[CAIRN-HOLD-n]]");
+    // The marker for the summarizer's own inference is the same in both languages: the resume skill names it.
+    expect(p).toContain(lang === "en" ? "by appending (derived)." : "mit angehängtem (derived).");
+  });
+
+  it("states each rule in both languages: empty bucket, measured value, deferral, exact words in double quotes", () => {
+    const en = t("en").prompts.sevenBucket;
+    const de = t("de").prompts.sevenBucket;
+    for (const rule of ["write 'none' in an empty bucket", "A measured value is not a target.", "a deferred option is not discarded.",
+      "give it in their exact words in double quotes; use\ndouble quotes for nothing else.", "no constraint, target, reason or step the context does\nnot state."]) {
+      expect(en).toContain(rule);
+    }
+    for (const rule of ["ein leerer Bucket bekommt 'keine'", "Ein Messwert ist kein Ziel.", "Vertagtes ist nicht verworfen.",
+      "mit ihren genauen Worten in doppelten Anführungszeichen wieder; sonst keine doppelten Anführungszeichen.",
+      "keine Rahmenbedingung, kein Ziel, kein Grund und\nkein Schritt, den der Kontext nicht nennt."]) {
+      expect(de).toContain(rule);
+    }
+  });
+});
+
 // Type-level guard: both catalogs implement the same interface (compile-time parity).
 const _enTyped: Messages = messages.en;
 const _deTyped: Messages = messages.de;

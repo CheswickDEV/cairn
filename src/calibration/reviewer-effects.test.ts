@@ -174,13 +174,27 @@ describe("checkPoolInputs", () => {
     b.perModel[0].perProbe[0].brief = "another brief";
     return b;
   };
-  it("accepts two runs of the same configuration and notes missing probe hashes", () => {
+  it("accepts two runs of the same configuration and notes missing probe and prompt hashes", () => {
     expect(checkPoolInputs([input("a", "1", artifact()), input("b", "2", rerun())])).toEqual([
+      "a: no promptSha256 (written before it was recorded), so its compaction prompt is not compared",
       "a: no probeInfo (written before it was recorded), so its probe contents are not compared",
+      "b: no promptSha256 (written before it was recorded), so its compaction prompt is not compared",
       "b: no probeInfo (written before it was recorded), so its probe contents are not compared",
     ]);
-    const withInfo = (r: GoldenResult) => ({ ...r, probeInfo: [{ sha256: "p" }] }) as GoldenResult;
+    const withInfo = (r: GoldenResult) => ({ ...r, probeInfo: [{ sha256: "p" }], promptSha256: "s" }) as GoldenResult;
     expect(checkPoolInputs([input("a", "1", withInfo(artifact())), input("b", "2", withInfo(rerun()))])).toEqual([]);
+  });
+  it("refuses runs of different compaction prompts, also an old run without a prompt hash beside a new one (ADR-0013)", () => {
+    const prompt = (r: GoldenResult, sha?: string) => ({ ...r, ...(sha ? { promptSha256: sha } : {}) }) as GoldenResult;
+    expect(() => checkPoolInputs([input("a", "1", prompt(artifact(), "s")), input("b", "2", prompt(rerun(), "t"))])).toThrow(
+      /^b: another compaction prompt than a$/,
+    );
+    expect(() => checkPoolInputs([input("a", "1", prompt(artifact())), input("b", "2", prompt(rerun(), "s"))])).toThrow(
+      /^b: another compaction prompt than a$/,
+    );
+    expect(() => checkPoolInputs([input("a", "1", prompt(artifact(), "s")), input("b", "2", prompt(rerun()))])).toThrow(
+      /^b: another compaction prompt than a$/,
+    );
   });
   it.each([
     ["re-serialized with other key order", (c: GoldenResult): void => {

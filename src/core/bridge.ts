@@ -88,10 +88,11 @@ export const defaultExec: ExecFn = (cmd, args, opts) =>
     }
   });
 
-/** Forces the bridged CLI agent into a pure compaction service (no preamble/meta/tools). */
-function systemFor(request: ModelCallRequest, lang: Lang): string {
+/** Forces the bridged CLI agent into a pure compaction service (no preamble/meta/tools): the system prompt a
+ *  compaction sends, the given prompt followed by the brief-only directive. */
+export function compactionSystem(systemPrompt: string | undefined, lang: Lang): string {
   const briefOnly = t(lang).prompts.briefOnly;
-  return request.systemPrompt ? `${request.systemPrompt}\n\n${briefOnly}` : briefOnly;
+  return systemPrompt ? `${systemPrompt}\n\n${briefOnly}` : briefOnly;
 }
 
 /** Only pass a model name that looks like a real id (must start alphanumeric) - never let an
@@ -416,7 +417,7 @@ export function productBridge(cli: BridgeCli, lang: Lang, execFn?: ExecFn): Mode
 export async function bridgeCompact(input: BridgeInput): Promise<ModelCallResult> {
   const r = await runBridge({
     cli: input.cli,
-    system: systemFor(input.request, input.lang ?? "en"),
+    system: compactionSystem(input.request.systemPrompt, input.lang ?? "en"),
     user: input.request.prompt,
     model: input.request.model,
     effort: input.effort,

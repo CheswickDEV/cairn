@@ -33,6 +33,7 @@ Cairn keeps a local memory **alongside** the agents for exactly this: no backend
 | 🌫️ Context fills up, quality degrades unnoticed | 🟢🟡🔴 Zone indicator relative to the active window |
 | 🧹 Host compaction loses detail | 📋 7-bucket brief: decisions, evidence, constraints |
 | ✂️ Code/IDs get paraphrased | 🔒 Verbatim freeze, byte-exact restoration |
+| 🎭 A summary reads like the user's own decisions | 💬 The user's words in quotes, inference marked `(derived)` |
 | 🔌 Switching between sessions/models is brittle | 🗄️ Persistent decision/evidence ledger |
 | 🕵️ Internal work should stay local | 🏠 stdio + SQLite, no telemetry, no egress |
 
@@ -136,6 +137,15 @@ Mandatory values, IDs, paths, code fences, and inline code are passed as `requir
 Cairn masks them with `[[CAIRN-HOLD-n]]` before any optional condensation and restores them
 afterward **byte-exact**. A new handoff **supersedes the previous one**, so the ledger stays lean
 and `decision_log view=current` carries only the most recent brief.
+
+The brief keeps what was said apart from what the summarizer concluded (ADR-0013):
+- A decision or constraint a person set appears in their exact words, in double quotes.
+- A measured value is evidence, not a target. A deferred option stays open instead of discarded.
+- The summarizer marks its own inference with `(derived)`.
+
+In the optional modes Cairn checks every quote against the source. A quote it cannot find is listed in the
+result and noted at the end of the stored brief. On resume, an unquoted or derived constraint is checked
+against the code, or the user is asked, before it changes the next step.
 
 ---
 
@@ -374,6 +384,7 @@ cap) or a managed `env` setting, so make sure none of them sets less than `high`
 - Lean ledger: a new handoff supersedes the previous brief
 - Summarizer selection calibrated on the current generation at effort `high` (Claude Opus 5.5 / GPT-6.1 Sol); it is a recommendation: the brief is written by your session model, or in the optional modes by the model the mode uses (see Condensation Modes)
 - A failed compaction stores nothing; the previous brief stays current
+- Grounded briefs: the user's words in quotes, inference marked `(derived)`, quotes checked against the source in the optional modes
 - Strict TypeScript + Vitest
 - English-primary, with selectable German for both commands (`cairn install --lang de`) and runtime output (`CAIRN_LANG=de`)
 

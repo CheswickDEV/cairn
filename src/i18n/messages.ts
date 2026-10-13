@@ -37,6 +37,10 @@ export interface Messages {
     selModel: (p: { model?: string; reason: string }) => string;
     selVerbatim: (p: { reason: string }) => string;
     missingVerbatim: (p: { spans: string }) => string;
+    /** Optional modes: tool-text warning for quotes the source does not hold word for word (ADR-0013). */
+    unverifiedQuotes: (p: { quotes: string }) => string;
+    /** Optional modes: the note appended to the stored brief for those quotes (ADR-0013). */
+    unverifiedNote: (p: { quotes: string }) => string;
     /** Optional modes: the model Cairn asked to compact (ADR-0012). */
     compactedWith: (p: { model: string }) => string;
     /** Every mode: the selection names another model than the one that wrote the brief (ADR-0012). `source`:
@@ -165,6 +169,8 @@ const EN: Messages = {
     selModel: (p) => `model ${p.model} (${p.reason})`,
     selVerbatim: (p) => `VERBATIM FALLBACK (${p.reason})`,
     missingVerbatim: (p) => `⚠ Not preserved byte-exact: ${p.spans}`,
+    unverifiedQuotes: (p) => `⚠ Quotes not found word for word in the source, marked as derived in the stored brief: ${p.quotes}`,
+    unverifiedNote: (p) => `[Cairn check] Not found word for word in the source, so treat as derived: ${p.quotes}`,
     compactedWith: (p) => `Compacted with ${p.model}.`,
     recommend: (p) =>
       p.source === "endpoint"
@@ -299,16 +305,19 @@ const EN: Messages = {
   },
   prompts: {
     sevenBucket: [
-      "Condense the following AI chat context into a handoff brief with EXACTLY these 7 buckets:",
+      "Condense the following AI chat context into a handoff brief with EXACTLY these 7 buckets, in this order;",
+      "write 'none' in an empty bucket:",
       "1) DECISIONS — current decisions; mark superseded ones explicitly as 'superseded'.",
-      "2) EVIDENCE — evidence with a source ref (e.g. msg#NN, file, URL).",
-      "3) OPEN QUESTIONS — open points / still to clarify.",
-      "4) CONSTRAINTS — hard constraints / target metrics.",
+      "2) EVIDENCE — evidence with a source ref (e.g. msg#NN, file, URL); measured values belong here.",
+      "3) OPEN QUESTIONS — open points / still to clarify, including deferred options.",
+      "4) CONSTRAINTS — only the hard constraints / target metrics the context sets. A measured value is not a target.",
       "5) VERBATIM — protected blocks (code/IDs/values/URLs) carried over BYTE-EXACT, not paraphrased.",
-      "6) NEXT STEPS — concrete next steps.",
-      "7) DISCARDED — discarded dead-ends (briefly).",
-      "Rules: No content outside the buckets. Invent nothing. Leave markers of the form [[CAIRN-HOLD-n]]",
-      "unchanged (they are restored byte-exact afterwards).",
+      "6) NEXT STEPS — concrete next steps the context names or agrees on.",
+      "7) DISCARDED — only options the context rejects, with the reason it gives (briefly); a deferred option is not discarded.",
+      "Rules: No content outside the buckets. Invent nothing: no constraint, target, reason or step the context does",
+      "not state. Where a person sets a decision or constraint, give it in their exact words in double quotes; use",
+      "double quotes for nothing else. Mark anything you infer yourself by appending (derived).",
+      "Leave markers of the form [[CAIRN-HOLD-n]] unchanged (they are restored byte-exact afterwards).",
     ].join("\n"),
     briefOnly: [
       "You are a pure compaction service, NOT an interactive agent.",
@@ -341,6 +350,8 @@ const DE: Messages = {
     selModel: (p) => `Modell ${p.model} (${p.reason})`,
     selVerbatim: (p) => `VERBATIM-FALLBACK (${p.reason})`,
     missingVerbatim: (p) => `⚠ Nicht byte-exakt erhalten: ${p.spans}`,
+    unverifiedQuotes: (p) => `⚠ Zitate nicht wörtlich in der Quelle gefunden, im gespeicherten Brief als abgeleitet markiert: ${p.quotes}`,
+    unverifiedNote: (p) => `[Cairn-Prüfung] Nicht wörtlich in der Quelle gefunden, daher als abgeleitet behandeln: ${p.quotes}`,
     compactedWith: (p) => `Verdichtet mit ${p.model}.`,
     recommend: (p) =>
       p.source === "endpoint"
@@ -475,16 +486,20 @@ const DE: Messages = {
   },
   prompts: {
     sevenBucket: [
-      "Verdichte den folgenden AI-Chat-Kontext in einen Übergabe-Brief mit GENAU diesen 7 Buckets:",
+      "Verdichte den folgenden AI-Chat-Kontext in einen Übergabe-Brief mit GENAU diesen 7 Buckets in dieser",
+      "Reihenfolge; ein leerer Bucket bekommt 'keine':",
       "1) DECISIONS — aktuelle Entscheidungen; überholte explizit als 'superseded' markieren.",
-      "2) EVIDENCE — Belege mit Quellen-Ref (z. B. msg#NN, Datei, URL).",
-      "3) OPEN QUESTIONS — offene Punkte / noch zu klären.",
-      "4) CONSTRAINTS — harte Rahmenbedingungen / Zielmetriken.",
+      "2) EVIDENCE — Belege mit Quellen-Ref (z. B. msg#NN, Datei, URL); Messwerte gehören hierher.",
+      "3) OPEN QUESTIONS — offene Punkte / noch zu klären, auch vertagte Optionen.",
+      "4) CONSTRAINTS — nur harte Rahmenbedingungen / Zielmetriken, die der Kontext setzt. Ein Messwert ist kein Ziel.",
       "5) VERBATIM — geschützte Blöcke (Code/IDs/Werte/URLs) BYTE-EXAKT übernehmen, nicht paraphrasieren.",
-      "6) NEXT STEPS — konkrete nächste Schritte.",
-      "7) DISCARDED — verworfene Sackgassen (knapp).",
-      "Regeln: Kein Inhalt außerhalb der Buckets. Nichts erfinden. Marker der Form [[CAIRN-HOLD-n]]",
-      "unverändert stehen lassen (sie werden danach byte-exakt zurückgesetzt).",
+      "6) NEXT STEPS — konkrete nächste Schritte, die der Kontext nennt oder vereinbart.",
+      "7) DISCARDED — nur Optionen, die der Kontext verwirft, mit dem dort genannten Grund (knapp); Vertagtes ist nicht verworfen.",
+      "Regeln: Kein Inhalt außerhalb der Buckets. Nichts erfinden: keine Rahmenbedingung, kein Ziel, kein Grund und",
+      "kein Schritt, den der Kontext nicht nennt. Legt eine Person eine Entscheidung oder Rahmenbedingung fest, gib",
+      "sie mit ihren genauen Worten in doppelten Anführungszeichen wieder; sonst keine doppelten Anführungszeichen.",
+      "Markiere alles, was du selbst schließt, mit angehängtem (derived).",
+      "Marker der Form [[CAIRN-HOLD-n]] unverändert stehen lassen (sie werden danach byte-exakt zurückgesetzt).",
     ].join("\n"),
     briefOnly: [
       "Du bist ein reiner Verdichtungs-Dienst, KEIN interaktiver Agent.",

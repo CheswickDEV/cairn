@@ -3,8 +3,8 @@
  *
  * The localized prompt text now lives in the i18n catalog (`messages[lang].prompts.sevenBucket`);
  * callers that compact in a user-facing language read it via `t(lang)`. `SEVEN_BUCKET_PROMPT` below
- * is re-exported as the GERMAN catalog entry so the calibration harness/golden sets stay byte-stable
- * (they were tuned against the German prompt).
+ * is re-exported as the GERMAN catalog entry: the calibration compacts its German golden probes with it,
+ * and its artifacts record the prompt's hash, so runs of different prompts never pool (ADR-0013).
  */
 
 import { messages } from "../i18n/messages.js";
@@ -27,5 +27,5 @@ export function isHandoffHead(decision: string): boolean {
   return decision === HANDOFF_DECISION_KEY || decision === LEGACY_HANDOFF_TITLE_DE;
 }
 
-/** Calibration baseline: the German 7-bucket prompt (keeps golden-set numbers stable). */
+/** The calibration's compaction prompt: the German 7-bucket prompt (hashed into its artifacts, ADR-0013). */
 export const SEVEN_BUCKET_PROMPT = messages.de.prompts.sevenBucket;

@@ -7,7 +7,7 @@
  * Optional modes (sampling/bridge/api) only run when explicitly configured; otherwise the egress
  * guardrail refuses the call. In every mode the session model writes the brief (an API endpoint's
  * configured model wins), and the selection becomes a recommendation when it names another model
- * (ADR-0012).
+ * (ADR-0012). In the optional modes the brief's quotes are checked against the source (ADR-0013).
  */
 
 import { z } from "zod";
@@ -26,6 +26,7 @@ import {
   type Zone,
 } from "../core/model-profiles.js";
 import { freezeVerbatim, restoreVerbatim, missingVerbatim } from "../core/verbatim.js";
+import { unverifiedQuotes } from "../core/grounding.js";
 import {
   runOptionalCompaction,
   dynamicMaxTokens,
@@ -108,6 +109,9 @@ export interface HandoffResult {
   storedDecisionId: string;
   verbatimHolds: number;
   missingRequired: string[];
+  /** Optional modes: the brief's quotes the source does not hold word for word; the stored brief marks them as
+   *  derived (ADR-0013). Absent in account mode, which has no source to check against. */
+  unverifiedQuotes?: string[];
   decisionsStored: number;
   evidenceStored: number;
   egress: boolean;
@@ -271,6 +275,14 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
 
   const missingRequired = missingVerbatim(effectiveBrief, input.requiredVerbatim ?? []);
 
+  // Quote check (ADR-0013): where Cairn has the source, a quote it does not hold word for word is the
+  // summarizer's wording, so a note at the end of the stored brief marks it as derived. Checked after
+  // missingRequired, so the note's copy of a quote never counts as a kept span. Account mode has no source.
+  const unverified = mode === "account" ? undefined : unverifiedQuotes(effectiveBrief, sourceText);
+  const storedBrief = unverified?.length
+    ? `${effectiveBrief}\n\n${t(lang).handoff.unverifiedNote({ quotes: unverified.map((q) => `"${q}"`).join("; ") })}`
+    : effectiveBrief;
+
   // Persist: the brief as a handoff decision, with verbatim holds bound as byte-exact evidence.
   const who = input.who ?? host.modelId ?? "host";
   // Collapse prior handoff briefs: a new brief SUPERSEDES the previous one(s), so the live state
@@ -286,7 +298,7 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
     // The brief's author: the compacting model in the optional modes, else the host.
     who: compactedWith ?? who,
     decision: HANDOFF_DECISION_KEY,
-    rationale: effectiveBrief,
+    rationale: storedBrief,
     status: "accepted",
   });
   for (const prior of priorBriefs) deps.store.supersede(prior.decisionId, head.decisionId);
@@ -352,6 +364,7 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
     storedDecisionId: head.decisionId,
     verbatimHolds: frozen.holds.length,
     missingRequired,
+    ...(unverified ? { unverifiedQuotes: unverified } : {}),
     decisionsStored,
     evidenceStored,
     egress,
@@ -427,6 +440,7 @@ export function registerHandoff(server: McpServer, deps: HandoffDeps): void {
         storedDecisionId: z.string(),
         verbatimHolds: z.number(),
         missingRequired: z.array(z.string()),
+        unverifiedQuotes: z.array(z.string()).optional(),
         decisionsStored: z.number(),
         evidenceStored: z.number(),
         egress: z.boolean(),
@@ -442,6 +456,7 @@ export function registerHandoff(server: McpServer, deps: HandoffDeps): void {
           : m.selVerbatim({ reason: r.reason });
       const warn =
         (r.missingRequired.length ? `\n${m.missingVerbatim({ spans: r.missingRequired.join(", ") })}` : "") +
+        (r.unverifiedQuotes?.length ? `\n${m.unverifiedQuotes({ quotes: r.unverifiedQuotes.map((q) => `"${q}"`).join("; ") })}` : "") +
         // The recommendation names the writer itself.
         (r.compactedWith && !r.recommendedModel ? `\n${m.compactedWith({ model: r.compactedWith })}` : "") +
         (r.recommendedModel ? `\n${recommendationLine(r, args as HandoffInput, deps.config, deps.lang ?? "en")}` : "");

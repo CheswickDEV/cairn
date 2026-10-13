@@ -5,8 +5,11 @@
  * `execFn` keeps it unit-testable; the real run uses the default spawn.
  */
 
-import { bridgeCompact, type ExecFn } from "../core/bridge.js";
+import { createHash } from "node:crypto";
+import { bridgeCompact, compactionSystem, type ExecFn } from "../core/bridge.js";
 import { PROFILES } from "../core/model-profiles.js";
+import { SEVEN_BUCKET_PROMPT } from "../core/prompts.js";
+import type { Lang } from "../i18n/index.js";
 import { estimateTokens, type Compactor } from "./runner.js";
 import { parseVariant, cliFor, cliModelName, assertMinEffort, assertRanModel, assertNotError, CALIB_EFFORT, type CalibEcosystem } from "./variants.js";
 
@@ -16,6 +19,16 @@ export interface AccountCompactorOptions {
   maxTokens?: number;
   /** Briefs below this many tokens are treated as a failure (model unavailable/refused → skip). */
   minBriefTokens?: number;
+}
+
+/** Language of the brief-only directive a calibration compaction sends after the (German) 7-bucket prompt. */
+export const CALIB_DIRECTIVE_LANG: Lang = "en";
+
+/** SHA-256 of the system prompt a calibration compaction sends (ADR-0013): the 7-bucket prompt plus the
+ *  brief-only directive, composed as bridgeCompact composes them. Artifacts record it, and --pool refuses
+ *  runs of different prompts. */
+export function compactionPromptSha256(prompt: string = SEVEN_BUCKET_PROMPT): string {
+  return createHash("sha256").update(compactionSystem(prompt, CALIB_DIRECTIVE_LANG), "utf8").digest("hex");
 }
 
 export function makeAccountCompactor(opts: AccountCompactorOptions = {}): Compactor {
@@ -32,6 +45,7 @@ export function makeAccountCompactor(opts: AccountCompactorOptions = {}): Compac
     const result = await bridgeCompact({
       cli: cliFor(ecosystem),
       effort,
+      lang: CALIB_DIRECTIVE_LANG,
       request: {
         systemPrompt: prompt, // the 7-bucket prompt
         prompt: maskedProbe, // verbatim-masked probe on stdin

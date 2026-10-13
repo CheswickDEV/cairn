@@ -15,8 +15,38 @@ ledger stays.
 - Output is English unless you choose German (`cairn install --lang de`, `CAIRN_LANG=de`).
 - A failed compaction in an optional mode (sampling, bridge, API) now fails the handoff and keeps the
   previous brief, instead of storing the error text or an empty brief.
+- A brief quotes the decisions and constraints a person set and marks the summarizer's own inference with
+  `(derived)`. In the optional modes a quote the source does not hold gets a closing Cairn check note.
 
 The sections below list the changes in the order they landed, newest first.
+
+### Grounded briefs: quotes for what was said, (derived) for inference (2026-10-13)
+
+See ADR-0013. In the real end-to-end test, Claude Opus 5.5 at `high` got every fact right but wrote three
+lines of its own inference as if the user had said them (an invented constraint, a measured value as a
+target, a deferred option as discarded).
+
+- **Compaction prompt** `[CODE-IMPACTING]` (English and German; sampling, bridge, API, calibration):
+  - every bucket appears, an empty one says none;
+  - a decision or constraint a person set is quoted in their exact words, and double quotes mean nothing
+    else;
+  - a measured value is evidence, not a target;
+  - a deferred option is open, not discarded, and a reason appears only where one was given;
+  - the model marks its own inference with `(derived)`.
+- **Handoff skill** (account mode): the same rules for the host.
+- **Resume** (skill, Codex AGENTS block, MCP instructions): quotes mark what was said, while `(derived)`
+  and a Cairn check note mark inference. An unquoted or derived constraint is checked against the code,
+  or the user is asked, before it stops or redirects the next step.
+- **Quote check** `[CODE-IMPACTING]` (sampling, bridge, API): every quote of three or more words must
+  appear in the source, normalized for case, whitespace, quote marks and emphasis; fenced code is skipped.
+  - A missing quote is listed in the new `unverifiedQuotes` result field and in a tool-text warning.
+  - The stored brief gets a closing note marking it as derived.
+  - Account mode has no source to check.
+- **Calibration**: artifacts record the compaction prompt's SHA-256 (`promptSha256`). `--pool` refuses runs
+  of different prompts, including an old run without the hash beside a new one; a test pins the hash.
+- **Measured before the change** (no model call): 5 quotes in 72 real briefs, all in the source, and no
+  `(derived)` marker. With the old prompt the next session could not tell the user's words from the
+  summarizer's.
 
 ### Summarizer pool on the current generation, effort `high` (2026-10-11 to 2026-10-13)
 

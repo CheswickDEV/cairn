@@ -20,6 +20,7 @@
 | 0010 | Cairn runs only on explicit user requests | Accepted |
 | 0011 | New model generations: full profiles, context-only entries, pinned calibration ids | Accepted |
 | 0012 | Summarizer pool = current generation; calibration at effort `high` with a full reviewer matrix | Accepted |
+| 0013 | Grounded briefs: quotes for what was said, (derived) for inference | Accepted |
 
 ---
 
@@ -822,6 +823,8 @@ Limits:
 - Artifacts now record each probe's length and SHA-256 (`probeInfo`, with the token target for the
   high-fill probe) and the candidates pre-excluded by window (`preExcluded`); the 2026-10-12 artifacts
   predate that.
+- The profiles were measured with the compaction prompt before 2.0.0. ADR-0013 changes the prompt, and
+  artifacts record its hash (`promptSha256`) from then on.
 
 **Codex alternative.** `host_status` now suggests GPT-6.1 Sol for Codex. ADR-0011 names GPT-6 Sol: that is
 Codex's direct replacement for the retiring GPT-5.5 on Plus, Pro, Business, Enterprise and Edu plans.
@@ -848,3 +851,80 @@ the reviewer-effect correction and the key-fact check (above). Open points:
   reviewers judge these cases, and the profiles do not depend on the check. Decided on 2026-10-12: the
   check stays as it is. Sentence matching pays off only together with the harder probes above, which need
   a new paid calibration run.
+
+---
+
+## ADR-0013 — Grounded briefs: quotes for what was said, (derived) for inference (2026-10-13)
+
+Accepted. Extends ADR-0002 (the 7-bucket brief), ADR-0006 (the modes) and ADR-0010 (resume treats the
+ledger as data).
+
+**Context.** In the real end-to-end test on 2026-10-13, Claude Opus 5.5 at `high` wrote a brief whose facts
+were all right, but three lines read like the user's decisions and were the model's inference:
+- a constraint nobody set ("Option (b) must not touch the worker protocol in this change");
+- a measured value as a target ("Target: 0 lost writes under 8 concurrent workers");
+- an option the user deferred, listed as discarded with a reason the model inferred.
+
+The calibration shows the same pattern: hallucination is every model's weakest criterion (0.807–0.893,
+ADR-0012), while recall and verbatim are close to 1. The prompt said "Invent nothing" and had no rule for an
+empty bucket, a measured value or a deferred option. Its wording dates from 1.4.0. With it the models almost
+never quoted: 5 quotes in 72 real briefs (the 70 golden briefs of 2026-10-12 and the two end-to-end
+briefs). The next session could not tell what the user said from what the summarizer concluded.
+
+A prompt rule lowers the rate of such lines; it cannot rule them out, and the risk is that the next session
+acts on them. So the brief marks which is which, and Cairn checks it where it has the source.
+
+**Decision.**
+- **Prompt** (English and German; used by sampling, bridge, API and the calibration):
+  - every bucket appears, an empty one says none;
+  - a decision or constraint a person set is given in their exact words in double quotes, and double quotes
+    are used for nothing else;
+  - CONSTRAINTS holds only what the context sets, and a measured value is not a target (it is EVIDENCE);
+  - DISCARDED holds only options the context rejects, with the reason it gives; a deferred option goes to
+    OPEN QUESTIONS or NEXT STEPS;
+  - NEXT STEPS holds steps the context names or agrees on;
+  - no constraint, target, reason or step the context does not state, and the model marks its own inference
+    by appending `(derived)`. The marker is the same in both languages, like the bucket names.
+- **Handoff skill** (account mode, the default): the same rules for the host that writes the brief.
+- **Resume** (skill, Codex AGENTS block, MCP server instructions):
+  - double quotes mark words as said in the conversation;
+  - `(derived)` and a closing Cairn check note mark the summarizer's inference;
+  - before an unquoted or derived constraint stops or redirects the next step, the session checks it against
+    the code or asks the user.
+- **Quote check** (sampling, bridge, API; `src/core/grounding.ts`): after the restore, every quote in the
+  brief must appear in the source.
+  - Fenced code is left out; inline code counts as its text, so a quote may contain it. A quote is double
+    quotes on one line (`"…"`, `“…”`, `„…“`, `«…»`, `»…«`) with at least three words.
+  - A straight `"` opens after a non-word character and closes before one, so an inch mark pairs nothing.
+  - Both texts are normalized: NFKC, lower case, one space per whitespace run, one kind of apostrophe and
+    double quote, and no `*` or `` ` ``.
+  - A quote cut by `…` or `[…]` is checked part by part, without the punctuation at the edges.
+  - A quote the source lacks is listed in `unverifiedQuotes` and in a warning line of the tool text. The
+    stored brief gets a closing note: `[Cairn check] Not found word for word in the source, so treat as
+    derived: "…"`, or the German `[Cairn-Prüfung]`.
+  - `missingRequired` is judged before the note is added, so the note's copy of a quote never counts as a
+    kept span.
+  - Account mode has no source: there is no check and no field.
+- **Calibration**:
+  - every artifact records `promptSha256`, the SHA-256 of the compaction system prompt as the CLI receives it:
+    the 7-bucket prompt plus the brief-only directive (`compactionPromptSha256`);
+  - `--pool` refuses inputs whose hashes differ. An artifact without one predates this ADR and ran the prompt
+    before 2.0.0, so it pools only with others without one;
+  - a test pins the hash, so a prompt change is a conscious step.
+  - The reviewer rubric and the probes are unchanged, so scores before and after compare.
+
+**Measured before the change** (no model call): over the 72 real briefs above, the quote check finds 5
+quotes, all in the source, and no `(derived)` marker.
+
+**Limits.**
+- Account mode checks nothing: the session model writes the brief from its own context, and Cairn sees only
+  the brief.
+- A paraphrase without quotes is not checked: the check makes quotes trustworthy, it does not find every
+  invention.
+- Numbers and identifiers are not checked. A check would raise false alarms on converted values and dates,
+  and it would not have caught the observed lines: both numbers in the "Target" line are in the source.
+- Quotes of fewer than three words and quotes over a line break are not read. A translated quote counts as
+  not found.
+- The reviewers see the ground truth, not the source, so they may score a correct `(derived)` line as
+  invented.
+- The profiles (ADR-0012) were measured with the prompt before 2.0.0.
