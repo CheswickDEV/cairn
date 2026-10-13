@@ -63,10 +63,10 @@ independent reviews). See ADR-0012.
     selection, even if a fallback answered (the result names it in `compactedWith`) or the answer went
     unreported, and none for a gemini endpoint, which runs no pool model.
 - **A failed compaction stores nothing** `[CODE-IMPACTING]`: a failed call (CLI, network or API HTTP
-  error), a claude error result (`is_error`, or an `error_*` subtype even with `is_error: false`), claude
-  output that is neither a JSON object nor a JSON array (also with exit 0), claude JSON without a result (a
-  result that did not fail without a string `result`, an array without a `result` event), a failed Codex
-  run (also one with a partial answer),
+  error), a claude error result (`is_error`, an `error_*` subtype even with `is_error: false`, or any
+  claude output with a non-zero exit), claude output that is neither a JSON object nor a JSON array (also
+  with exit 0), claude JSON without a result (a result that did not fail without a string `result`, an
+  array without a `result` event), a failed Codex run (also one with a partial answer),
   an answer the provider stopped short of a regular end or the output cap (Anthropic `refusal`, OpenAI
   `content_filter` or `message.refusal`, a Gemini finish reason other than `STOP`/`MAX_TOKENS`, a blocked
   Gemini prompt) or an answer without text now fails the handoff with `CompactionFailedError`, and nothing
@@ -75,8 +75,9 @@ independent reviews). See ADR-0012.
   answer, the API adapters read a JSON error body as an empty brief, and a refused partial answer was
   stored, as was text beside an `error_*` result without `is_error`, an OpenAI `message.refusal` or a
   blocked Gemini prompt; each superseded the previous brief. API errors carry the provider's message, a
-  claude error result without `result` text its `errors`, an OpenAI refusal its text, a blocked Gemini
-  prompt `prompt blocked: <reason>`. A truncated answer is still stored.
+  claude error result without `result` text its `errors`, claude JSON without a result `claude's JSON
+  output has no result`, an OpenAI refusal its text, a blocked Gemini prompt `prompt blocked: <reason>`.
+  A truncated answer is still stored.
 - **Band rule** `[CODE-IMPACTING]`: the fidelity floor is checked over the whole top band. The cheapest
   band model that clears the zone floor is selected; verbatim only when none does. Before, only the cheapest
   band model was checked, and a miss went straight to verbatim although a stronger band model would
@@ -125,9 +126,9 @@ independent reviews). See ADR-0012.
     `model rerouted: <from> -> <to>`, best-effort: Codex may drop it under backpressure), and the product
     bridge does not check the model. A claude run with a
     non-zero exit also counts as an error result, and the "context exceeds window" label is given only to
-    a claude JSON error result (also an `error_*` result's `errors`), not to raw output that is no JSON or
-    a failed Codex run's partial answer, so a valid brief that mentions a context window is no longer
-    rejected.
+    a claude JSON error result (also an `error_*` result's `errors`), not to output that is neither a JSON
+    object nor a JSON array (raw text, `null`, a JSON number or string) or a failed Codex run's partial
+    answer, so a valid brief that mentions a context window is no longer rejected.
   - Bridge mode (`CAIRN_BRIDGE`) now always passes `--effort high` / `model_reasoning_effort=high`.
   - API mode sends `output_config.effort` (Anthropic) or `reasoning_effort` (OpenAI) as `high` for pool
     models of the endpoint's own provider and raises the output budget to 32,000 tokens (Anthropic:

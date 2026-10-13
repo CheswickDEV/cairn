@@ -457,7 +457,12 @@ carries its `errors` messages as text; and for Codex a `turn.failed` event, an `
 `turn.completed` follows (codex also reports retried stream errors as `error`), or a non-zero exit,
 whose text is at most a partial answer. A failed Codex run without an answer makes the bridge call fail,
 with Codex's error message (which it writes to stdout only) as the reason: the latest non-empty
-`turn.failed` message or `error` message that no `turn.completed` follows, else stderr. `modelUsage` keys are the Anthropic
+`turn.failed` message or `error` message that no `turn.completed` follows, else stderr. A skipped brief
+is labelled "context exceeds window" only for a claude JSON error result whose text matches a window
+message ("prompt is too long", "context window" …), never for output that is neither a JSON object nor a
+JSON array or a Codex run's partial answer, which may be a brief that mentions a context window; a JSON
+result that failed only by its exit code is still read this way, though its `result` may be an answer
+(only the label is wrong then, the brief is skipped either way). `modelUsage` keys are the Anthropic
 model ids Claude Code resolved, not what it sent upstream, so a redirect (`modelOverrides`, a gateway
 behind `ANTHROPIC_BASE_URL`) stays invisible to this check. `codex exec --json` names no model, except
 for a safeguard reroute, which it reports as an error item `model rerouted: <from> -> <to>`; such a run
@@ -721,12 +726,12 @@ recommendation:
   - a call that fails: a CLI or network error, or an API HTTP error, which carries the provider's
     `error.message` or a string `error` (at most 300 characters; the status only when the body has
     neither);
-  - a claude error result (`is_error`, or an `error_*` subtype also with `is_error: false`; one without a
-    `result` text is reported with its `errors` messages), claude output that is neither a JSON object nor
-    a JSON array (also with exit 0: a wrapper, a changed format, `null`, text after the JSON), claude JSON
-    without a result (a result that did not fail without a string `result`, an array without a `result`
-    event, `{}`; reported as `claude's JSON output has no result`), or a failed Codex run, also one with a
-    partial answer;
+  - a claude error result (`is_error`, an `error_*` subtype also with `is_error: false`, or any claude
+    output with a non-zero exit; one without a `result` text is reported with its `errors` messages),
+    claude output that is neither a JSON object nor a JSON array (also with exit 0: a wrapper, a changed
+    format, `null`, text after the JSON), claude JSON without a result (a result that did not fail without
+    a string `result`, an array without a `result` event, `{}`; with exit 0 reported as `claude's JSON
+    output has no result`), or a failed Codex run, also one with a partial answer;
   - an answer the provider stopped short of a regular end or the output cap, with or without partial
     text: Anthropic `stop_reason: "refusal"`, OpenAI `finish_reason: "content_filter"` or a
     `message.refusal` (reported with its text), or any Gemini finish reason other than `STOP`,

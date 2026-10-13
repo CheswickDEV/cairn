@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import type { ExecFn } from "../core/bridge.js";
-import { productBridge, defaultExec, runBridge, answeringModels, PRODUCT_BRIDGE_EFFORT } from "../core/bridge.js";
+import { productBridge, defaultExec, runBridge, bridgeCompact, answeringModels, PRODUCT_BRIDGE_EFFORT } from "../core/bridge.js";
 import { callAnthropic, callOpenAICompatible, type FetchFn, type ModelCaller } from "../core/providers.js";
 import type { CairnConfig } from "../core/config.js";
 import { runHandoff, compactionEffort, EFFORT_MAX_TOKENS } from "../tools/handoff.js";
@@ -270,6 +270,10 @@ describe("the requested model must be the one that answered (no silent fallback)
     }));
     expect((await runBridge({ cli: "codex", system: "S", user: "U", execFn: failedTurn })).finishReason).toBe("error");
     expect((await runBridge({ cli: "codex", system: "S", user: "U", execFn: codexOk() })).finishReason).toBe("stop");
+    // `unparsed` is claude's alone: no Codex result carries it, failed or not.
+    for (const execFn of [textExit1, failedTurn, codexOk()]) {
+      expect(await bridgeCompact({ cli: "codex", request: { prompt: "P", maxTokens: 100, model: "gpt-6-astra" }, execFn })).not.toHaveProperty("unparsed");
+    }
   });
 
   it("a retried codex stream error followed by turn.completed is not a failure", async () => {
@@ -364,20 +368,24 @@ describe("the requested model must be the one that answered (no silent fallback)
   });
 
   it("claude JSON that carries no result is an error result; a string `result` is the answer", async () => {
-    const run = (stdout: string) => runBridge({ cli: "claude", system: "S", user: "U", execFn: vi.fn<ExecFn>(async () => ({ stdout, stderr: "", code: 0 })) });
+    const run = (stdout: string, code = 0) => runBridge({ cli: "claude", system: "S", user: "U", execFn: vi.fn<ExecFn>(async () => ({ stdout, stderr: "", code })) });
     const noResult = [
       "{}",
       "[]",
       JSON.stringify([{ type: "system" }, { type: "assistant", message: { content: [{ type: "text", text: "b".repeat(800) }] } }]),
       JSON.stringify({ type: "result", subtype: "success", result: null, errors: ["x"] }),
+      JSON.stringify({ type: "result", subtype: "success", result: 42 }),
+      JSON.stringify({ type: "result", subtype: "success", result: { text: "b" } }),
       JSON.stringify({ type: "result", subtype: "success", modelUsage: { "claude-opus-5-5": { outputTokens: 300 } } }),
     ];
     for (const stdout of noResult) {
-      const r = await run(stdout);
-      expect(r).toMatchObject({ text: "claude's JSON output has no result", finishReason: "error" });
-      expect(r.unparsed).toBeUndefined();
+      expect(await run(stdout)).toStrictEqual({ text: "claude's JSON output has no result", truncated: false, finishReason: "error" });
     }
     expect(await run(JSON.stringify({ type: "result", subtype: "success", result: "" }))).toMatchObject({ text: "", finishReason: "success" });
+    // A result that failed only by `is_error` or only by its exit code keeps its `errors` as text.
+    const errorsOnly = { type: "result", subtype: "success", errors: ["failed", 3, "twice"] };
+    expect(await run(JSON.stringify({ ...errorsOnly, is_error: true }))).toMatchObject({ text: "failed; twice", finishReason: "error" });
+    expect(await run(JSON.stringify(errorsOnly), 1)).toMatchObject({ text: "failed; twice", finishReason: "error" });
     const c = makeAccountCompactor({ execFn: vi.fn<ExecFn>(async () => ({ stdout: "[]", stderr: "", code: 0 })) });
     await expect(c({ modelId: "claude-opus-5-5@high", maskedProbe: "P", prompt: "S" })).rejects.toThrow(/error result, not an answer/);
   });
@@ -396,6 +404,9 @@ describe("the requested model must be the one that answered (no silent fallback)
       code: 0,
     }));
     await expect(makeAccountCompactor({ execFn: errorSubtype })({ modelId: "claude-opus-5-5@high", maskedProbe: "P", prompt: "S" })).rejects.toThrow(/context exceeds window/);
+    // … and a JSON result that failed only by its exit code …
+    const exitOnly = vi.fn<ExecFn>(async () => ({ stdout: JSON.stringify({ type: "result", subtype: "success", result: "Prompt is too long", modelUsage: {} }), stderr: "", code: 1 }));
+    await expect(makeAccountCompactor({ execFn: exitOnly })({ modelId: "claude-opus-5-5@high", maskedProbe: "P", prompt: "S" })).rejects.toThrow(/context exceeds window/);
     // … but not raw output that is no JSON, which may be a brief (with exit 0 or not) …
     for (const code of [0, 1]) {
       const raw = vi.fn<ExecFn>(async () => ({ stdout: code ? "Prompt is too long" : brief, stderr: "", code }));

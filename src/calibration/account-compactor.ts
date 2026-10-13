@@ -41,9 +41,10 @@ export function makeAccountCompactor(opts: AccountCompactorOptions = {}): Compac
       execFn: opts.execFn,
       timeoutMs: opts.timeoutMs,
     });
-    // Accurate label when the probe exceeded the model's window (ADR-0003). Only a claude JSON error result,
-    // whose text is the error message the CLI reported, is read this way: a valid brief may well mention a
-    // "context window" or something "too long", also as raw output that is no JSON or as a failed Codex run's
+    // Accurate label when the probe exceeded the model's window (ADR-0003). Only a claude JSON error result is
+    // read this way, whose text is the error message the CLI reported (with only a non-zero exit it may be an
+    // answer; the brief is skipped either way): a valid brief may well mention a "context window" or something
+    // "too long", also as output that is neither a JSON object nor a JSON array or as a failed Codex run's
     // partial answer (a Codex error message never becomes the text; a failed run without an answer throws).
     if (
       ecosystem === "anthropic" &&
