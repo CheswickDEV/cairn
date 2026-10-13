@@ -28,17 +28,20 @@ target, a deferred option as discarded).
 
 - **Compaction prompt** `[CODE-IMPACTING]` (English and German; sampling, bridge, API, calibration):
   - every bucket appears, an empty one says none;
-  - a decision or constraint a person set is quoted in their exact words, and double quotes mean nothing
-    else;
+  - double quotes go only around exact words from the context, unshortened, and a decision or constraint
+    a person set is quoted that way;
   - a measured value is evidence, not a target;
   - a deferred option is open, not discarded, and a reason appears only where one was given;
-  - the model marks its own inference with `(derived)`.
+  - a constraint, target, reason or step nobody stated is the model's inference, marked `(derived)`.
 - **Handoff skill** (account mode): the same rules for the host.
-- **Resume** (skill, Codex AGENTS block, MCP instructions): quotes mark what was said, while `(derived)`
-  and a Cairn check note mark inference. An unquoted or derived constraint is checked against the code,
+- **Resume** (skill, Codex AGENTS block, MCP instructions): quotes mark exact words from the conversation,
+  while `(derived)` and a Cairn check note mark inference. An unquoted or derived constraint is checked against the code,
   or the user is asked, before it stops or redirects the next step.
 - **Quote check** `[CODE-IMPACTING]` (sampling, bridge, API): every quote of three or more words must
-  appear in the source, normalized for case, whitespace, quote marks and emphasis; fenced code is skipped.
+  appear in the source in one piece, at word boundaries and not right after a negation ("do not"),
+  normalized for case, whitespace, quote marks, Markdown and typography; fenced code is skipped.
+  - A quote that a Cairn check note in the source already lists stays unverified, so a resumed brief cannot
+    clear its own note.
   - A missing quote is listed in the new `unverifiedQuotes` result field and in a tool-text warning.
   - The stored brief gets a closing note marking it as derived.
   - Account mode has no source to check.

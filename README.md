@@ -113,7 +113,7 @@ To undo: `node dist/server.js uninstall`
 | `host_status` | Detects installed host CLIs, login (best-effort), and the active model. | Explicit host-status request |
 | `decision_log` | Re-injects accepted + open decisions from the ledger. | Explicit Cairn resume request |
 | `context_status` | Computes the zone relative to the active window. | Explicit context-status request |
-| `handoff` | Persists the host-produced 7-bucket brief with verbatim protection. | Explicit Cairn Handoff request |
+| `handoff` | Persists a 7-bucket brief with verbatim protection (written by the host in account mode); the optional modes also check its quotes against the source. | Explicit Cairn Handoff request |
 
 The zones are deliberately simple:
 
@@ -139,13 +139,15 @@ afterward **byte-exact**. A new handoff **supersedes the previous one**, so the 
 and `decision_log view=current` carries only the most recent brief.
 
 The brief keeps what was said apart from what the summarizer concluded (ADR-0013):
-- A decision or constraint a person set appears in their exact words, in double quotes.
+- Double quotes go only around exact words from the conversation; a decision or constraint a person set
+  appears that way, in their own words.
 - A measured value is evidence, not a target. A deferred option stays open instead of discarded.
 - The summarizer marks its own inference with `(derived)`.
 
-In the optional modes Cairn checks every quote against the source. A quote it cannot find is listed in the
-result and noted at the end of the stored brief. On resume, an unquoted or derived constraint is checked
-against the code, or the user is asked, before it changes the next step.
+In the optional modes Cairn checks each quote of three or more words against the source: in one piece, at
+word boundaries, without a dropped "not". A quote it cannot find is listed in the result and noted at the
+end of the stored brief. On resume, an unquoted or derived constraint is checked against the code, or the
+user is asked, before it changes the next step.
 
 ---
 

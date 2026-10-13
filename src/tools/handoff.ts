@@ -392,8 +392,10 @@ export function registerHandoff(server: McpServer, deps: HandoffDeps): void {
       title: "Handoff",
       description:
         "Use only for an explicit user request to save a Cairn handoff. " +
-        "Persists a host-produced 7-bucket brief: freezes verbatim spans, validates required " +
-        "verbatim, records decisions/evidence. Default account mode makes NO model call / NO egress.",
+        "Persists a 7-bucket brief (account mode: written by the host; optional modes: compacted from " +
+        "`source`): freezes verbatim spans, validates required verbatim, checks quotes against the " +
+        "source in the optional modes, records decisions/evidence. Default account mode makes NO model " +
+        "call / NO egress.",
       inputSchema: {
         brief: z.string(),
         source: z.string().optional(),

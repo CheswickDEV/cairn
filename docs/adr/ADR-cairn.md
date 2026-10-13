@@ -856,8 +856,9 @@ the reviewer-effect correction and the key-fact check (above). Open points:
 
 ## ADR-0013 — Grounded briefs: quotes for what was said, (derived) for inference (2026-10-13)
 
-Accepted. Extends ADR-0002 (the 7-bucket brief), ADR-0006 (the modes) and ADR-0010 (resume treats the
-ledger as data).
+Accepted. Extends ADR-0006 (the modes that compact with the 7-bucket prompt) and ADR-0007 (continuing from
+the brief). Resume keeps treating the ledger as data, not instructions (CHANGELOG 2.0.0, "Resume: ledger is
+data, not instructions").
 
 **Context.** In the real end-to-end test on 2026-10-13, Claude Opus 5.5 at `high` wrote a brief whose facts
 were all right, but three lines read like the user's decisions and were the model's inference:
@@ -877,28 +878,37 @@ acts on them. So the brief marks which is which, and Cairn checks it where it ha
 **Decision.**
 - **Prompt** (English and German; used by sampling, bridge, API and the calibration):
   - every bucket appears, an empty one says none;
-  - a decision or constraint a person set is given in their exact words in double quotes, and double quotes
-    are used for nothing else;
+  - double quotes go only around exact words from the context, in one piece without omissions, and a
+    decision or constraint a person set is given that way, in their own words;
   - CONSTRAINTS holds only what the context sets, and a measured value is not a target (it is EVIDENCE);
-  - DISCARDED holds only options the context rejects, with the reason it gives; a deferred option goes to
-    OPEN QUESTIONS or NEXT STEPS;
+  - DISCARDED holds only options the context rejects, with the reason it gives; a deferred option is not
+    discarded, OPEN QUESTIONS holds it;
   - NEXT STEPS holds steps the context names or agrees on;
-  - no constraint, target, reason or step the context does not state, and the model marks its own inference
-    by appending `(derived)`. The marker is the same in both languages, like the bucket names.
-- **Handoff skill** (account mode, the default): the same rules for the host that writes the brief.
+  - a constraint, target, reason or step the context does not state is the model's own inference, and it
+    marks that item by appending `(derived)`. The marker is the same in both languages, like the bucket names.
+- **Handoff skill** (account mode, the default): these rules for the host that writes the brief, with "the
+  user or another person" for the person.
 - **Resume** (skill, Codex AGENTS block, MCP server instructions):
-  - double quotes mark words as said in the conversation;
+  - double quotes mark exact words from the conversation;
   - `(derived)` and a closing Cairn check note mark the summarizer's inference;
   - before an unquoted or derived constraint stops or redirects the next step, the session checks it against
     the code or asks the user.
-- **Quote check** (sampling, bridge, API; `src/core/grounding.ts`): after the restore, every quote in the
-  brief must appear in the source.
-  - Fenced code is left out; inline code counts as its text, so a quote may contain it. A quote is double
-    quotes on one line (`"…"`, `“…”`, `„…“`, `«…»`, `»…«`) with at least three words.
-  - A straight `"` opens after a non-word character and closes before one, so an inch mark pairs nothing.
-  - Both texts are normalized: NFKC, lower case, one space per whitespace run, one kind of apostrophe and
-    double quote, and no `*` or `` ` ``.
-  - A quote cut by `…` or `[…]` is checked part by part, without the punctuation at the edges.
+- **Quote check** (sampling, bridge, API; `src/core/grounding.ts`): after the restore, each quote in the brief
+  must appear in the source as given (not its masked form).
+  - What counts as a quote: double quotes on one line (`"…"`, `“…”`, `„…“`, `«…»`, `»…«`) with at least
+    three words. Fenced code (```` ``` ```` and `~~~`) is left out and ends a line; inline code counts as its
+    text, so a quote may contain it. A straight `"` opens after a non-word character and before a non-space,
+    and closes after a non-space and before a non-word character, so a mark inside a word opens or closes
+    nothing. A quote inside a quote is read as well as the outer one.
+  - Both texts are normalized: apostrophes folded, NFKC, lower case, ß as ss, no `>` quote markers at line
+    starts, a Markdown link as its text, dashes as a hyphen, no double quote marks, `*`, `_`, `~`, `` ` ``,
+    soft hyphens or zero-width characters, one space per whitespace run.
+  - The quote, without the punctuation at its edges, must occur in one piece at word boundaries ("safe" is not
+    in "unsafe"), and not right after a negation word (English or German: "do not" + "switch to Postgres").
+    An omission (`…`, `[…]`) is not word for word.
+  - A quote that a Cairn check note in the source already lists stays unverified, so a resumed brief in the
+    conversation cannot clear its own note on the next handoff. A note is read to the end of its line; in
+    escaped text (a JSON string) to a literal `\n`, and the rest of such a line is flagged too.
   - A quote the source lacks is listed in `unverifiedQuotes` and in a warning line of the tool text. The
     stored brief gets a closing note: `[Cairn check] Not found word for word in the source, so treat as
     derived: "…"`, or the German `[Cairn-Prüfung]`.
@@ -906,8 +916,10 @@ acts on them. So the brief marks which is which, and Cairn checks it where it ha
     kept span.
   - Account mode has no source: there is no check and no field.
 - **Calibration**:
-  - every artifact records `promptSha256`, the SHA-256 of the compaction system prompt as the CLI receives it:
-    the 7-bucket prompt plus the brief-only directive (`compactionPromptSha256`);
+  - golden and single-probe artifacts record `promptSha256`, the SHA-256 of the compaction system prompt as
+    the CLI receives it: the 7-bucket prompt plus the brief-only directive (`compactionPromptSha256`). Dry and
+    offline runs record the prompt they are configured with, though the fixture compactor sends none; a
+    pooled artifact carries its inputs' hash when they have one;
   - `--pool` refuses inputs whose hashes differ. An artifact without one predates this ADR and ran the prompt
     before 2.0.0, so it pools only with others without one;
   - a test pins the hash, so a prompt change is a conscious step.
@@ -919,12 +931,15 @@ quotes, all in the source, and no `(derived)` marker.
 **Limits.**
 - Account mode checks nothing: the session model writes the brief from its own context, and Cairn sees only
   the brief.
-- A paraphrase without quotes is not checked: the check makes quotes trustworthy, it does not find every
-  invention.
+- The check finds the words, not who said them or in which sense: a sentence the assistant proposed and the
+  user rejected is in the source too, and a quote may leave out words around it ("in this sprint") other
+  than a negation right before it.
+- The unverified quote keeps its quote marks in the brief; only the closing note marks it as derived.
+- A paraphrase without quotes is not checked.
 - Numbers and identifiers are not checked. A check would raise false alarms on converted values and dates,
   and it would not have caught the observed lines: both numbers in the "Target" line are in the source.
-- Quotes of fewer than three words and quotes over a line break are not read. A translated quote counts as
-  not found.
+- Quotes of fewer than three words and quotes over a line break are not read; a German quote with an English
+  quote inside („… “…” …“) is not read at all. A translated quote counts as not found.
 - The reviewers see the ground truth, not the source, so they may score a correct `(derived)` line as
   invented.
 - The profiles (ADR-0012) were measured with the prompt before 2.0.0.

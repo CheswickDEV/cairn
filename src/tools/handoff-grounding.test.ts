@@ -81,6 +81,21 @@ describe("handoff — quote check in the optional modes (ADR-0013)", () => {
     expect(r.unverifiedQuotes).toEqual([]);
   });
 
+  it("a stored brief with its note, later part of the source, does not clear the note on the next handoff", async () => {
+    const s = store();
+    const first = await runHandoff(
+      { brief: "", source: SOURCE, host, sourceZone: "red", mode: "bridge" },
+      { store: s, config: bridgeConfig, bridge: answering(BRIEF) },
+    );
+    const resumed = s.getDecision(first.storedDecisionId)!.rationale;
+    const second = await runHandoff(
+      { brief: "", source: `${SOURCE}\n\nCairn resume:\n${resumed}\n\nUSER: continue.`, host, sourceZone: "red", mode: "bridge" },
+      { store: s, config: bridgeConfig, bridge: answering(BRIEF) },
+    );
+    expect(second.unverifiedQuotes).toEqual(["Option (b) must not touch the worker protocol"]);
+    expect(s.getDecision(second.storedDecisionId)!.rationale).toBe(resumed);
+  });
+
   it("account mode: no check, no field, the host brief stored as written", async () => {
     const s = store();
     const r = await runHandoff({ brief: BRIEF, source: SOURCE, host, sourceZone: "red" }, { store: s, config: loadConfig({}) });
@@ -101,7 +116,7 @@ describe("handoff tool text — quote warning", () => {
   it("names the unverified quotes", async () => {
     const out = await toolText(BRIEF);
     expect(out.content[0].text).toContain(
-      '⚠ Quotes not found word for word in the source, marked as derived in the stored brief: "Option (b) must not touch the worker protocol"',
+      '⚠ Quotes not found word for word in the source, noted at the end of the stored brief: "Option (b) must not touch the worker protocol"',
     );
     expect(out.structuredContent.unverifiedQuotes).toEqual(["Option (b) must not touch the worker protocol"]);
   });

@@ -128,16 +128,30 @@ describe("7-bucket prompt — grounding rules (ADR-0013)", () => {
     expect(p).toContain(lang === "en" ? "by appending (derived)." : "mit angehängtem (derived).");
   });
 
-  it("states each rule in both languages: empty bucket, measured value, deferral, exact words in double quotes", () => {
-    const en = t("en").prompts.sevenBucket;
-    const de = t("de").prompts.sevenBucket;
-    for (const rule of ["write 'none' in an empty bucket", "A measured value is not a target.", "a deferred option is not discarded.",
-      "give it in their exact words in double quotes; use\ndouble quotes for nothing else.", "no constraint, target, reason or step the context does\nnot state."]) {
+  it("states each rule in both languages: empty bucket, measured value, deferral, quotes, inference", () => {
+    // Line breaks in the catalog are layout only.
+    const en = t("en").prompts.sevenBucket.replace(/\s+/g, " ");
+    const de = t("de").prompts.sevenBucket.replace(/\s+/g, " ");
+    for (const rule of [
+      "write 'none' in an empty bucket",
+      "A measured value is not a target.",
+      "including deferred options.",
+      "a deferred option is not discarded.",
+      "Put double quotes only around exact words from the context, in one piece without omissions;",
+      "give a decision or constraint a person set in their own words, in double quotes.",
+      "A constraint, target, reason or step the context does not state is your own inference: mark that item by appending (derived).",
+    ]) {
       expect(en).toContain(rule);
     }
-    for (const rule of ["ein leerer Bucket bekommt 'keine'", "Ein Messwert ist kein Ziel.", "Vertagtes ist nicht verworfen.",
-      "mit ihren genauen Worten in doppelten Anführungszeichen wieder; sonst keine doppelten Anführungszeichen.",
-      "keine Rahmenbedingung, kein Ziel, kein Grund und\nkein Schritt, den der Kontext nicht nennt."]) {
+    for (const rule of [
+      "ein leerer Bucket bekommt 'keine'",
+      "Ein Messwert ist kein Ziel.",
+      "auch vertagte Optionen.",
+      "Vertagtes ist nicht verworfen.",
+      "Doppelte Anführungszeichen nur um genaue Worte aus dem Kontext, am Stück ohne Auslassungen;",
+      "eine Entscheidung oder Rahmenbedingung, die eine Person festlegt, mit ihren eigenen Worten in doppelten Anführungszeichen.",
+      "Eine Rahmenbedingung, ein Ziel, ein Grund oder ein Schritt, den der Kontext nicht nennt, ist dein eigener Schluss: markiere diesen Punkt mit angehängtem (derived).",
+    ]) {
       expect(de).toContain(rule);
     }
   });
