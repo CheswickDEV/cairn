@@ -337,25 +337,30 @@ export async function runBridge(input: RunBridgeInput): Promise<ModelCallResult>
     args.push("--setting-sources", "user");
     const { stdout, stderr, code } = await exec("claude", args, { stdin: user, timeoutMs, cwd, env });
     if (code !== 0 && !stdout.trim()) throw new Error(`claude bridge failed (code ${code}): ${stderr.slice(0, 300)}`);
+    let parsed: unknown;
     try {
-      // With `verbose` on (a user setting), `--output-format json` prints an array of events; the last
-      // `result` event carries what the object form holds.
-      const parsed = JSON.parse(stdout) as unknown;
-      const json = (
-        Array.isArray(parsed) ? [...parsed].reverse().find((e) => e?.type === "result") ?? {} : parsed
-      ) as Record<string, unknown>;
-      const text = typeof json.result === "string" ? json.result : "";
-      // `is_error` wins over `subtype`: an API error or a refusal mid-stream comes back as `subtype: "success"`
-      // with the error message as `result`.
-      const finishReason =
-        json.is_error === true || code !== 0 ? "error" : typeof json.subtype === "string" ? json.subtype : "stop";
-      const modelsUsed = answeringModels(json.modelUsage);
-      const modelsReported =
-        json.modelUsage && typeof json.modelUsage === "object" ? Object.keys(json.modelUsage as Record<string, unknown>) : undefined;
-      return { text, truncated: false, finishReason, ...(modelsReported ? { modelsUsed, modelsReported } : {}) };
+      parsed = JSON.parse(stdout);
     } catch {
-      return { text: stdout.trim(), truncated: false, finishReason: code !== 0 ? "error" : "stop" };
+      parsed = undefined;
     }
+    // With `verbose` on (a user setting), `--output-format json` prints an array of events; the last
+    // `result` event carries what the object form holds.
+    const found = Array.isArray(parsed) ? [...parsed].reverse().find((e) => e?.type === "result") ?? {} : parsed;
+    // Output that is no JSON object (a wrapper script, a changed format, `null`) is no answer (ADR-0012).
+    if (!found || typeof found !== "object") return { text: stdout.trim(), truncated: false, finishReason: "error" };
+    const json = found as Record<string, unknown>;
+    // `is_error` wins over `subtype`: an API error or a refusal mid-stream comes back as `subtype: "success"`
+    // with the error message as `result`. An `error_*` subtype fails even with `is_error: false`; it carries
+    // no `result`, its messages are in `errors`.
+    const subtype = typeof json.subtype === "string" ? json.subtype : undefined;
+    const failed = json.is_error === true || code !== 0 || subtype?.startsWith("error") === true;
+    const errors = Array.isArray(json.errors) ? json.errors.filter((e): e is string => typeof e === "string").join("; ") : "";
+    const text = typeof json.result === "string" ? json.result : failed ? errors : "";
+    const finishReason = failed ? "error" : subtype ?? "stop";
+    const modelsUsed = answeringModels(json.modelUsage);
+    const modelsReported =
+      json.modelUsage && typeof json.modelUsage === "object" ? Object.keys(json.modelUsage as Record<string, unknown>) : undefined;
+    return { text, truncated: false, finishReason, ...(modelsReported ? { modelsUsed, modelsReported } : {}) };
   }
 
   // codex: no system-prompt flag → fold it into the stdin prompt; neutral cwd via -C; read-only

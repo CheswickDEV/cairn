@@ -449,8 +449,9 @@ usage), the listed models decide: another model listed, or the requested one mis
 Code 2.1.296 always reports it (`{}` on errors).
 (Claude Code's server-side fallback is listed only with usage, which the Anthropic API always sends.)
 An error result is skipped as well: claude `is_error` (an API error, or a refusal mid-stream without a
-fallback; also in the array form `verbose` output takes), whose text is the error message, or any
-claude output with a non-zero exit; and for Codex a `turn.failed` event, an `error` event that no
+fallback; also in the array form `verbose` output takes), whose text is the error message, an `error_*`
+subtype (also with `is_error: false`; its text is the `errors` messages), output that is no JSON object
+(also with exit 0), or any claude output with a non-zero exit; and for Codex a `turn.failed` event, an `error` event that no
 `turn.completed` follows (codex also reports retried stream errors as `error`), or a non-zero exit,
 whose text is at most a partial answer. A failed Codex run without an answer makes the bridge call fail,
 with Codex's error message (which it writes to stdout only) as the reason: the latest non-empty
@@ -551,7 +552,9 @@ ADR and are open points. Until 2026-10-12 a bridge-mode handoff also ignored `fi
 text of a claude error result, the partial answer of a failed Codex run or an empty Codex answer as the
 brief; every optional mode stored an answer without text; the API adapters read a JSON error body as an
 empty brief (a body that was no JSON made the handoff fail) and kept the partial text of a refused
-answer. That is fixed (see "Who writes the brief").
+answer. Until 2026-10-13 the claude bridge also stored output that was no JSON (or JSON `null`) with exit 0
+raw as the brief; an `error_*` result without `is_error`, an OpenAI `message.refusal` and a blocked Gemini prompt
+failed only as an answer without text. That is fixed (see "Who writes the brief").
 
 **Reviewers.** All seven pool models review, at exactly `high`, and each brief is scored by the six
 others (k = pool − 1); a model never reviews its own brief. Pool entries are normalised to base ids, so
@@ -714,12 +717,16 @@ recommendation:
   - a call that fails: a CLI or network error, or an API HTTP error, which carries the provider's
     `error.message` or a string `error` (at most 300 characters; the status only when the body has
     neither);
-  - a claude error result, or a failed Codex run, also one with a partial answer;
+  - a claude error result (`is_error`, or an `error_*` subtype also with `is_error: false`, reported with
+    its `errors` messages), claude output that is no JSON object (also with exit 0: a wrapper, a changed
+    format, `null`, text after the JSON), or a failed Codex run, also one with a partial answer;
   - an answer the provider stopped short of a regular end or the output cap, with or without partial
-    text: Anthropic `stop_reason: "refusal"`, OpenAI `finish_reason: "content_filter"`, or any Gemini
-    finish reason other than `STOP`, `MAX_TOKENS` and the unused `FINISH_REASON_UNSPECIFIED` (`SAFETY`,
-    `RECITATION`, `BLOCKLIST`, `PROHIBITED_CONTENT`, `OTHER` …; none given means the model has not
-    stopped);
+    text: Anthropic `stop_reason: "refusal"`, OpenAI `finish_reason: "content_filter"` or a
+    `message.refusal` (reported with its text), or any Gemini finish reason other than `STOP`,
+    `MAX_TOKENS` and the unused `FINISH_REASON_UNSPECIFIED` (`SAFETY`, `RECITATION`, `BLOCKLIST`,
+    `PROHIBITED_CONTENT`, `OTHER` …; none given means the model has not stopped); a Gemini prompt
+    blocked by `promptFeedback.blockReason` (other than the unused `BLOCK_REASON_UNSPECIFIED`), which
+    gets no candidates, counts the same way and is reported as `prompt blocked: <reason>`;
   - an answer without text (also only whitespace).
 
   A refusal before the call stays `EgressNotConfiguredError`. No brief, decision or evidence of that

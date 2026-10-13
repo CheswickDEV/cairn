@@ -47,8 +47,9 @@ export interface ModelCallResult {
   /** Bridge (claude): every model id `modelUsage` lists, with or without output. */
   modelsReported?: string[];
   /** API: the provider stopped the answer short of a regular end or the output cap (Anthropic `refusal`,
-   *  OpenAI `content_filter`, a Gemini finish reason other than `STOP`, `MAX_TOKENS` and the unused
-   *  `FINISH_REASON_UNSPECIFIED`); any text is no brief (ADR-0012). */
+   *  OpenAI `content_filter` or a `message.refusal`, a Gemini finish reason other than `STOP`, `MAX_TOKENS`
+   *  and the unused `FINISH_REASON_UNSPECIFIED`, a Gemini `promptFeedback.blockReason`); any text is no brief
+   *  (ADR-0012). */
   blocked?: boolean;
 }
 
@@ -135,15 +136,18 @@ export async function callOpenAICompatible(
   });
   await assertOk(res, "openai");
   const json = (await res.json()) as {
-    choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
+    choices?: Array<{ message?: { content?: string | null; refusal?: string | null }; finish_reason?: string }>;
   };
   const choice = json.choices?.[0];
-  const finishReason = choice?.finish_reason ?? "unknown";
+  // A model refusal comes in `message.refusal`, not in `content`; its text is reported instead of any content.
+  const refusal = choice?.message?.refusal;
+  const refused = typeof refusal === "string" && refusal.trim() !== "";
+  const finishReason = refused ? "refusal" : choice?.finish_reason ?? "unknown";
   return {
-    text: choice?.message?.content ?? "",
+    text: refused ? refusal : choice?.message?.content ?? "",
     truncated: finishReason === "length",
     finishReason,
-    ...(finishReason === "content_filter" ? { blocked: true } : {}),
+    ...(refused || finishReason === "content_filter" ? { blocked: true } : {}),
   };
 }
 
@@ -171,9 +175,16 @@ export async function callGemini(
   await assertOk(res, "gemini");
   const json = (await res.json()) as {
     candidates?: Array<{ content?: { parts?: Array<{ text?: string }> }; finishReason?: string }>;
+    promptFeedback?: { blockReason?: string } | null;
   };
   const cand = json.candidates?.[0];
   const text = (cand?.content?.parts ?? []).map((p) => p.text ?? "").join("");
+  // A blocked prompt gets no candidates, only a `promptFeedback.blockReason` (`BLOCK_REASON_UNSPECIFIED` is
+  // documented as unused).
+  const promptBlock = json.promptFeedback?.blockReason;
+  if (typeof promptBlock === "string" && promptBlock !== "BLOCK_REASON_UNSPECIFIED") {
+    return { text, truncated: false, finishReason: `prompt blocked: ${promptBlock}`, blocked: true };
+  }
   const finishReason = cand?.finishReason ?? "unknown";
   // Every other Gemini finish reason stops the answer short: SAFETY, RECITATION, BLOCKLIST, PROHIBITED_CONTENT …
   // An absent (or null) one means the model has not stopped: no verdict.

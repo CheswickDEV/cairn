@@ -334,6 +334,17 @@ describe("the requested model must be the one that answered (no silent fallback)
     expect((await runBridge({ cli: "claude", system: "S", user: "U", execFn: exec })).finishReason).toBe("error");
   });
 
+  it("claude output that is no JSON object, or an error_* subtype, is an error result also with exit 0", async () => {
+    const run = (stdout: string) => runBridge({ cli: "claude", system: "S", user: "U", execFn: vi.fn<ExecFn>(async () => ({ stdout, stderr: "", code: 0 })) });
+    for (const stdout of ["b".repeat(800), "", "null", "42", '"text"', `${JSON.stringify({ type: "result", subtype: "success", result: "b".repeat(800) })}\ntrailing`]) {
+      expect(await run(stdout)).toMatchObject({ text: stdout.trim(), finishReason: "error" });
+    }
+    const errorSubtype = await run(JSON.stringify({ type: "result", subtype: "error_max_budget_usd", is_error: false, errors: ["over budget"], modelUsage: {} }));
+    expect(errorSubtype).toMatchObject({ text: "over budget", finishReason: "error" });
+    const c = makeAccountCompactor({ execFn: vi.fn<ExecFn>(async () => ({ stdout: "b".repeat(800), stderr: "", code: 0 })) });
+    await expect(c({ modelId: "claude-opus-5-5@high", maskedProbe: "P", prompt: "S" })).rejects.toThrow(/error result, not an answer/);
+  });
+
   it("a valid brief that mentions a context window is not mistaken for a window error", async () => {
     const brief = "1) DECISIONS keep the context window at 1M; the old prompt was too long. " + "b".repeat(600);
     const exec = vi.fn<ExecFn>(async () => ({ stdout: JSON.stringify({ result: brief, subtype: "success", modelUsage: { "claude-opus-5-5": { outputTokens: 300 } } }), stderr: "", code: 0 }));

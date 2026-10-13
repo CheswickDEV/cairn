@@ -64,6 +64,10 @@ describe("the API adapters flag an answer the provider stopped short of a regula
     ["openai", oai("stop"), false],
     ["openai", oai("length"), false],
     ["openai", oai("tool_calls"), false],
+    // A refusal comes in `message.refusal`, not as a finish reason.
+    ["openai", { choices: [{ message: { content: null, refusal: "I can't help with that." }, finish_reason: "stop" }] }, true],
+    ["openai", { choices: [{ message: { content: "x", refusal: null }, finish_reason: "stop" }] }, false],
+    ["openai", { choices: [{ message: { content: "x", refusal: " " }, finish_reason: "stop" }] }, false],
     ["gemini", gem("SAFETY"), true],
     ["gemini", gem("RECITATION"), true],
     ["gemini", gem("OTHER"), true],
@@ -74,6 +78,12 @@ describe("the API adapters flag an answer the provider stopped short of a regula
     ["gemini", gem("FINISH_REASON_UNSPECIFIED"), false], // documented as unused
     ["gemini", gem(), false], // no finish reason: the model has not stopped
     ["gemini", gem(null), false],
+    // A blocked prompt gets no candidates, only a block reason.
+    ["gemini", { promptFeedback: { blockReason: "SAFETY" } }, true],
+    ["gemini", { promptFeedback: { blockReason: "OTHER" }, candidates: [] }, true],
+    ["gemini", { ...gem("STOP"), promptFeedback: { blockReason: "BLOCK_REASON_UNSPECIFIED" } }, false], // documented as unused
+    ["gemini", { ...gem("STOP"), promptFeedback: { safetyRatings: [] } }, false],
+    ["gemini", { ...gem("STOP"), promptFeedback: null }, false],
   ] as const)("%s %j → blocked %s", async (provider, body, blocked) => {
     const r = await call[provider]({ ...ep, provider }, req, res(200, JSON.stringify(body)) as never, {});
     expect(r.blocked === true).toBe(blocked);
@@ -141,6 +151,10 @@ describe("a failed or empty compaction stores nothing; the previous brief stays 
       ["anthropic", { content: [{ type: "text", text: `  ${"y".repeat(400)}` }], stop_reason: "refusal" }, new RegExp(`^api compaction was stopped \\(refusal\\): ${"y".repeat(300)}; nothing stored`)],
       ["openai", { choices: [{ message: { content: "1) DEC" }, finish_reason: "content_filter" }] }, /^api compaction was stopped \(content_filter\): 1\) DEC; nothing/],
       ["gemini", { candidates: [{ content: { parts: [{ text: "" }] }, finishReason: "SAFETY" }] }, /^api compaction was stopped \(SAFETY\); nothing stored/],
+      // A refusal is reported with its text; a blocked prompt with its block reason.
+      ["openai", { choices: [{ message: { content: null, refusal: "I can't help with that." }, finish_reason: "stop" }] }, /^api compaction was stopped \(refusal\): I can't help with that\.; nothing stored/],
+      ["openai", { choices: [{ message: { content: "1) DEC part", refusal: "No." }, finish_reason: "stop" }] }, /^api compaction was stopped \(refusal\): No\.; nothing stored/],
+      ["gemini", { promptFeedback: { blockReason: "PROHIBITED_CONTENT", safetyRatings: [] } }, /^api compaction was stopped \(prompt blocked: PROHIBITED_CONTENT\); nothing stored/],
     ] as const;
     for (const [provider, body, reason] of cases) {
       const config: CairnConfig = {
@@ -169,6 +183,25 @@ describe("a failed or empty compaction stores nothing; the previous brief stays 
         /bridge compaction failed/,
       ],
       ["codex", "gpt-6.1-sol", JSON.stringify({ type: "turn.completed" }), /bridge compaction returned no text/],
+      // claude output that is no JSON object is no answer, also with exit 0 (a wrapper, a changed format).
+      ["claude", "claude-opus-5-5", "1) DECISIONS printed by a wrapper", /^bridge compaction failed: 1\) DECISIONS printed by a wrapper; nothing stored/],
+      ["claude", "claude-opus-5-5", "null", /^bridge compaction failed: null; nothing stored/],
+      ["claude", "claude-opus-5-5", `${JSON.stringify({ type: "result", subtype: "success", result: "1) DECISIONS x" })}\nwarning`, /^bridge compaction failed: \{"type":"result"/],
+      // An `error_*` result fails even with `is_error: false`; its messages are in `errors`, also in the array form.
+      [
+        "claude",
+        "claude-opus-5-5",
+        JSON.stringify({ type: "result", subtype: "error_during_execution", is_error: false, errors: ["turn stopped", 7, "no calls ran"] }),
+        /^bridge compaction failed: turn stopped; no calls ran; nothing stored/,
+      ],
+      [
+        "claude",
+        "claude-opus-5-5",
+        JSON.stringify([{ type: "system" }, { type: "result", subtype: "error_max_turns", is_error: false, errors: ["Reached maximum number of turns (1)"] }]),
+        /^bridge compaction failed: Reached maximum number of turns \(1\); nothing stored/,
+      ],
+      // `errors` of a result that did not fail is no brief either.
+      ["claude", "claude-opus-5-5", JSON.stringify({ type: "result", subtype: "success", errors: ["x"] }), /^bridge compaction returned no text; nothing stored/],
       // A CLI that fails without output: the bridge throws, the handoff reports it as a failed compaction.
       ["claude", "claude-opus-5-5", "", /bridge compaction failed: claude bridge failed \(code 1\): boom; nothing stored/],
     ];
