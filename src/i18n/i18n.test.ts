@@ -125,7 +125,7 @@ describe("7-bucket prompt — grounding rules (ADR-0013)", () => {
     expect([...at].sort((a, b) => a - b)).toEqual(at);
     expect(p).toContain("[[CAIRN-HOLD-n]]");
     // The marker for the summarizer's own inference is the same in both languages: the resume skill names it.
-    expect(p).toContain(lang === "en" ? "by appending (derived) to that item." : "mit angehängtem (derived) an diesem Punkt.");
+    expect(p).toContain(lang === "en" ? "marked by appending (derived)." : "markiert mit angehängtem (derived).");
   });
 
   it("states each rule in both languages: empty bucket, measured value, deferral, quotes, inference", () => {
@@ -138,7 +138,7 @@ describe("7-bucket prompt — grounding rules (ADR-0013)", () => {
       "including deferred options.",
       "a deferred option is not discarded.",
       "Invent nothing: state nothing as given that the context does not state.",
-      "An inference of your own (a constraint, target, reason or step the context does not state) may appear only marked, by appending (derived) to that item.",
+      "An inference of your own (a constraint, target, reason or step the context does not state) may appear only as an item of its own, marked by appending (derived).",
       "Put double quotes only around exact words from the context, in one piece without omissions;",
       "give a decision or constraint a person set in their own words, in double quotes.",
     ]) {
@@ -150,7 +150,7 @@ describe("7-bucket prompt — grounding rules (ADR-0013)", () => {
       "auch vertagte Optionen.",
       "Vertagtes ist nicht verworfen.",
       "Nichts erfinden: Stelle nichts als gegeben dar, was der Kontext nicht nennt.",
-      "Eigene Schlüsse (Rahmenbedingungen, Ziele, Gründe oder Schritte, die der Kontext nicht nennt) dürfen nur markiert erscheinen: mit angehängtem (derived) an diesem Punkt.",
+      "Eigene Schlüsse (Rahmenbedingungen, Ziele, Gründe oder Schritte, die der Kontext nicht nennt) dürfen nur als eigener Eintrag erscheinen, markiert mit angehängtem (derived).",
       "Doppelte Anführungszeichen nur um genaue Worte aus dem Kontext, am Stück ohne Auslassungen;",
       "gib eine Entscheidung oder Rahmenbedingung, die eine Person festlegt, mit ihren eigenen Worten in doppelten Anführungszeichen wieder.",
     ]) {

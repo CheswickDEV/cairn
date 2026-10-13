@@ -33,7 +33,7 @@ target, a deferred option as discarded).
   - a measured value is evidence, not a target;
   - a deferred option is open, not discarded;
   - nothing appears as given that the context does not state: a constraint, target, reason or step of the
-    model's own may appear only marked `(derived)`.
+    model's own may appear only as an item of its own, marked `(derived)`.
 - **Handoff skill** (account mode): the same rules for the host.
 - **Resume** (skill, Codex AGENTS block, MCP instructions): quotes mark exact words from the conversation,
   while `(derived)` and a Cairn check note mark inference. An unquoted or derived constraint is checked against the code,
@@ -41,9 +41,10 @@ target, a deferred option as discarded).
 - **Quote check** `[CODE-IMPACTING]` (sampling, bridge, API): every quote of three or more words must
   appear in the source in one piece, at word boundaries (also across `-`, `.`, `/`) and without a dropped
   negation ("do not", "not yet", a German "nicht" at the end), normalized for case, whitespace, quote
-  marks, escapes, Markdown and typography; fenced code is skipped. The cost stays linear in the input.
+  marks, escapes, Markdown and typography; fenced code is skipped. The cost is linear in the source, and a
+  quote over 1,000 characters counts as unverified without a search.
   - A quote that a Cairn check note in the source already lists stays unverified, so a resumed brief cannot
-    clear its own note; a line marked `(derived)` is no source.
+    clear its own note; an item ending in `(derived)` is no source.
   - A missing quote is listed in the new `unverifiedQuotes` result field and in a tool-text warning.
   - The stored brief gets a closing note marking it as derived.
   - Account mode has no source to check.

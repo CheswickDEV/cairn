@@ -20,7 +20,7 @@ This invocation does not enable automatic saves or resumes on later turns.
    - A measured value is evidence, not a target. A deferred option is an open question, not
      discarded.
    - An inference of your own (a constraint, target, reason or step nobody stated) may appear only
-     marked, by appending (derived) to that item. An empty bucket says none.
+     as an item of its own, marked by appending (derived). An empty bucket says none.
 2. Call `handoff` in default `account` mode with `brief` and the necessary `requiredVerbatim`.
    Pass your own model id as `host.modelId` when you know it, and the zone when known. Include
    structured `decisions`/`evidence` when available; do not call status tools merely to fill

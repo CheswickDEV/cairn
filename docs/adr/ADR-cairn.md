@@ -879,8 +879,9 @@ acts on them. So the brief marks which is which, and Cairn checks it where it ha
 - **Prompt** (English and German; used by sampling, bridge, API and the calibration):
   - every bucket appears, an empty one says none;
   - "Invent nothing" now reads: state nothing as given that the context does not state. An inference of the
-    model's own (a constraint, target, reason or step the context does not state) may appear only marked, by
-    appending `(derived)` to that item. The marker is the same in both languages, like the bucket names;
+    model's own (a constraint, target, reason or step the context does not state) may appear only as an item
+    of its own, marked by appending `(derived)`. The marker is the same in both languages, like the bucket
+    names;
   - double quotes go only around exact words from the context, in one piece without omissions, and a
     decision or constraint a person set is given that way, in their own words;
   - CONSTRAINTS holds the constraints and target metrics the context sets, and a measured value is not a
@@ -896,28 +897,36 @@ acts on them. So the brief marks which is which, and Cairn checks it where it ha
   - before an unquoted or derived constraint stops or redirects the next step, the session checks it against
     the code or asks the user.
 - **Quote check** (sampling, bridge, API; `src/core/grounding.ts`): after the restore, each quote in the brief
-  must appear in the source as given (not its masked form). Every rule errs on the side of a note: a doubtful
-  quote is flagged, never passed.
+  must appear in the source as given (not its masked form). Where a rule is in doubt it flags rather than
+  passes; the limits below list what still passes.
   - What counts as a quote: double quotes on one line (`"…"`, `“…”`, `„…“`, `«…»`, `»…«`) with at least
     three words. Fenced code (```` ``` ```` and `~~~`) is left out and ends a line; inline code counts as its
     text, so a quote may contain it. A straight `"` opens after a non-word character and before a non-space,
     and closes after a non-space and before a non-word character, so a mark inside a word opens or closes
-    nothing. A quote inside a quote is read as well as the outer one, up to three levels deep
-    (`MAX_NESTING`): each level is one more pass, so the cost stays linear.
-  - Both texts are normalized: escapes read (`\n`, `\t`, `\r` as a space, a backslash before punctuation
-    dropped), apostrophes folded, NFKC, lower case, ß as ss, a Markdown link as its text, dashes as a hyphen,
-    no double quote marks, `*`, `_`, `~~`, `` ` ``, soft hyphens or zero-width characters, one space per
-    whitespace run. In the source, `>` quote markers at line starts are dropped too, and a line marked
-    `(derived)` (an earlier brief's inference) is no source.
+    nothing. A quote inside a quote is read as well as the outer one, up to three levels deep per kind of
+    quote mark (`MAX_NESTING`): each level is one more pass. A quote over 1,000 characters
+    (`MAX_QUOTE_CHARS`) counts as unverified without a search.
+  - Both texts are normalized: runs of combining marks cut to eight, escapes read (`\uXXXX` as its
+    character, `\n`, `\t`, `\r` as a space, a backslash before punctuation or a symbol dropped), apostrophes
+    folded and ″ read as a double quote, NFKC, lower case, ß as ss, a Markdown
+    link as its text, a hyphen as `-` but a dash or minus as ` - ` (a hyphen joins words, a dash separates
+    them), no double quote marks, `*`, `_`, `~~`, `` ` ``, soft hyphens or zero-width characters, one space
+    per whitespace run. In the source, `>` quote markers at line starts or after a literal `\n` (not a `>`
+    before a number) are dropped too, and an item that ends in `(derived)`, a line or in escaped text a part between literal
+    `\n`, is no source: it is an earlier brief's inference.
   - The quote, without the punctuation at its edges, must occur in one piece (an omission, `…` or `[…]`, is
     not word for word) at word boundaries: a letter or digit, or one joined by `-`, `.` or `/`, continues the
     word ("safe" is not in "unsafe", nor "blocking" in "non-blocking", nor "22.10" in "22.10.1").
-  - No negation may be dropped: no negation word right before the occurrence, with at most one word and only
-    punctuation between ("do not" + "switch to Postgres", "not yet" + "deploy", "never --" + "force push"),
-    and no German "nicht", "nie" or "niemals" ending the clause right after it. The words are English and
-    German (`not`, `never`, `no`, `nor`, `cannot`, `without`, `dont`, any word ending in `n't`, `nicht`,
-    `nie`, `niemals`, `nichts`, `ohne`, `kein…`). One occurrence that passes is enough. Each occurrence is
-    judged on 48 characters around it, so the cost stays linear.
+  - No negation may be dropped: no negation word right before the occurrence, with at most one word
+    (hyphens allowed) and then only punctuation, symbols and blanks between ("do not" + "switch to
+    Postgres", "not yet" + "deploy", "never -- " + "force push"), unless that word affirms ("not only",
+    "not just", "no doubt", "without question", "nicht nur", "ohne Frage", "ohne Zweifel"); and no German
+    "nicht", "nie" or "niemals" (after "auch", before "mehr" or "länger") ending the clause right after it,
+    before punctuation, a dash or a parenthesis. The words are English and German (`not`,
+    `never`, `no`, `nor`, `cannot`, `without`, `dont`, any word ending in `n't`, `nicht`, `nie`, `niemals`,
+    `nichts`, `ohne`, `kein…`). One occurrence that passes is enough. Each occurrence is judged on 48
+    characters around it, without a word the window start cuts ("knot" is not "not"), so the cost is linear
+    in the source.
   - A quote that a Cairn check note in the source lists stays unverified, and so does a quote inside or
     around a listed one, so a resumed brief in the conversation cannot clear its own note on the next
     handoff. A note starts a line (after blanks or `>`) or follows a literal `\n` in escaped text (a JSON
@@ -954,8 +963,16 @@ quotes, all in the source, and no `(derived)` marker.
   with its prefix changed otherwise is not recognized.
 - The negation rule has a word list and a window: a negation further away, in single quotes or in a word
   not listed is not seen. It also flags on the safe side: "no" or "kein" before a quoted noun phrase ("no
-  single writer queue"), the German noun "Not", a negation the brief keeps outside the quote marks, a quote
-  inside a noted one, and the rest of a line after a fake or escaped note.
+  single writer queue"), "without"/"ohne" with a noun before a quote ("ohne Downtime deployen wir"), the
+  German noun "Not", a negation the brief keeps outside the quote marks, a negation at the end of the line
+  before (the source's line breaks count as spaces), a quote inside a noted one, and the rest of a line
+  after a fake or escaped note.
+- The cost is linear in the source; on the brief's side it grows with the number of quotes times the source
+  and, for a quote that overlaps itself many times, with its length (both bounded by MAX_QUOTE_CHARS and a
+  brief's size).
+- An item marked `(derived)` that wraps over lines is dropped from the source only on the line that ends in
+  the marker. An item that mixes stated and inferred content loses its stated part as a source; the prompt
+  asks for inferences as items of their own.
 - The unverified quote keeps its quote marks in the brief; only the closing note marks it as derived.
 - A paraphrase without quotes is not checked.
 - Numbers and identifiers are not checked. A check would raise false alarms on converted values and dates,

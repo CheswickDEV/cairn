@@ -8,16 +8,25 @@
  * Cairn sees only the brief.
  *
  * Limits: a quote counts from three words on (single terms like "superseded" are labels, not quotes); only
- * double quotes on one line are read (`"…"`, `“…”`, `„…“`, `«…»`, `»…«`), nested at most MAX_NESTING deep;
+ * double quotes on one line are read (`"…"`, `“…”`, `„…“`, `«…»`, `»…«`), nested at most MAX_NESTING deep per kind;
  * fenced code blocks are skipped (a string literal in code is no quote), inline code is read as its text, so
  * a quote may contain it. The check finds the words, not who said them or in which sense: a sentence the user
  * rejected is in the source too, and a quote may leave out words around it ("in this sprint"), except a
  * negation right before it (or a German one right after it). A paraphrase without quotes is not checked.
- * Every rule errs on the side of a note: a doubtful quote is flagged, never passed.
+ * Where a rule is in doubt it flags rather than passes; ADR-0013 lists what still passes.
  */
 
 /** A quote has at least this many words; shorter quoted spans are terms or labels. */
 export const MIN_QUOTE_WORDS = 3;
+
+/** A longer quote counts as unverified without a search: quotes are meant to be short, and the bound keeps
+ *  the check's cost in proportion to the source. */
+export const MAX_QUOTE_CHARS = 1_000;
+
+/** Runs of combining marks are cut to this many before Unicode normalization, which is quadratic on very
+ *  long runs; real text has a few at most. */
+const MAX_MARK_RUN = 8;
+const MARK_RUN_RE = new RegExp(`(\\p{M}{${MAX_MARK_RUN}})\\p{M}+`, "gu");
 
 /** Quotes inside quotes are read this many levels deep; each level is one more pass over the text, so the
  *  bound keeps the check linear in the input. */
@@ -83,13 +92,17 @@ export function extractQuotes(brief: string): string[] {
   return [...new Set(found.sort((a, b) => a.at - b.at).map((q) => q.text))];
 }
 
-/** Text form for the comparison: escapes read (`\n`, `\t`, `\r` as a space, a backslash before punctuation
- *  dropped); one kind of apostrophe, and ″ as a double quote, before NFKC (which splits ´ and ″); NFKC (an
- *  ellipsis becomes "...", a no-break space a space); lower case, ß as ss; a Markdown link as its text;
- *  dashes as a hyphen; no double quote marks, emphasis (`*`, `_`, `~~`), code marks, soft hyphens or
- *  zero-width characters; one space for any whitespace run. */
+/** Text form for the comparison: escapes read (`\uXXXX` as its character, `\n`, `\t`, `\r` as a space, a
+ *  backslash before punctuation or a symbol dropped); one kind of apostrophe, and ″ as a double quote,
+ *  before NFKC (which splits ´ and ″); NFKC (an ellipsis becomes "...", a no-break space a space); lower
+ *  case, ß as ss; a Markdown link as its text; a hyphen as "-", a dash or minus as " - " (a hyphen joins
+ *  words, a dash separates them); no double quote marks, emphasis (`*`, `_`, `~~`), code marks, soft hyphens
+ *  or zero-width characters; one space for any whitespace run. Runs of combining marks are cut to
+ *  MAX_MARK_RUN first. */
 export function normalizeForQuotes(text: string): string {
   return text
+    .replace(MARK_RUN_RE, "$1")
+    .replace(/\\u([0-9a-fA-F]{4})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)))
     .replace(/\\[nrt]/g, " ")
     .replace(/\\([\p{P}\p{S}])/gu, "$1")
     .replace(/[\u2018\u2019\u201a\u201b\u2032\u2039\u203a\u00b4\u02bc]/g, "'")
@@ -99,7 +112,8 @@ export function normalizeForQuotes(text: string): string {
     .replace(/ß/g, "ss")
     .replace(/\[([^[\]\n]*)\]\([^()\n]*\)/g, "$1")
     .replace(/~~/g, "")
-    .replace(/[\u2010-\u2015\u2212]/g, "-")
+    .replace(/[\u2010\u2011]/g, "-")
+    .replace(/[\u2012-\u2015\u2212]/g, " - ")
     .replace(/["\u201c\u201d\u201e\u201f\u00ab\u00bb\u0000*_`\u00ad\u200b-\u200d\u2060\ufeff]/g, "")
     .replace(/\s+/gu, " ")
     .trim();
@@ -108,31 +122,52 @@ export function normalizeForQuotes(text: string): string {
 /** How much text around an occurrence the boundary and negation checks read. */
 const WINDOW = 48;
 /** Negation words, English and German like the prompts; a word ending in "n't" counts too. */
-const NEGATIONS = ["not", "never", "no", "nor", "cannot", "without", "dont", "nicht", "nie", "niemals", "nichts", "ohne"]
-  .concat(["kein", "keine", "keinen", "keinem", "keiner", "keines"]);
-/** A negation word before a match, with at most one word and only punctuation between, so a quote cannot
- *  drop it ("do not" + "switch to Postgres", "not yet" + "deploy", "never --" + "force push"). "no" and
- *  "kein" also flag a noun phrase after them, and the German noun "Not" reads as "not": the safe side. */
+const NEGATIONS = ["not", "never", "no", "nor", "cannot", "without", "dont"].concat(
+  ["nicht", "nie", "niemals", "nichts", "ohne", "kein", "keine", "keinen", "keinem", "keiner", "keines"],
+);
+/** Words after a negation word that make an affirmation of it ("not only", "not just", "no doubt", "without
+ *  question", "nicht nur", "ohne Frage", "ohne Zweifel"). */
+const AFFIRMING_WORDS = ["only", "just", "doubt", "question", "nur", "frage", "zweifel"];
+const AFFIRMING = `(?:${AFFIRMING_WORDS.join("|")})(?![\\p{L}\\p{N}])`;
+/** A negation word before a match, with at most one word (hyphens allowed) and then only punctuation,
+ *  symbols and blanks between, so a quote cannot drop it ("do not" + "switch to Postgres", "not yet" +
+ *  "deploy", "never -- " + "force push"). "no" and "kein" also flag a noun phrase after them, and the German
+ *  noun "Not" reads as "not": the safe side. */
 const NEGATED_BEFORE = new RegExp(
-  `(?:^|[^\\p{L}\\p{N}'])(?:${NEGATIONS.join("|")}|\\p{L}+n't)(?: [\\p{L}\\p{N}']+)? [\\p{P}\\p{S}]*$`,
+  `(?:^|[^\\p{L}\\p{N}'])(?:${NEGATIONS.join("|")}|\\p{L}+n't)(?: (?!${AFFIRMING})[\\p{L}\\p{N}'-]+)? [\\p{P}\\p{S} ]*$`,
   "u",
 );
-/** A German negation that ends the clause right after a match ("Wir deployen am Freitag nicht."). */
-const NEGATED_AFTER = /^ (?:nicht|nie|niemals)(?:$|[.,;:!?)\]])/u;
+/** A German negation that ends the clause right after a match ("Wir deployen am Freitag nicht.", "… auch
+ *  nicht", "… nicht mehr.", "… nicht - …", "… nie (…)"). */
+const NEGATED_AFTER = /^ (?:auch )?(?:nicht|nie|niemals)(?: mehr| länger)?(?:$|[.,;:!?)\]]| -| \()/u;
 /** Word boundaries: a letter or digit, or one joined by a hyphen, dot or slash ("non-blocking", "22.10.1",
  *  "config/prod/app.yml"), continues the word. */
 const WORD_BEFORE = /(?:[\p{L}\p{N}]|[\p{L}\p{N}][-./])$/u;
 const WORD_AFTER = /^(?:[\p{L}\p{N}]|[-./][\p{L}\p{N}])/u;
+
+/** The text without blanks and punctuation at its edges, in linear time (a regex for the end is quadratic on
+ *  a long punctuation run inside the text). */
+function trimEdges(text: string): string {
+  const edge = /[\s\p{P}]/u;
+  let start = 0;
+  let end = text.length;
+  while (start < end && edge.test(text[start])) start++;
+  while (end > start && edge.test(text[end - 1])) end--;
+  return text.slice(start, end);
+}
 
 /** True if the quote, normalized and without the punctuation at its edges, occurs in the normalized source
  *  as one piece, at word boundaries and with no negation dropped: no omission ("…", "[…]"), no part of a
  *  longer word. Each occurrence is checked in a window of WINDOW characters around it, so the cost stays
  *  linear in the source. */
 function inSource(quote: string, normalizedSource: string): boolean {
-  const q = normalizeForQuotes(quote).replace(/^[\s\p{P}]+|[\s\p{P}]+$/gu, "");
+  const q = trimEdges(normalizeForQuotes(quote));
   if (!WORD.test(q)) return true;
   for (let at = normalizedSource.indexOf(q); at !== -1; at = normalizedSource.indexOf(q, at + 1)) {
-    const before = normalizedSource.slice(Math.max(0, at - WINDOW), at);
+    const from = Math.max(0, at - WINDOW);
+    // A word cut by the window start is no word: "knot" must not read as "not".
+    const window = normalizedSource.slice(from, at);
+    const before = from > 0 ? window.replace(/^[\p{L}\p{N}']+/u, "") : window;
     const after = normalizedSource.slice(at + q.length, at + q.length + WINDOW);
     if (WORD_BEFORE.test(before) || WORD_AFTER.test(after)) continue;
     if (NEGATED_BEFORE.test(before) || NEGATED_AFTER.test(after)) continue;
@@ -141,25 +176,28 @@ function inSource(quote: string, normalizedSource: string): boolean {
   return false;
 }
 
-/** A line a summarizer marked as its own inference: no source for a quote. */
-const DERIVED_LINE_RE = /^.*\(derived\).*$/gim;
-/** Quote markers at line starts (`> `, `> > `), read as layout in the source. */
-const QUOTE_MARKERS_RE = /^[ \t]*(?:>[ \t]?)+/gm;
+/** An item a summarizer marked as its own inference, a line (or, in escaped text, a part between literal
+ *  `\n`) that ends in "(derived)": no source for a quote. */
+const DERIVED_ITEM_RE = /(?:^|(?<=\\n))(?:(?!\\n)[^\n])*\(derived\)[ \t.]*(?=\\n|$)/gim;
+/** Quote markers at line starts or after a literal `\n` (`> `, `> > `), read as layout in the source; not a
+ *  `>` before a number. */
+const QUOTE_MARKERS_RE = /(?:^|(?<=\\n))[ \t]*(?:>(?![ \t]*\d)[ \t]?)+/gm;
 
 /**
  * The brief's quotes that are not word for word in the source. A quote that a Cairn check note in the source
  * already lists stays unverified, and so does a quote inside or around a listed one: a resumed brief in the
- * conversation holds both the quote and its note, and the quote must not pass on its own earlier copy. A
- * line marked `(derived)` is no source either.
+ * conversation holds both the quote and its note, and the quote must not pass on its own earlier copy. An
+ * item marked `(derived)` is no source either, and a quote over MAX_QUOTE_CHARS is not searched.
  */
 export function unverifiedQuotes(brief: string, source: string): string[] {
-  const src = source.normalize("NFC");
-  const noted = (src.match(NOTE_RE) ?? []).flatMap(extractQuotes).map(normalizeForQuotes);
+  const src = source.replace(MARK_RUN_RE, "$1").normalize("NFC");
+  const noted = [...new Set((src.match(NOTE_RE) ?? []).flatMap(extractQuotes).map(normalizeForQuotes))];
   const normalizedSource = normalizeForQuotes(
-    src.replace(NOTE_RE, "").replace(DERIVED_LINE_RE, "").replace(QUOTE_MARKERS_RE, ""),
+    src.replace(NOTE_RE, "").replace(DERIVED_ITEM_RE, "").replace(QUOTE_MARKERS_RE, ""),
   );
   return extractQuotes(brief).filter((q) => {
     const n = normalizeForQuotes(q);
-    return !inSource(q, normalizedSource) || noted.some((m) => m.includes(n) || n.includes(m));
+    if (q.length > MAX_QUOTE_CHARS || !inSource(q, normalizedSource)) return true;
+    return noted.some((m) => m.includes(n) || n.includes(m));
   });
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { extractQuotes, normalizeForQuotes, unverifiedQuotes, MIN_QUOTE_WORDS, MAX_NESTING, NOTE_PREFIXES } from "./grounding.js";
+import { extractQuotes, normalizeForQuotes, unverifiedQuotes, MIN_QUOTE_WORDS, MAX_NESTING, MAX_QUOTE_CHARS, NOTE_PREFIXES } from "./grounding.js";
 import { t } from "../i18n/index.js";
 
 /** Invisible or look-alike characters by code point, so the test file holds none as literals. */
@@ -101,11 +101,19 @@ describe("normalizeForQuotes", () => {
     expect(normalizeForQuotes("> 100 ms")).toBe("> 100 ms");
   });
 
-  it("stays linear on many brackets without a link", () => {
+  it("stays linear on many brackets without a link and on long runs of combining marks", () => {
     const t0 = Date.now();
     normalizeForQuotes("[".repeat(200_000));
     normalizeForQuotes("[a](".repeat(100_000));
-    expect(Date.now() - t0).toBeLessThan(2_000);
+    const marks = `a${(ch(0x316) + ch(0x300)).repeat(250_000)}`;
+    normalizeForQuotes(marks);
+    unverifiedQuotes('"one two three"', marks);
+    expect(Date.now() - t0).toBeLessThan(3_000);
+    expect(normalizeForQuotes(`e${ch(0x301)}`)).toBe("\u00e9".normalize("NFKC"));
+  });
+
+  it("joins words by a hyphen, separates them by a dash", () => {
+    expect(normalizeForQuotes(`non${ch(0x2010)}blocking a${ch(0x2014)}b c ${ch(0x2013)} d`)).toBe("non-blocking a - b c - d");
   });
 });
 
@@ -126,6 +134,7 @@ describe("unverifiedQuotes", () => {
       '- "We keep losing writes when two workers flush at the same time"',
       '- "Do not switch to Postgres."',
       '- "keep (b) as a follow-up ticket,"',
+      '- "...keep (b) as a follow-up ticket"',
     ].join("\n");
     expect(unverifiedQuotes(brief, source)).toEqual([]);
   });
@@ -165,6 +174,9 @@ describe("unverifiedQuotes", () => {
     expect(unverifiedQuotes('"pin version 22.10"', "pin version 22.10.1 for now")).toHaveLength(1);
     expect(unverifiedQuotes('"edit the config/prod"', "edit the config/prod/app.yml first")).toHaveLength(1);
     expect(unverifiedQuotes('"pin version 22.10"', "pin version 22.10. Then ship.")).toEqual([]);
+    // A dash, also without blanks, separates words.
+    expect(unverifiedQuotes('"switch to Postgres now"', `Decision${ch(0x2014)}switch to Postgres now.`)).toEqual([]);
+    expect(unverifiedQuotes('"keep it short - two lines max"', `keep it short${ch(0x2014)}two lines max`)).toEqual([]);
     // Also for a quote that starts or ends with a symbol.
     expect(unverifiedQuotes('"$HOME stays unset in CI"', "x$HOME stays unset in CI")).toHaveLength(1);
     expect(unverifiedQuotes('"$HOME stays unset in CI"', "Make sure $HOME stays unset in CI.")).toEqual([]);
@@ -176,6 +188,10 @@ describe("unverifiedQuotes", () => {
       ['"deploy on Fridays again"', "Don't deploy on Fridays again."],
       ['"deploy on Fridays again"', "We do not yet deploy on Fridays again."],
       ['"force push to main"', "Never --force push to main."],
+      ['"force push to main"', "Never -- force push to main."],
+      ['"force push to main"', "Never >> force push to main."],
+      ['"deploy on Fridays again"', "We do not well-tested deploy on Fridays again."],
+      ["„Wir deployen am Freitag“", "Wir deployen am Freitag auch nicht."],
       ['"(re)start the worker by hand"', "Do not (re)start the worker by hand."],
       ['"$HOME stays unset in CI"', "Make sure not $HOME stays unset in CI."],
       ['"touch the worker protocol"', "Ship it without touching the worker protocol, without touch the worker protocol."],
@@ -189,10 +205,35 @@ describe("unverifiedQuotes", () => {
     ] as const) {
       expect(unverifiedQuotes(quote, src), `${quote} / ${src}`).toHaveLength(1);
     }
+    for (const [quote, src] of [
+      ["„Wir deployen am Freitag“", "Wir deployen am Freitag nicht mehr."],
+      ["„Wir deployen am Freitag“", `Wir deployen am Freitag nicht ${ch(0x2013)} wie besprochen.`],
+      ["„Wir deployen am Freitag“", "Wir deployen am Freitag nie (das war klar)."],
+    ] as const) {
+      expect(unverifiedQuotes(quote, src), `${quote} / ${src}`).toHaveLength(1);
+    }
     expect(unverifiedQuotes('"Keine Tokens im localStorage ablegen"', "Keine Tokens im localStorage ablegen.")).toEqual([]);
+    // An affirming phrase after a negation word is none.
+    for (const [quote, src] of [
+      ['"switch to Postgres now"', "No doubt, switch to Postgres now."],
+      ['"deploy on Fridays too"', "We not only deploy on Fridays too."],
+      ['"switch to Postgres now"', "Without question switch to Postgres now."],
+      ["„nehmen wir Postgres“", "Ohne Zweifel nehmen wir Postgres."],
+      ["„am Freitag deployen wir“", "Nicht nur am Freitag deployen wir."],
+      ["„nehmen wir Postgres“", "Ohne Frage nehmen wir Postgres."],
+      ['"deploy on Fridays too"', "We not just deploy on Fridays too."],
+      ['"switch to Postgres now"', "No doubt we switch to Postgres now."],
+      // Punctuation right after the word in between ends the negation: "don't worry, …".
+      ['"switch to Postgres now"', "Don't worry, switch to Postgres now."],
+    ] as const) {
+      expect(unverifiedQuotes(quote, src), `${quote} / ${src}`).toEqual([]);
+    }
     // A contrast after the quote is no negation of it; another occurrence without the negation counts.
     expect(unverifiedQuotes("„Wir deployen am Freitag“", "Wir deployen am Freitag nicht am Montag.")).toEqual([]);
     expect(unverifiedQuotes('"switch to Postgres fully"', "Do not switch to Postgres fully yet. Next quarter we switch to Postgres fully.")).toEqual([]);
+    // A word cut by the window start is no negation word ("knot" read from its last letters).
+    expect(unverifiedQuotes('"switch to Postgres now"', `knot ${"-".repeat(44)}switch to Postgres now.`)).toEqual([]);
+    expect(unverifiedQuotes('"switch to Postgres now"', `not ${"-".repeat(43)}switch to Postgres now.`)).toHaveLength(1);
     // A word that only ends in a negation is none ("Reno"); across a sentence end, "not" negates nothing after it.
     expect(unverifiedQuotes('"deploy on Fridays again"', "In Reno deploy on Fridays again.")).toEqual([]);
     expect(unverifiedQuotes('"switch to Postgres fully"', "I do not know. Switch to Postgres fully.")).toEqual([]);
@@ -211,6 +252,9 @@ describe("unverifiedQuotes", () => {
     const json = JSON.stringify({ text: 'first line\nGo with (a) now, keep (b) open\nthe README says "SQLite needs no configuration"' });
     expect(unverifiedQuotes('- "Go with (a) now, keep (b) open"\n- "SQLite needs no configuration"', json)).toEqual([]);
     expect(unverifiedQuotes('- "use the refresh_token_ttl setting"', "use the refresh\\_token\\_ttl setting")).toEqual([]);
+    // JSON with escaped non-ASCII (Python's json.dumps) and quote markers after a literal \n.
+    expect(unverifiedQuotes("- „Prüfung vor jedem Merge“", '{"t": "Pr\\u00fcfung vor jedem Merge"}')).toEqual([]);
+    expect(unverifiedQuotes('- "Please keep the worker protocol as is"', '{"t": "x\\n> Please keep the\\n> worker protocol as is"}')).toEqual([]);
     expect(unverifiedQuotes(`- "it's our decision to stay"`, `it${MOD_APOS}s our decision to stay`)).toEqual([]);
     // Quote markers at the start of wrapped source lines, also nested, are layout.
     expect(unverifiedQuotes('- "Please keep the worker protocol as is"', "> Please keep the\n> worker protocol as is")).toEqual([]);
@@ -220,6 +264,21 @@ describe("unverifiedQuotes", () => {
   it("keeps a measuring sign: `>` and `~` in a quote must be in the source", () => {
     expect(unverifiedQuotes('"> 100 ms means degraded"', "< 100 ms means degraded")).toHaveLength(1);
     expect(unverifiedQuotes('"~5 ms latency budget"', "5 ms latency budget")).toHaveLength(1);
+    // A `>` before a number at a source line start is no quote marker.
+    expect(unverifiedQuotes('"> 100 ms means degraded"', "> 100 ms means degraded")).toEqual([]);
+  });
+
+  it(`does not search a quote over ${MAX_QUOTE_CHARS} characters: it counts as unverified`, () => {
+    const text = Array.from({ length: 400 }, (_, i) => `w${i}`).join(" ");
+    // Prefixes of the source that end at a word end: just over and at most the bound.
+    const long = text.slice(0, text.indexOf(" ", MAX_QUOTE_CHARS));
+    const fits = text.slice(0, text.lastIndexOf(" ", MAX_QUOTE_CHARS));
+    expect(long.length).toBeGreaterThan(MAX_QUOTE_CHARS);
+    expect(unverifiedQuotes(`- "${long}"`, text)).toEqual([long]);
+    expect(unverifiedQuotes(`- "${fits}"`, text)).toEqual([]);
+    const t0 = Date.now();
+    unverifiedQuotes(`- "${"a, b. ".repeat(300_000)}x"`, "a, b. ".repeat(300_000));
+    expect(Date.now() - t0).toBeLessThan(3_000);
   });
 
   it("stays linear on a long run of punctuation before a match", () => {
@@ -257,6 +316,12 @@ describe("unverifiedQuotes", () => {
     expect(unverifiedQuotes('- "keep (b) as a follow-up ticket"', src)).toEqual([]);
     const earlier = "4) CONSTRAINTS\n- Target: 0 lost writes under 8 workers (derived)";
     expect(unverifiedQuotes('- "Target: 0 lost writes under 8 workers"', earlier)).toHaveLength(1);
+    // Only an item that ends in (derived) is dropped: in escaped text up to a literal \n, a mention elsewhere stays.
+    const json = JSON.stringify({ b: "- keep (b) as a follow-up ticket\n- Target: 0 lost writes under 8 workers (derived)\n- more" });
+    expect(unverifiedQuotes('- "Target: 0 lost writes under 8 workers"\n- "keep (b) as a follow-up ticket"', json)).toEqual([
+      "Target: 0 lost writes under 8 workers",
+    ]);
+    expect(unverifiedQuotes('- "keep the worker protocol as is"', "Lea: the (derived) marker is fine, keep the worker protocol as is")).toEqual([]);
   });
 
   it("the note prefixes are the ones both catalogs write", () => {
