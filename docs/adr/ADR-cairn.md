@@ -906,14 +906,16 @@ acts on them. So the brief marks which is which, and Cairn checks it where it ha
     nothing. A quote inside a quote is read as well as the outer one, up to three levels deep per kind of
     quote mark (`MAX_NESTING`): each level is one more pass. A quote over 1,000 characters
     (`MAX_QUOTE_CHARS`) counts as unverified without a search.
-  - Both texts are normalized: runs of combining marks cut to eight, escapes read (`\uXXXX` as its
-    character, `\n`, `\t`, `\r` as a space, a backslash before punctuation or a symbol dropped), apostrophes
-    folded and ″ read as a double quote, NFKC, lower case, ß as ss, a Markdown
-    link as its text, a hyphen as `-` but a dash or minus as ` - ` (a hyphen joins words, a dash separates
-    them), no double quote marks, `*`, `_`, `~~`, `` ` ``, soft hyphens or zero-width characters, one space
-    per whitespace run. In the source, `>` quote markers at line starts or after a literal `\n` (not a `>`
-    before a number) are dropped too, and an item that ends in `(derived)`, a line or in escaped text a part between literal
-    `\n`, is no source: it is an earlier brief's inference.
+  - Both texts are normalized: escapes read (`\uXXXX` as its character, `\n`, `\t`, `\r` as a space, a
+    backslash before punctuation or a symbol dropped), then runs of combining marks (and of U+FF9E/U+FF9F,
+    which NFKC turns into ones) cut to eight, apostrophes folded and ″ read as a double quote, NFKC, lower
+    case, ß as ss, a Markdown link as its text, a hyphen, an en dash or a minus as `-` ("1–2 h", "Mo–Fr")
+    but an em dash as ` - ` (it separates words: "Decision—switch"), no double quote marks, `*`, `_`, `~~`,
+    `` ` ``, soft hyphens or zero-width characters, one space per whitespace run. In the source, `>` quote
+    markers at line starts or after a literal `\n` (not a `>` before a number) are dropped too, and an item
+    that ends in `(derived)` (also emphasized, or before `.`, `,` or `;`) is no source: it is an earlier
+    brief's inference. An item is a line, or in escaped text a part between literal `\n`, up to an escaped
+    `\r` or the string's closing quote.
   - The quote, without the punctuation at its edges, must occur in one piece (an omission, `…` or `[…]`, is
     not word for word) at word boundaries: a letter or digit, or one joined by `-`, `.` or `/`, continues the
     word ("safe" is not in "unsafe", nor "blocking" in "non-blocking", nor "22.10" in "22.10.1").
@@ -922,7 +924,9 @@ acts on them. So the brief marks which is which, and Cairn checks it where it ha
     Postgres", "not yet" + "deploy", "never -- " + "force push"), unless that word affirms ("not only",
     "not just", "no doubt", "without question", "nicht nur", "ohne Frage", "ohne Zweifel"); and no German
     "nicht", "nie" or "niemals" (after "auch", before "mehr" or "länger") ending the clause right after it,
-    before punctuation, a dash or a parenthesis. The words are English and German (`not`,
+    before punctuation, a dash or a parenthesis. A dash with blanks around it ends a negation's reach ("Not
+    Redis — we use Postgres", "Nicht reproduzierbar — verworfen", and "Never -- force push" too); a `--`
+    right before the quote does not ("Never --force push"). The words are English and German (`not`,
     `never`, `no`, `nor`, `cannot`, `without`, `dont`, any word ending in `n't`, `nicht`, `nie`, `niemals`,
     `nichts`, `ohne`, `kein…`). One occurrence that passes is enough. Each occurrence is judged on 48
     characters around it, without a word the window start cuts ("knot" is not "not"), so the cost is linear
@@ -930,8 +934,9 @@ acts on them. So the brief marks which is which, and Cairn checks it where it ha
   - A quote that a Cairn check note in the source lists stays unverified, and so does a quote inside or
     around a listed one, so a resumed brief in the conversation cannot clear its own note on the next
     handoff. A note starts a line (after blanks or `>`) or follows a literal `\n` in escaped text (a JSON
-    string), and runs to the end of the line or the next literal `\n`; the prefix is read case-insensitive,
-    also Markdown-escaped (`\[`), with a JSON-escaped ü and after NFC. A prefix inside a line is no note.
+    string), and runs to the end of the line (`\n`, `\r`, U+2028 or U+2029) or the next literal `\n`; the
+    prefix is read case-insensitive, also Markdown-escaped (`\[`), with a JSON-escaped ü and after NFC. A
+    prefix inside a line is no note.
   - A quote the source lacks is listed in `unverifiedQuotes` and in a warning line of the tool text. The
     stored brief gets a closing note: `[Cairn check] Not found word for word in the source, so treat as
     derived: "…"`, or the German `[Cairn-Prüfung]`.
@@ -958,7 +963,7 @@ quotes, all in the source, and no `(derived)` marker.
 - The check finds the words, not who said them or in which sense: a sentence the assistant proposed and the
   user rejected is in the source too. A quote may leave out words around it ("in this sprint") other than a
   negation as above, and edge punctuation does not count, so a question can come back as a statement.
-- An earlier brief in the source counts as source, except its noted quotes and its `(derived)` lines: its
+- An earlier brief in the source counts as source, except its noted quotes and its `(derived)` items: its
   paraphrases can come back as quotes. A note broken over two lines is read only on its first line, and one
   with its prefix changed otherwise is not recognized.
 - The negation rule has a word list and a window: a negation further away, in single quotes or in a word
@@ -967,9 +972,11 @@ quotes, all in the source, and no `(derived)` marker.
   German noun "Not", a negation the brief keeps outside the quote marks, a negation at the end of the line
   before (the source's line breaks count as spaces), a quote inside a noted one, and the rest of a line
   after a fake or escaped note.
-- The cost is linear in the source; on the brief's side it grows with the number of quotes times the source
-  and, for a quote that overlaps itself many times, with its length (both bounded by MAX_QUOTE_CHARS and a
-  brief's size).
+- The cost is linear in the source: eighteen prepared 1 MB sources (progress bars with `\r`, escaped or
+  half-width combining marks, U+2028 lines, notes and `(derived)` items on `\r` lines, nested quotes,
+  brackets, punctuation, negations, a one-line JSON string) took 16–290 ms with a brief of 50 quotes. On
+  the brief's side it grows with the number of quotes times the source and, for a quote that overlaps itself
+  many times, with its length (both bounded by MAX_QUOTE_CHARS and a brief's size).
 - An item marked `(derived)` that wraps over lines is dropped from the source only on the line that ends in
   the marker. An item that mixes stated and inferred content loses its stated part as a source; the prompt
   asks for inferences as items of their own.

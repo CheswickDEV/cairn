@@ -23,10 +23,11 @@ export const MIN_QUOTE_WORDS = 3;
  *  the check's cost in proportion to the source. */
 export const MAX_QUOTE_CHARS = 1_000;
 
-/** Runs of combining marks are cut to this many before Unicode normalization, which is quadratic on very
- *  long runs; real text has a few at most. */
+/** Runs of combining marks (and of U+FF9E/U+FF9F, which NFKC turns into ones) are cut to this many before
+ *  Unicode normalization, which is quadratic on very long runs; real text has a few at most. */
 const MAX_MARK_RUN = 8;
-const MARK_RUN_RE = new RegExp(`(\\p{M}{${MAX_MARK_RUN}})\\p{M}+`, "gu");
+const MARK = "[\\p{M}\\uFF9E\\uFF9F]";
+const MARK_RUN_RE = new RegExp(`(${MARK}{${MAX_MARK_RUN}})${MARK}+`, "gu");
 
 /** Quotes inside quotes are read this many levels deep; each level is one more pass over the text, so the
  *  bound keeps the check linear in the input. */
@@ -36,11 +37,14 @@ export const MAX_NESTING = 3;
  *  `handoff.unverifiedNote`). A note inside a source keeps its quotes unverified (`unverifiedQuotes`). */
 export const NOTE_PREFIXES = ["[Cairn check]", "[Cairn-Prüfung]"] as const;
 
+/** Any character but a line end (`\n`, `\r`, U+2028, U+2029: where the `m` flag starts a line), so a scan
+ *  to the line end never runs past the next line start. */
+const NOT_EOL = "[^\\n\\r\\u2028\\u2029]";
 /** A note at the start of a line (after blanks or `>`), or in escaped text (a JSON string) right after a
  *  literal `\n`, up to the end of its line or the next literal `\n`; case-insensitive, also with its brackets
  *  Markdown-escaped (`\[`) and its ü JSON-escaped. A prefix inside a line is no note. */
 const NOTE_PATTERNS = NOTE_PREFIXES.map((p) => p.replace(/[[\]]/g, "\\\\?\\$&").replace("ü", "(?:ü|\\\\u00fc)"));
-const NOTE_RE = new RegExp(`(?:^[ \\t>]*|(?<=\\\\n))(?:${NOTE_PATTERNS.join("|")})(?:(?!\\\\n)[^\\n])*`, "gim");
+const NOTE_RE = new RegExp(`(?:^[ \\t>]*|(?<=\\\\n))(?:${NOTE_PATTERNS.join("|")})(?:(?!\\\\n)${NOT_EOL})*`, "gim");
 
 /** Fenced code blocks (``` as verbatim.ts reads them, and ~~~), then inline code on one line. */
 const FENCE_RE = /```[\s\S]*?```|~~~[\s\S]*?~~~/g;
@@ -93,16 +97,16 @@ export function extractQuotes(brief: string): string[] {
 }
 
 /** Text form for the comparison: escapes read (`\uXXXX` as its character, `\n`, `\t`, `\r` as a space, a
- *  backslash before punctuation or a symbol dropped); one kind of apostrophe, and ″ as a double quote,
- *  before NFKC (which splits ´ and ″); NFKC (an ellipsis becomes "...", a no-break space a space); lower
- *  case, ß as ss; a Markdown link as its text; a hyphen as "-", a dash or minus as " - " (a hyphen joins
- *  words, a dash separates them); no double quote marks, emphasis (`*`, `_`, `~~`), code marks, soft hyphens
- *  or zero-width characters; one space for any whitespace run. Runs of combining marks are cut to
- *  MAX_MARK_RUN first. */
+ *  backslash before punctuation or a symbol dropped); runs of combining marks cut to MAX_MARK_RUN; one kind
+ *  of apostrophe, and ″ as a double quote, before NFKC (which splits ´ and ″); NFKC (an ellipsis becomes
+ *  "...", a no-break space a space); lower case, ß as ss; a Markdown link as its text; a hyphen, an en dash
+ *  or a minus as "-" ("1–2 h", "Mo–Fr"), an em dash as " - " (it separates words: "Decision—switch"); no
+ *  double quote marks, emphasis (`*`, `_`, `~~`), code marks, soft hyphens or zero-width characters; one
+ *  space for any whitespace run. */
 export function normalizeForQuotes(text: string): string {
   return text
-    .replace(MARK_RUN_RE, "$1")
     .replace(/\\u([0-9a-fA-F]{4})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(MARK_RUN_RE, "$1")
     .replace(/\\[nrt]/g, " ")
     .replace(/\\([\p{P}\p{S}])/gu, "$1")
     .replace(/[\u2018\u2019\u201a\u201b\u2032\u2039\u203a\u00b4\u02bc]/g, "'")
@@ -112,8 +116,8 @@ export function normalizeForQuotes(text: string): string {
     .replace(/ß/g, "ss")
     .replace(/\[([^[\]\n]*)\]\([^()\n]*\)/g, "$1")
     .replace(/~~/g, "")
-    .replace(/[\u2010\u2011]/g, "-")
-    .replace(/[\u2012-\u2015\u2212]/g, " - ")
+    .replace(/[\u2010-\u2013\u2212]/g, "-")
+    .replace(/[\u2014\u2015]/g, " - ")
     .replace(/["\u201c\u201d\u201e\u201f\u00ab\u00bb\u0000*_`\u00ad\u200b-\u200d\u2060\ufeff]/g, "")
     .replace(/\s+/gu, " ")
     .trim();
@@ -131,10 +135,15 @@ const AFFIRMING_WORDS = ["only", "just", "doubt", "question", "nur", "frage", "z
 const AFFIRMING = `(?:${AFFIRMING_WORDS.join("|")})(?![\\p{L}\\p{N}])`;
 /** A negation word before a match, with at most one word (hyphens allowed) and then only punctuation,
  *  symbols and blanks between, so a quote cannot drop it ("do not" + "switch to Postgres", "not yet" +
- *  "deploy", "never -- " + "force push"). "no" and "kein" also flag a noun phrase after them, and the German
+ *  "deploy", "never --" + "force push"). A dash with blanks around it ends its reach: "Not Redis — we use
+ *  Postgres". "no" and "kein" also flag a noun phrase after them, and the German
  *  noun "Not" reads as "not": the safe side. */
 const NEGATED_BEFORE = new RegExp(
-  `(?:^|[^\\p{L}\\p{N}'])(?:${NEGATIONS.join("|")}|\\p{L}+n't)(?: (?!${AFFIRMING})[\\p{L}\\p{N}'-]+)? [\\p{P}\\p{S} ]*$`,
+  `(?:^|[^\\p{L}\\p{N}'])(?:${NEGATIONS.join("|")}|\\p{L}+n't)` +
+    // at most one word in between, not an affirming one
+    `(?: (?!${AFFIRMING})[\\p{L}\\p{N}][\\p{L}\\p{N}'-]*)?` +
+    // then blanks, punctuation and symbols up to the match, but no dash with blanks around it
+    ` (?![\\p{P}\\p{S} ]*?(?<= )-+ )[\\p{P}\\p{S} ]*$`,
   "u",
 );
 /** A German negation that ends the clause right after a match ("Wir deployen am Freitag nicht.", "… auch
@@ -145,15 +154,16 @@ const NEGATED_AFTER = /^ (?:auch )?(?:nicht|nie|niemals)(?: mehr| länger)?(?:$|
 const WORD_BEFORE = /(?:[\p{L}\p{N}]|[\p{L}\p{N}][-./])$/u;
 const WORD_AFTER = /^(?:[\p{L}\p{N}]|[-./][\p{L}\p{N}])/u;
 
-/** The text without blanks and punctuation at its edges, in linear time (a regex for the end is quadratic on
- *  a long punctuation run inside the text). */
+/** The text without blanks and punctuation at its edges, by code point and in linear time (a regex for the
+ *  end is quadratic on a long punctuation run inside the text). */
 function trimEdges(text: string): string {
-  const edge = /[\s\p{P}]/u;
+  const edge = /^[\s\p{P}]$/u;
+  const chars = Array.from(text);
   let start = 0;
-  let end = text.length;
-  while (start < end && edge.test(text[start])) start++;
-  while (end > start && edge.test(text[end - 1])) end--;
-  return text.slice(start, end);
+  let end = chars.length;
+  while (start < end && edge.test(chars[start])) start++;
+  while (end > start && edge.test(chars[end - 1])) end--;
+  return chars.slice(start, end).join("");
 }
 
 /** True if the quote, normalized and without the punctuation at its edges, occurs in the normalized source
@@ -167,7 +177,8 @@ function inSource(quote: string, normalizedSource: string): boolean {
     const from = Math.max(0, at - WINDOW);
     // A word cut by the window start is no word: "knot" must not read as "not".
     const window = normalizedSource.slice(from, at);
-    const before = from > 0 ? window.replace(/^[\p{L}\p{N}']+/u, "") : window;
+    const cut = from > 0 && /[\p{L}\p{N}']/u.test(normalizedSource[from - 1]);
+    const before = cut ? window.replace(/^[\p{L}\p{N}']+/u, "") : window;
     const after = normalizedSource.slice(at + q.length, at + q.length + WINDOW);
     if (WORD_BEFORE.test(before) || WORD_AFTER.test(after)) continue;
     if (NEGATED_BEFORE.test(before) || NEGATED_AFTER.test(after)) continue;
@@ -177,8 +188,9 @@ function inSource(quote: string, normalizedSource: string): boolean {
 }
 
 /** An item a summarizer marked as its own inference, a line (or, in escaped text, a part between literal
- *  `\n`) that ends in "(derived)": no source for a quote. */
-const DERIVED_ITEM_RE = /(?:^|(?<=\\n))(?:(?!\\n)[^\n])*\(derived\)[ \t.]*(?=\\n|$)/gim;
+ *  `\n`, up to an escaped `\r` or the string's closing quote) that ends in "(derived)", also emphasized: no
+ *  source for a quote. */
+const DERIVED_ITEM_RE = new RegExp(`(?:^|(?<=\\\\n))(?:(?!\\\\n)${NOT_EOL})*\\(derived\\)[ \\t.,;*_]*(?=\\\\[nr]|"|$)`, "gim");
 /** Quote markers at line starts or after a literal `\n` (`> `, `> > `), read as layout in the source; not a
  *  `>` before a number. */
 const QUOTE_MARKERS_RE = /(?:^|(?<=\\n))[ \t]*(?:>(?![ \t]*\d)[ \t]?)+/gm;

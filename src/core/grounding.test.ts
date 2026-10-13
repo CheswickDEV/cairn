@@ -5,6 +5,8 @@ import { t } from "../i18n/index.js";
 /** Invisible or look-alike characters by code point, so the test file holds none as literals. */
 const ch = (...codes: number[]) => String.fromCharCode(...codes);
 const NBSP = ch(0xa0), SHY = ch(0xad), ZWSP = ch(0x200b), BOM = ch(0xfeff), MOD_APOS = ch(0x2bc), DIAERESIS = ch(0x308);
+/** A JSON \\u escape as text (backslash, "u", four hex digits). */
+const esc = (code: number) => "\\" + "u" + code.toString(16).padStart(4, "0");
 
 describe("extractQuotes", () => {
   it("reads straight, English, German and both guillemet quotes, in brief order", () => {
@@ -108,12 +110,16 @@ describe("normalizeForQuotes", () => {
     const marks = `a${(ch(0x316) + ch(0x300)).repeat(250_000)}`;
     normalizeForQuotes(marks);
     unverifiedQuotes('"one two three"', marks);
+    // Also escaped marks (JSON from Python's json.dumps), and U+FF9E/U+FF9F, which NFKC makes marks of.
+    unverifiedQuotes('"one two three"', `{"t": "a${(esc(0x316) + esc(0x300)).repeat(83_000)}"}`);
+    unverifiedQuotes('"one two three"', `a${(ch(0x316) + ch(0xff9e)).repeat(150_000)}`);
     expect(Date.now() - t0).toBeLessThan(3_000);
     expect(normalizeForQuotes(`e${ch(0x301)}`)).toBe("\u00e9".normalize("NFKC"));
   });
 
-  it("joins words by a hyphen, separates them by a dash", () => {
+  it("joins words by a hyphen, an en dash or a minus; separates them by an em dash", () => {
     expect(normalizeForQuotes(`non${ch(0x2010)}blocking a${ch(0x2014)}b c ${ch(0x2013)} d`)).toBe("non-blocking a - b c - d");
+    expect(normalizeForQuotes(`1${ch(0x2013)}2 h Mo${ch(0x2013)}Fr ${ch(0x2212)}5`)).toBe("1-2 h mo-fr -5");
   });
 });
 
@@ -177,6 +183,9 @@ describe("unverifiedQuotes", () => {
     // A dash, also without blanks, separates words.
     expect(unverifiedQuotes('"switch to Postgres now"', `Decision${ch(0x2014)}switch to Postgres now.`)).toEqual([]);
     expect(unverifiedQuotes('"keep it short - two lines max"', `keep it short${ch(0x2014)}two lines max`)).toEqual([]);
+    expect(unverifiedQuotes('"1-2 h per run"', `about 1${ch(0x2013)}2 h per run`)).toEqual([]);
+    // Punctuation outside the BMP at a quote's edge is trimmed like any other.
+    expect(unverifiedQuotes(`"switch to Postgres now${String.fromCodePoint(0x10100)}"`, "switch to Postgres now.")).toEqual([]);
     // Also for a quote that starts or ends with a symbol.
     expect(unverifiedQuotes('"$HOME stays unset in CI"', "x$HOME stays unset in CI")).toHaveLength(1);
     expect(unverifiedQuotes('"$HOME stays unset in CI"', "Make sure $HOME stays unset in CI.")).toEqual([]);
@@ -188,7 +197,6 @@ describe("unverifiedQuotes", () => {
       ['"deploy on Fridays again"', "Don't deploy on Fridays again."],
       ['"deploy on Fridays again"', "We do not yet deploy on Fridays again."],
       ['"force push to main"', "Never --force push to main."],
-      ['"force push to main"', "Never -- force push to main."],
       ['"force push to main"', "Never >> force push to main."],
       ['"deploy on Fridays again"', "We do not well-tested deploy on Fridays again."],
       ["„Wir deployen am Freitag“", "Wir deployen am Freitag auch nicht."],
@@ -225,6 +233,13 @@ describe("unverifiedQuotes", () => {
       ['"switch to Postgres now"', "No doubt we switch to Postgres now."],
       // Punctuation right after the word in between ends the negation: "don't worry, …".
       ['"switch to Postgres now"', "Don't worry, switch to Postgres now."],
+      // So does a dash with blanks around it ("--" written for one too); a "--" right before the quote does not.
+      ['"we use Postgres"', `Not Redis ${ch(0x2014)} we use Postgres.`],
+      ['"switch to Postgres now"', `No ${ch(0x2014)} switch to Postgres now.`],
+      ['"we use Postgres"', "Nicht Redis -- we use Postgres."],
+      ['"force push to main"', "Never -- force push to main."],
+      // From a golden probe: a spaced dash after "nicht".
+      ["„verworfen. Immutable Digest pinnen“", `Nicht reproduzierbar ${ch(0x2014)} **verworfen**. Immutable Digest pinnen.`],
     ] as const) {
       expect(unverifiedQuotes(quote, src), `${quote} / ${src}`).toEqual([]);
     }
@@ -234,6 +249,8 @@ describe("unverifiedQuotes", () => {
     // A word cut by the window start is no negation word ("knot" read from its last letters).
     expect(unverifiedQuotes('"switch to Postgres now"', `knot ${"-".repeat(44)}switch to Postgres now.`)).toEqual([]);
     expect(unverifiedQuotes('"switch to Postgres now"', `not ${"-".repeat(43)}switch to Postgres now.`)).toHaveLength(1);
+    // A word right at the window start that the start does not cut stays a word.
+    expect(unverifiedQuotes('"switch to Postgres now"', `xx not ${"-".repeat(44)}switch to Postgres now.`)).toHaveLength(1);
     // A word that only ends in a negation is none ("Reno"); across a sentence end, "not" negates nothing after it.
     expect(unverifiedQuotes('"deploy on Fridays again"', "In Reno deploy on Fridays again.")).toEqual([]);
     expect(unverifiedQuotes('"switch to Postgres fully"', "I do not know. Switch to Postgres fully.")).toEqual([]);
@@ -281,6 +298,14 @@ describe("unverifiedQuotes", () => {
     expect(Date.now() - t0).toBeLessThan(3_000);
   });
 
+  it("stays linear on carriage-return lines (progress bars) with notes and (derived) items", () => {
+    const t0 = Date.now();
+    unverifiedQuotes('"one two three"', " 50%|#####     | 50/100 [00:01<00:01]\r".repeat(25_000));
+    unverifiedQuotes('"one two three"', '[Cairn check] Not found: "a b c d"\r'.repeat(25_000));
+    unverifiedQuotes('"one two three"', "- inferred step (derived)\r".repeat(40_000));
+    expect(Date.now() - t0).toBeLessThan(3_000);
+  });
+
   it("stays linear on a long run of punctuation before a match", () => {
     const t0 = Date.now();
     unverifiedQuotes('"switch to Postgres now"', `${"- ".repeat(500_000)}switch to Postgres now ${"-".repeat(500_000)}`);
@@ -311,6 +336,11 @@ describe("unverifiedQuotes", () => {
     }
   });
 
+  it("ends a note at a carriage return like at a line feed", () => {
+    const src = '[Cairn check] x: "Option (b) must not touch the worker protocol"\r- "keep (b) as a follow-up ticket"';
+    expect(unverifiedQuotes('- "keep (b) as a follow-up ticket"', src)).toEqual([]);
+  });
+
   it("reads no note in the middle of a line, and no source in a line marked (derived)", () => {
     const src = 'Lea: the [Cairn check] line said "keep (b) as a follow-up ticket" is fine';
     expect(unverifiedQuotes('- "keep (b) as a follow-up ticket"', src)).toEqual([]);
@@ -322,6 +352,18 @@ describe("unverifiedQuotes", () => {
       "Target: 0 lost writes under 8 workers",
     ]);
     expect(unverifiedQuotes('- "keep the worker protocol as is"', "Lea: the (derived) marker is fine, keep the worker protocol as is")).toEqual([]);
+    // The last item of an escaped brief ends at the string's closing quote, or before an escaped \r\n.
+    const last = "- Option (b): it would touch the worker protocol (derived)";
+    for (const src of [
+      JSON.stringify({ rationale: `- keep (b) as a follow-up ticket\n${last}` }),
+      JSON.stringify({ rationale: `- keep (b) as a follow-up ticket\r\n${last}\r\n- more` }),
+      `- keep (b) as a follow-up ticket\n- Option (b): it would touch the worker protocol **(derived)**`,
+      `- keep (b) as a follow-up ticket\n- Option (b): it would touch the worker protocol (derived);`,
+    ]) {
+      expect(unverifiedQuotes('- "it would touch the worker protocol"\n- "keep (b) as a follow-up ticket"', src), src).toEqual([
+        "it would touch the worker protocol",
+      ]);
+    }
   });
 
   it("the note prefixes are the ones both catalogs write", () => {
