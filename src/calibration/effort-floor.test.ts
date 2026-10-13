@@ -336,13 +336,30 @@ describe("the requested model must be the one that answered (no silent fallback)
 
   it("claude output that is no JSON object, or an error_* subtype, is an error result also with exit 0", async () => {
     const run = (stdout: string) => runBridge({ cli: "claude", system: "S", user: "U", execFn: vi.fn<ExecFn>(async () => ({ stdout, stderr: "", code: 0 })) });
-    for (const stdout of ["b".repeat(800), "", "null", "42", '"text"', `${JSON.stringify({ type: "result", subtype: "success", result: "b".repeat(800) })}\ntrailing`]) {
+    for (const stdout of ["b".repeat(800), " \n plain text \n", "", "null", "42", '"text"', `${JSON.stringify({ type: "result", subtype: "success", result: "b".repeat(800) })}\ntrailing`]) {
       expect(await run(stdout)).toMatchObject({ text: stdout.trim(), finishReason: "error" });
     }
     const errorSubtype = await run(JSON.stringify({ type: "result", subtype: "error_max_budget_usd", is_error: false, errors: ["over budget"], modelUsage: {} }));
     expect(errorSubtype).toMatchObject({ text: "over budget", finishReason: "error" });
     const c = makeAccountCompactor({ execFn: vi.fn<ExecFn>(async () => ({ stdout: "b".repeat(800), stderr: "", code: 0 })) });
     await expect(c({ modelId: "claude-opus-5-5@high", maskedProbe: "P", prompt: "S" })).rejects.toThrow(/error result, not an answer/);
+  });
+
+  it("a failed claude result reports its `result` text, else its `errors`; the array form reads the last result", async () => {
+    const run = (out: unknown, code = 0) =>
+      runBridge({ cli: "claude", system: "S", user: "U", execFn: vi.fn<ExecFn>(async () => ({ stdout: JSON.stringify(out), stderr: "", code })) });
+    const r = (subtype: string, more: Record<string, unknown>) => ({ type: "result", subtype, ...more });
+    expect(await run(r("success", { is_error: true, result: "API Error: 500", errors: ["other"] }))).toMatchObject({ text: "API Error: 500", finishReason: "error" });
+    expect(await run(r("error_during_execution", { is_error: false, result: "partial", errors: ["e"] }))).toMatchObject({ text: "partial", finishReason: "error" });
+    expect(await run(r("error", { errors: ["plain error subtype"] }))).toMatchObject({ text: "plain error subtype", finishReason: "error" });
+    expect(await run(r("error_max_budget_usd", { is_error: false }))).toMatchObject({ text: "", finishReason: "error" }); // no `errors` either
+    // Claude Code 2.1.296 with --max-turns 1: is_error true, exit 1, no `result`.
+    expect(await run(r("error_max_turns", { is_error: true, errors: ["Reached maximum number of turns (1)"] }), 1)).toMatchObject({
+      text: "Reached maximum number of turns (1)",
+      finishReason: "error",
+    });
+    expect(await run([r("success", { result: "first" }), r("error_during_execution", { is_error: false, errors: ["second"] })])).toMatchObject({ text: "second", finishReason: "error" });
+    expect(await run([r("error_during_execution", { errors: ["first"] }), r("success", { result: "second" })])).toMatchObject({ text: "second", finishReason: "success" });
   });
 
   it("a valid brief that mentions a context window is not mistaken for a window error", async () => {

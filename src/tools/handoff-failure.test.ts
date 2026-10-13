@@ -84,9 +84,17 @@ describe("the API adapters flag an answer the provider stopped short of a regula
     ["gemini", { ...gem("STOP"), promptFeedback: { blockReason: "BLOCK_REASON_UNSPECIFIED" } }, false], // documented as unused
     ["gemini", { ...gem("STOP"), promptFeedback: { safetyRatings: [] } }, false],
     ["gemini", { ...gem("STOP"), promptFeedback: null }, false],
+    ["gemini", { ...gem("STOP"), promptFeedback: { blockReason: " " } }, false],
+    ["gemini", { ...gem("STOP"), promptFeedback: { blockReason: "SAFETY" } }, true], // a block wins over a candidate
   ] as const)("%s %j → blocked %s", async (provider, body, blocked) => {
     const r = await call[provider]({ ...ep, provider }, req, res(200, JSON.stringify(body)) as never, {});
     expect(r.blocked === true).toBe(blocked);
+  });
+
+  it("a blocked Gemini prompt is reported with its reason and never as truncated", async () => {
+    const body = { ...gem("MAX_TOKENS"), promptFeedback: { blockReason: "SAFETY" } };
+    const r = await callGemini({ ...ep, provider: "gemini" }, req, res(200, JSON.stringify(body)) as never, {});
+    expect(r).toEqual({ text: "x", truncated: false, finishReason: "prompt blocked: SAFETY", blocked: true });
   });
 });
 
@@ -154,6 +162,7 @@ describe("a failed or empty compaction stores nothing; the previous brief stays 
       // A refusal is reported with its text; a blocked prompt with its block reason.
       ["openai", { choices: [{ message: { content: null, refusal: "I can't help with that." }, finish_reason: "stop" }] }, /^api compaction was stopped \(refusal\): I can't help with that\.; nothing stored/],
       ["openai", { choices: [{ message: { content: "1) DEC part", refusal: "No." }, finish_reason: "stop" }] }, /^api compaction was stopped \(refusal\): No\.; nothing stored/],
+      ["gemini", { candidates: [{ content: { parts: [{ text: "1) DEC" }] }, finishReason: "STOP" }], promptFeedback: { blockReason: "OTHER" } }, /^api compaction was stopped \(prompt blocked: OTHER\): 1\) DEC; nothing stored/],
       ["gemini", { promptFeedback: { blockReason: "PROHIBITED_CONTENT", safetyRatings: [] } }, /^api compaction was stopped \(prompt blocked: PROHIBITED_CONTENT\); nothing stored/],
     ] as const;
     for (const [provider, body, reason] of cases) {
@@ -185,6 +194,8 @@ describe("a failed or empty compaction stores nothing; the previous brief stays 
       ["codex", "gpt-6.1-sol", JSON.stringify({ type: "turn.completed" }), /bridge compaction returned no text/],
       // claude output that is no JSON object is no answer, also with exit 0 (a wrapper, a changed format).
       ["claude", "claude-opus-5-5", "1) DECISIONS printed by a wrapper", /^bridge compaction failed: 1\) DECISIONS printed by a wrapper; nothing stored/],
+      // The failure reports the whole text: no preamble is cut off before DECISIONS.
+      ["claude", "claude-opus-5-5", "Error: login expired\n1) DECISIONS stale", /^bridge compaction failed: Error: login expired\n1\) DECISIONS stale; nothing stored/],
       ["claude", "claude-opus-5-5", "null", /^bridge compaction failed: null; nothing stored/],
       ["claude", "claude-opus-5-5", `${JSON.stringify({ type: "result", subtype: "success", result: "1) DECISIONS x" })}\nwarning`, /^bridge compaction failed: \{"type":"result"/],
       // An `error_*` result fails even with `is_error: false`; its messages are in `errors`, also in the array form.

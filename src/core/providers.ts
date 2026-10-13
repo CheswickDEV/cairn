@@ -48,8 +48,8 @@ export interface ModelCallResult {
   modelsReported?: string[];
   /** API: the provider stopped the answer short of a regular end or the output cap (Anthropic `refusal`,
    *  OpenAI `content_filter` or a `message.refusal`, a Gemini finish reason other than `STOP`, `MAX_TOKENS`
-   *  and the unused `FINISH_REASON_UNSPECIFIED`, a Gemini `promptFeedback.blockReason`); any text is no brief
-   *  (ADR-0012). */
+   *  and the unused `FINISH_REASON_UNSPECIFIED`, a non-empty Gemini `promptFeedback.blockReason`); any text
+   *  is no brief (ADR-0012). */
   blocked?: boolean;
 }
 
@@ -182,7 +182,7 @@ export async function callGemini(
   // A blocked prompt gets no candidates, only a `promptFeedback.blockReason` (`BLOCK_REASON_UNSPECIFIED` is
   // documented as unused).
   const promptBlock = json.promptFeedback?.blockReason;
-  if (typeof promptBlock === "string" && promptBlock !== "BLOCK_REASON_UNSPECIFIED") {
+  if (typeof promptBlock === "string" && promptBlock.trim() !== "" && promptBlock !== "BLOCK_REASON_UNSPECIFIED") {
     return { text, truncated: false, finishReason: `prompt blocked: ${promptBlock}`, blocked: true };
   }
   const finishReason = cand?.finishReason ?? "unknown";

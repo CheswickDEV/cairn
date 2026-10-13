@@ -64,16 +64,18 @@ independent reviews). See ADR-0012.
     unreported, and none for a gemini endpoint, which runs no pool model.
 - **A failed compaction stores nothing** `[CODE-IMPACTING]`: a failed call (CLI, network or API HTTP
   error), a claude error result (`is_error`, or an `error_*` subtype even with `is_error: false`), claude
-  output that is no JSON object (also with exit 0), a failed Codex run (also one with a partial answer),
+  output that is neither a JSON object nor a JSON array (also with exit 0), a failed Codex run (also one
+  with a partial answer),
   an answer the provider stopped short of a regular end or the output cap (Anthropic `refusal`, OpenAI
   `content_filter` or `message.refusal`, a Gemini finish reason other than `STOP`/`MAX_TOKENS`, a blocked
   Gemini prompt) or an answer without text now fails the handoff with `CompactionFailedError`, and nothing
   of it is stored, so the previous brief stays current. Before, the bridge stored the error text or partial
   answer as the brief, and claude output that was no JSON (or `null`) raw, every optional mode stored an empty
   answer, the API adapters read a JSON error body as an empty brief, and a refused partial answer was
-  stored; each superseded the previous brief. API errors carry the provider's message, an `error_*` result
-  its `errors`, an OpenAI refusal its text, a blocked Gemini prompt `prompt blocked: <reason>`. A
-  truncated answer is still stored.
+  stored, as was text beside an `error_*` result without `is_error`, an OpenAI `message.refusal` or a
+  blocked Gemini prompt; each superseded the previous brief. API errors carry the provider's message, a
+  claude error result without `result` text its `errors`, an OpenAI refusal its text, a blocked Gemini
+  prompt `prompt blocked: <reason>`. A truncated answer is still stored.
 - **Band rule** `[CODE-IMPACTING]`: the fidelity floor is checked over the whole top band. The cheapest
   band model that clears the zone floor is selected; verbatim only when none does. Before, only the cheapest
   band model was checked, and a miss went straight to verbatim although a stronger band model would
@@ -114,8 +116,8 @@ independent reviews). See ADR-0012.
     which Claude Code 2.1.296 always sends, is not checked), e.g. after a `fallbackModel` swap
     or the automatic switch after a refusal, instead of crediting it to the requested id. It also skips
     error results: claude `is_error` (e.g. a refusal mid-stream, also in `verbose` array output), whose
-    text is the error message, an `error_*` subtype (also with `is_error: false`) or output that is no
-    JSON object, and for Codex a `turn.failed` event, an `error` event without a following
+    text is the error message, an `error_*` subtype (also with `is_error: false`) or output that is
+    neither a JSON object nor a JSON array, and for Codex a `turn.failed` event, an `error` event without a following
     `turn.completed` (retried stream errors also come as `error`) or a non-zero exit, whose text is at
     most a partial answer. A redirect behind the requested id (`modelOverrides`, a
     gateway) stays invisible to this check; for Codex only a safeguard reroute is visible (an error item

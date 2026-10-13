@@ -75,7 +75,9 @@ export function assertExactEffort(effort: string, required: Effort, label = "eff
 }
 
 /** Throw when the CLI reported an error result (claude `is_error`, e.g. an API error or a refusal
- *  mid-stream): its `result` is the error message, not a brief or a review. */
+ *  mid-stream, an `error_*` subtype, output that is neither a JSON object nor a JSON array, or any output
+ *  with a non-zero exit; a failed Codex run): its text is the error message or at most a partial answer,
+ *  not a brief or a review. */
 export function assertNotError(finishReason: string, label: string): void {
   if (finishReason === "error") throw new Error(`${label}: the CLI returned an error result, not an answer`);
 }

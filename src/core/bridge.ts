@@ -351,7 +351,7 @@ export async function runBridge(input: RunBridgeInput): Promise<ModelCallResult>
     const json = found as Record<string, unknown>;
     // `is_error` wins over `subtype`: an API error or a refusal mid-stream comes back as `subtype: "success"`
     // with the error message as `result`. An `error_*` subtype fails even with `is_error: false`; it carries
-    // no `result`, its messages are in `errors`.
+    // no `result`, so a failed result without one reports its `errors` messages.
     const subtype = typeof json.subtype === "string" ? json.subtype : undefined;
     const failed = json.is_error === true || code !== 0 || subtype?.startsWith("error") === true;
     const errors = Array.isArray(json.errors) ? json.errors.filter((e): e is string => typeof e === "string").join("; ") : "";
@@ -417,5 +417,6 @@ export async function bridgeCompact(input: BridgeInput): Promise<ModelCallResult
     execFn: input.execFn,
     timeoutMs: input.timeoutMs,
   });
-  return { ...r, text: stripPreamble(r.text) };
+  // An error result's text is the error message (or a partial answer): kept whole, so a failure reports all of it.
+  return { ...r, text: r.finishReason === "error" ? r.text : stripPreamble(r.text) };
 }
