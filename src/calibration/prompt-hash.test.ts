@@ -38,6 +38,6 @@ describe("compactionPromptSha256", () => {
   });
 
   it("pins the 2.0.0 prompt: a change needs a new golden run before it pools or replaces the profiles", () => {
-    expect(compactionPromptSha256()).toBe("e325e31b66c049badcf5d88329dbd48cba506981668ff9f1d04b9332ba8c228b");
+    expect(compactionPromptSha256()).toBe("a6c26c0f1c8fde1c09a175aaa0fc4b4395dc6dad7fee2ef905e50e6fbf816fe6");
   });
 });

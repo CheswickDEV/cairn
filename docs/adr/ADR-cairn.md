@@ -878,37 +878,51 @@ acts on them. So the brief marks which is which, and Cairn checks it where it ha
 **Decision.**
 - **Prompt** (English and German; used by sampling, bridge, API and the calibration):
   - every bucket appears, an empty one says none;
+  - "Invent nothing" now reads: state nothing as given that the context does not state. An inference of the
+    model's own (a constraint, target, reason or step the context does not state) may appear only marked, by
+    appending `(derived)` to that item. The marker is the same in both languages, like the bucket names;
   - double quotes go only around exact words from the context, in one piece without omissions, and a
     decision or constraint a person set is given that way, in their own words;
-  - CONSTRAINTS holds only what the context sets, and a measured value is not a target (it is EVIDENCE);
-  - DISCARDED holds only options the context rejects, with the reason it gives; a deferred option is not
+  - CONSTRAINTS holds the constraints and target metrics the context sets, and a measured value is not a
+    target (it is EVIDENCE);
+  - DISCARDED holds the options the context rejects, with the reason it gives; a deferred option is not
     discarded, OPEN QUESTIONS holds it;
-  - NEXT STEPS holds steps the context names or agrees on;
-  - a constraint, target, reason or step the context does not state is the model's own inference, and it
-    marks that item by appending `(derived)`. The marker is the same in both languages, like the bucket names.
+  - NEXT STEPS holds steps the context names or agrees on.
 - **Handoff skill** (account mode, the default): these rules for the host that writes the brief, with "the
-  user or another person" for the person.
+  user or another person" for the person; the Codex AGENTS block says the same in short.
 - **Resume** (skill, Codex AGENTS block, MCP server instructions):
   - double quotes mark exact words from the conversation;
   - `(derived)` and a closing Cairn check note mark the summarizer's inference;
   - before an unquoted or derived constraint stops or redirects the next step, the session checks it against
     the code or asks the user.
 - **Quote check** (sampling, bridge, API; `src/core/grounding.ts`): after the restore, each quote in the brief
-  must appear in the source as given (not its masked form).
+  must appear in the source as given (not its masked form). Every rule errs on the side of a note: a doubtful
+  quote is flagged, never passed.
   - What counts as a quote: double quotes on one line (`"…"`, `“…”`, `„…“`, `«…»`, `»…«`) with at least
     three words. Fenced code (```` ``` ```` and `~~~`) is left out and ends a line; inline code counts as its
     text, so a quote may contain it. A straight `"` opens after a non-word character and before a non-space,
     and closes after a non-space and before a non-word character, so a mark inside a word opens or closes
-    nothing. A quote inside a quote is read as well as the outer one.
-  - Both texts are normalized: apostrophes folded, NFKC, lower case, ß as ss, no `>` quote markers at line
-    starts, a Markdown link as its text, dashes as a hyphen, no double quote marks, `*`, `_`, `~`, `` ` ``,
-    soft hyphens or zero-width characters, one space per whitespace run.
-  - The quote, without the punctuation at its edges, must occur in one piece at word boundaries ("safe" is not
-    in "unsafe"), and not right after a negation word (English or German: "do not" + "switch to Postgres").
-    An omission (`…`, `[…]`) is not word for word.
-  - A quote that a Cairn check note in the source already lists stays unverified, so a resumed brief in the
-    conversation cannot clear its own note on the next handoff. A note is read to the end of its line; in
-    escaped text (a JSON string) to a literal `\n`, and the rest of such a line is flagged too.
+    nothing. A quote inside a quote is read as well as the outer one, up to three levels deep
+    (`MAX_NESTING`): each level is one more pass, so the cost stays linear.
+  - Both texts are normalized: escapes read (`\n`, `\t`, `\r` as a space, a backslash before punctuation
+    dropped), apostrophes folded, NFKC, lower case, ß as ss, a Markdown link as its text, dashes as a hyphen,
+    no double quote marks, `*`, `_`, `~~`, `` ` ``, soft hyphens or zero-width characters, one space per
+    whitespace run. In the source, `>` quote markers at line starts are dropped too, and a line marked
+    `(derived)` (an earlier brief's inference) is no source.
+  - The quote, without the punctuation at its edges, must occur in one piece (an omission, `…` or `[…]`, is
+    not word for word) at word boundaries: a letter or digit, or one joined by `-`, `.` or `/`, continues the
+    word ("safe" is not in "unsafe", nor "blocking" in "non-blocking", nor "22.10" in "22.10.1").
+  - No negation may be dropped: no negation word right before the occurrence, with at most one word and only
+    punctuation between ("do not" + "switch to Postgres", "not yet" + "deploy", "never --" + "force push"),
+    and no German "nicht", "nie" or "niemals" ending the clause right after it. The words are English and
+    German (`not`, `never`, `no`, `nor`, `cannot`, `without`, `dont`, any word ending in `n't`, `nicht`,
+    `nie`, `niemals`, `nichts`, `ohne`, `kein…`). One occurrence that passes is enough. Each occurrence is
+    judged on 48 characters around it, so the cost stays linear.
+  - A quote that a Cairn check note in the source lists stays unverified, and so does a quote inside or
+    around a listed one, so a resumed brief in the conversation cannot clear its own note on the next
+    handoff. A note starts a line (after blanks or `>`) or follows a literal `\n` in escaped text (a JSON
+    string), and runs to the end of the line or the next literal `\n`; the prefix is read case-insensitive,
+    also Markdown-escaped (`\[`), with a JSON-escaped ü and after NFC. A prefix inside a line is no note.
   - A quote the source lacks is listed in `unverifiedQuotes` and in a warning line of the tool text. The
     stored brief gets a closing note: `[Cairn check] Not found word for word in the source, so treat as
     derived: "…"`, or the German `[Cairn-Prüfung]`.
@@ -930,16 +944,26 @@ quotes, all in the source, and no `(derived)` marker.
 
 **Limits.**
 - Account mode checks nothing: the session model writes the brief from its own context, and Cairn sees only
-  the brief.
+  the brief. Its quotes, never checked, count as source when that brief is later part of an optional mode's
+  source.
 - The check finds the words, not who said them or in which sense: a sentence the assistant proposed and the
-  user rejected is in the source too, and a quote may leave out words around it ("in this sprint") other
-  than a negation right before it.
+  user rejected is in the source too. A quote may leave out words around it ("in this sprint") other than a
+  negation as above, and edge punctuation does not count, so a question can come back as a statement.
+- An earlier brief in the source counts as source, except its noted quotes and its `(derived)` lines: its
+  paraphrases can come back as quotes. A note broken over two lines is read only on its first line, and one
+  with its prefix changed otherwise is not recognized.
+- The negation rule has a word list and a window: a negation further away, in single quotes or in a word
+  not listed is not seen. It also flags on the safe side: "no" or "kein" before a quoted noun phrase ("no
+  single writer queue"), the German noun "Not", a negation the brief keeps outside the quote marks, a quote
+  inside a noted one, and the rest of a line after a fake or escaped note.
 - The unverified quote keeps its quote marks in the brief; only the closing note marks it as derived.
 - A paraphrase without quotes is not checked.
 - Numbers and identifiers are not checked. A check would raise false alarms on converted values and dates,
   and it would not have caught the observed lines: both numbers in the "Target" line are in the source.
-- Quotes of fewer than three words and quotes over a line break are not read; a German quote with an English
-  quote inside („… “…” …“) is not read at all. A translated quote counts as not found.
+- Quotes of fewer than three words and quotes over a line break are not read. A German quote with an English
+  quote inside („… “…” …“) is read only up to the inner mark, so an invented rest behind three real words
+  passes; guillemets inside guillemets of the other direction («… »…« …») are not read. A translated quote
+  counts as not found.
 - The reviewers see the ground truth, not the source, so they may score a correct `(derived)` line as
   invented.
 - The profiles (ADR-0012) were measured with the prompt before 2.0.0.

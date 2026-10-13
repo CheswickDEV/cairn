@@ -145,7 +145,7 @@ The brief keeps what was said apart from what the summarizer concluded (ADR-0013
 - The summarizer marks its own inference with `(derived)`.
 
 In the optional modes Cairn checks each quote of three or more words against the source: in one piece, at
-word boundaries, without a dropped "not". A quote it cannot find is listed in the result and noted at the
+word boundaries, without a dropped negation. A quote it cannot find is listed in the result and noted at the
 end of the stored brief. On resume, an unquoted or derived constraint is checked against the code, or the
 user is asked, before it changes the next step.
 

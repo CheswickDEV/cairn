@@ -125,7 +125,7 @@ describe("7-bucket prompt — grounding rules (ADR-0013)", () => {
     expect([...at].sort((a, b) => a - b)).toEqual(at);
     expect(p).toContain("[[CAIRN-HOLD-n]]");
     // The marker for the summarizer's own inference is the same in both languages: the resume skill names it.
-    expect(p).toContain(lang === "en" ? "by appending (derived)." : "mit angehängtem (derived).");
+    expect(p).toContain(lang === "en" ? "by appending (derived) to that item." : "mit angehängtem (derived) an diesem Punkt.");
   });
 
   it("states each rule in both languages: empty bucket, measured value, deferral, quotes, inference", () => {
@@ -137,9 +137,10 @@ describe("7-bucket prompt — grounding rules (ADR-0013)", () => {
       "A measured value is not a target.",
       "including deferred options.",
       "a deferred option is not discarded.",
+      "Invent nothing: state nothing as given that the context does not state.",
+      "An inference of your own (a constraint, target, reason or step the context does not state) may appear only marked, by appending (derived) to that item.",
       "Put double quotes only around exact words from the context, in one piece without omissions;",
       "give a decision or constraint a person set in their own words, in double quotes.",
-      "A constraint, target, reason or step the context does not state is your own inference: mark that item by appending (derived).",
     ]) {
       expect(en).toContain(rule);
     }
@@ -148,9 +149,10 @@ describe("7-bucket prompt — grounding rules (ADR-0013)", () => {
       "Ein Messwert ist kein Ziel.",
       "auch vertagte Optionen.",
       "Vertagtes ist nicht verworfen.",
+      "Nichts erfinden: Stelle nichts als gegeben dar, was der Kontext nicht nennt.",
+      "Eigene Schlüsse (Rahmenbedingungen, Ziele, Gründe oder Schritte, die der Kontext nicht nennt) dürfen nur markiert erscheinen: mit angehängtem (derived) an diesem Punkt.",
       "Doppelte Anführungszeichen nur um genaue Worte aus dem Kontext, am Stück ohne Auslassungen;",
-      "eine Entscheidung oder Rahmenbedingung, die eine Person festlegt, mit ihren eigenen Worten in doppelten Anführungszeichen.",
-      "Eine Rahmenbedingung, ein Ziel, ein Grund oder ein Schritt, den der Kontext nicht nennt, ist dein eigener Schluss: markiere diesen Punkt mit angehängtem (derived).",
+      "gib eine Entscheidung oder Rahmenbedingung, die eine Person festlegt, mit ihren eigenen Worten in doppelten Anführungszeichen wieder.",
     ]) {
       expect(de).toContain(rule);
     }
