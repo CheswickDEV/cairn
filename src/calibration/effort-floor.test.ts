@@ -337,10 +337,11 @@ describe("the requested model must be the one that answered (no silent fallback)
   it("claude output that is no JSON object, or an error_* subtype, is an error result also with exit 0", async () => {
     const run = (stdout: string) => runBridge({ cli: "claude", system: "S", user: "U", execFn: vi.fn<ExecFn>(async () => ({ stdout, stderr: "", code: 0 })) });
     for (const stdout of ["b".repeat(800), " \n plain text \n", "", "null", "42", '"text"', `${JSON.stringify({ type: "result", subtype: "success", result: "b".repeat(800) })}\ntrailing`]) {
-      expect(await run(stdout)).toMatchObject({ text: stdout.trim(), finishReason: "error" });
+      expect(await run(stdout)).toMatchObject({ text: stdout.trim(), finishReason: "error", unparsed: true });
     }
     const errorSubtype = await run(JSON.stringify({ type: "result", subtype: "error_max_budget_usd", is_error: false, errors: ["over budget"], modelUsage: {} }));
     expect(errorSubtype).toMatchObject({ text: "over budget", finishReason: "error" });
+    expect(errorSubtype.unparsed).toBeUndefined();
     const c = makeAccountCompactor({ execFn: vi.fn<ExecFn>(async () => ({ stdout: "b".repeat(800), stderr: "", code: 0 })) });
     await expect(c({ modelId: "claude-opus-5-5@high", maskedProbe: "P", prompt: "S" })).rejects.toThrow(/error result, not an answer/);
   });
@@ -362,6 +363,25 @@ describe("the requested model must be the one that answered (no silent fallback)
     expect(await run([r("error_during_execution", { errors: ["first"] }), r("success", { result: "second" })])).toMatchObject({ text: "second", finishReason: "success" });
   });
 
+  it("claude JSON that carries no result is an error result; a string `result` is the answer", async () => {
+    const run = (stdout: string) => runBridge({ cli: "claude", system: "S", user: "U", execFn: vi.fn<ExecFn>(async () => ({ stdout, stderr: "", code: 0 })) });
+    const noResult = [
+      "{}",
+      "[]",
+      JSON.stringify([{ type: "system" }, { type: "assistant", message: { content: [{ type: "text", text: "b".repeat(800) }] } }]),
+      JSON.stringify({ type: "result", subtype: "success", result: null, errors: ["x"] }),
+      JSON.stringify({ type: "result", subtype: "success", modelUsage: { "claude-opus-5-5": { outputTokens: 300 } } }),
+    ];
+    for (const stdout of noResult) {
+      const r = await run(stdout);
+      expect(r).toMatchObject({ text: "claude's JSON output has no result", finishReason: "error" });
+      expect(r.unparsed).toBeUndefined();
+    }
+    expect(await run(JSON.stringify({ type: "result", subtype: "success", result: "" }))).toMatchObject({ text: "", finishReason: "success" });
+    const c = makeAccountCompactor({ execFn: vi.fn<ExecFn>(async () => ({ stdout: "[]", stderr: "", code: 0 })) });
+    await expect(c({ modelId: "claude-opus-5-5@high", maskedProbe: "P", prompt: "S" })).rejects.toThrow(/error result, not an answer/);
+  });
+
   it("a valid brief that mentions a context window is not mistaken for a window error", async () => {
     const brief = "1) DECISIONS keep the context window at 1M; the old prompt was too long. " + "b".repeat(600);
     const exec = vi.fn<ExecFn>(async () => ({ stdout: JSON.stringify({ result: brief, subtype: "success", modelUsage: { "claude-opus-5-5": { outputTokens: 300 } } }), stderr: "", code: 0 }));
@@ -369,6 +389,31 @@ describe("the requested model must be the one that answered (no silent fallback)
     await expect(c({ modelId: "claude-opus-5-5@high", maskedProbe: "P", prompt: "S" })).resolves.toMatchObject({ brief });
     const tooLong = vi.fn<ExecFn>(async () => ({ stdout: JSON.stringify({ result: "Prompt is too long", is_error: true, subtype: "success", modelUsage: {} }), stderr: "", code: 1 }));
     await expect(makeAccountCompactor({ execFn: tooLong })({ modelId: "claude-opus-5-5@high", maskedProbe: "P", prompt: "S" })).rejects.toThrow(/context exceeds window/);
+    // The label reads every error message the CLI reported, also an `error_*` result's `errors` …
+    const errorSubtype = vi.fn<ExecFn>(async () => ({
+      stdout: JSON.stringify({ type: "result", subtype: "error_during_execution", is_error: false, errors: ["Prompt is too long"], modelUsage: {} }),
+      stderr: "",
+      code: 0,
+    }));
+    await expect(makeAccountCompactor({ execFn: errorSubtype })({ modelId: "claude-opus-5-5@high", maskedProbe: "P", prompt: "S" })).rejects.toThrow(/context exceeds window/);
+    // … but not raw output that is no JSON, which may be a brief (with exit 0 or not) …
+    for (const code of [0, 1]) {
+      const raw = vi.fn<ExecFn>(async () => ({ stdout: code ? "Prompt is too long" : brief, stderr: "", code }));
+      const run = makeAccountCompactor({ execFn: raw })({ modelId: "claude-opus-5-5@high", maskedProbe: "P", prompt: "S" });
+      await expect(run).rejects.toThrow(/error result, not an answer/);
+    }
+    // … nor a failed Codex run's partial answer.
+    const codexPartial = vi.fn<ExecFn>(async () => ({
+      stdout: [
+        JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: brief } }),
+        JSON.stringify({ type: "turn.failed", error: { message: "stream disconnected" } }),
+      ].join("\n"),
+      stderr: "",
+      code: 0,
+    }));
+    await expect(makeAccountCompactor({ execFn: codexPartial })({ modelId: "gpt-6-astra@high", maskedProbe: "P", prompt: "S" })).rejects.toThrow(
+      /error result, not an answer/,
+    );
   });
 
   it("a refusal fallback (requested model with zero output) is skipped for compaction and review", async () => {

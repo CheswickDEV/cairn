@@ -41,9 +41,16 @@ export function makeAccountCompactor(opts: AccountCompactorOptions = {}): Compac
       execFn: opts.execFn,
       timeoutMs: opts.timeoutMs,
     });
-    // Accurate label when the probe exceeded the model's window (ADR-0003). Only an error result is read
-    // this way: a valid brief may well mention a "context window" or something "too long".
-    if (result.finishReason === "error" && /prompt is too long|too long|context (window|length)|exceeds.*(context|window|token)/i.test(result.text)) {
+    // Accurate label when the probe exceeded the model's window (ADR-0003). Only a claude JSON error result,
+    // whose text is the error message the CLI reported, is read this way: a valid brief may well mention a
+    // "context window" or something "too long", also as raw output that is no JSON or as a failed Codex run's
+    // partial answer (a Codex error message never becomes the text; a failed run without an answer throws).
+    if (
+      ecosystem === "anthropic" &&
+      result.finishReason === "error" &&
+      !result.unparsed &&
+      /prompt is too long|too long|context (window|length)|exceeds.*(context|window|token)/i.test(result.text)
+    ) {
       throw new Error(`context exceeds window — '${modelId}' rejected the probe: ${result.text.slice(0, 90)}`);
     }
     assertNotError(result.finishReason, `variant '${modelId}'`);

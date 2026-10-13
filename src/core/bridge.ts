@@ -145,6 +145,9 @@ export function managedMcpConfigPresent(
 /** The levels Claude Code documents for `--effort` / CLAUDE_CODE_EFFORT_LEVEL; only these are pinned. */
 const CLAUDE_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
 
+/** The error text of claude JSON output that carries no result (ADR-0012). */
+const CLAUDE_NO_RESULT = "claude's JSON output has no result";
+
 /**
  * The models that produced output in a claude run, from `modelUsage` (`{ "<model>": { outputTokens,
  * thinkingTokens, … } }`). A fallback - a configured `fallbackModel` chain, or the automatic switch after a
@@ -347,15 +350,18 @@ export async function runBridge(input: RunBridgeInput): Promise<ModelCallResult>
     // `result` event carries what the object form holds.
     const found = Array.isArray(parsed) ? [...parsed].reverse().find((e) => e?.type === "result") ?? {} : parsed;
     // Output that is no JSON object (a wrapper script, a changed format, `null`) is no answer (ADR-0012).
-    if (!found || typeof found !== "object") return { text: stdout.trim(), truncated: false, finishReason: "error" };
+    if (!found || typeof found !== "object") return { text: stdout.trim(), truncated: false, finishReason: "error", unparsed: true };
     const json = found as Record<string, unknown>;
     // `is_error` wins over `subtype`: an API error or a refusal mid-stream comes back as `subtype: "success"`
     // with the error message as `result`. An `error_*` subtype fails even with `is_error: false`; it carries
     // no `result`, so a failed result without one reports its `errors` messages.
     const subtype = typeof json.subtype === "string" ? json.subtype : undefined;
     const failed = json.is_error === true || code !== 0 || subtype?.startsWith("error") === true;
+    // A result that did not fail carries its answer as a string `result`: JSON without one (an array without
+    // a `result` event, an object of another shape) is no answer either.
+    if (!failed && typeof json.result !== "string") return { text: CLAUDE_NO_RESULT, truncated: false, finishReason: "error" };
     const errors = Array.isArray(json.errors) ? json.errors.filter((e): e is string => typeof e === "string").join("; ") : "";
-    const text = typeof json.result === "string" ? json.result : failed ? errors : "";
+    const text = typeof json.result === "string" ? json.result : errors;
     const finishReason = failed ? "error" : subtype ?? "stop";
     const modelsUsed = answeringModels(json.modelUsage);
     const modelsReported =

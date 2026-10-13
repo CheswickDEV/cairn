@@ -255,9 +255,9 @@ export async function runHandoff(input: HandoffInput, deps: HandoffDeps): Promis
       if (e instanceof EgressNotConfiguredError) throw e;
       throw new CompactionFailedError(`${mode} compaction failed: ${e instanceof Error ? e.message : String(e)}; ${nothingStored}`);
     });
-    // A failed call (a claude error result or output that is no JSON object, a failed Codex run's partial
-    // answer), a blocked answer (a provider refusal, content filter or blocked prompt) or one without text is
-    // no brief: store nothing, so the previous brief stays current (ADR-0012).
+    // A failed call (a claude error result, output that is no JSON object or JSON without a result, a failed
+    // Codex run's partial answer), a blocked answer (a provider refusal, content filter or blocked prompt) or
+    // one without text is no brief: store nothing, so the previous brief stays current (ADR-0012).
     if (result.finishReason === "error" || result.blocked || !result.text.trim()) {
       const detail = result.text.trim().slice(0, 300);
       const what =

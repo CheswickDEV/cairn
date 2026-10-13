@@ -46,6 +46,9 @@ export interface ModelCallResult {
   modelsUsed?: string[];
   /** Bridge (claude): every model id `modelUsage` lists, with or without output. */
   modelsReported?: string[];
+  /** Bridge (claude): the output was neither a JSON object nor a JSON array; the error result's `text` is the
+   *  raw output, not an error message the CLI reported. */
+  unparsed?: boolean;
   /** API: the provider stopped the answer short of a regular end or the output cap (Anthropic `refusal`,
    *  OpenAI `content_filter` or a `message.refusal`, a Gemini finish reason other than `STOP`, `MAX_TOKENS`
    *  and the unused `FINISH_REASON_UNSPECIFIED`, a non-empty Gemini `promptFeedback.blockReason`); any text

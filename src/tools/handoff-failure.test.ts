@@ -211,8 +211,13 @@ describe("a failed or empty compaction stores nothing; the previous brief stays 
         JSON.stringify([{ type: "system" }, { type: "result", subtype: "error_max_turns", is_error: false, errors: ["Reached maximum number of turns (1)"] }]),
         /^bridge compaction failed: Reached maximum number of turns \(1\); nothing stored/,
       ],
-      // `errors` of a result that did not fail is no brief either.
-      ["claude", "claude-opus-5-5", JSON.stringify({ type: "result", subtype: "success", errors: ["x"] }), /^bridge compaction returned no text; nothing stored/],
+      // JSON that carries no result is no answer: a result without a string `result` that did not fail (its
+      // `errors` are no brief either), an array without a `result` event.
+      ["claude", "claude-opus-5-5", JSON.stringify({ type: "result", subtype: "success", errors: ["x"] }), /^bridge compaction failed: claude's JSON output has no result; nothing stored/],
+      ["claude", "claude-opus-5-5", JSON.stringify([{ type: "system" }, { type: "assistant" }]), /^bridge compaction failed: claude's JSON output has no result; nothing stored/],
+      ["claude", "claude-opus-5-5", "{}", /^bridge compaction failed: claude's JSON output has no result; nothing stored/],
+      // A string `result`, even an empty one, is the answer: an empty one is an answer without text.
+      ["claude", "claude-opus-5-5", JSON.stringify({ type: "result", subtype: "success", result: " " }), /^bridge compaction returned no text; nothing stored/],
       // A CLI that fails without output: the bridge throws, the handoff reports it as a failed compaction.
       ["claude", "claude-opus-5-5", "", /bridge compaction failed: claude bridge failed \(code 1\): boom; nothing stored/],
     ];

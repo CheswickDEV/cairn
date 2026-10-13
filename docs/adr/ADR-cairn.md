@@ -451,8 +451,9 @@ Code 2.1.296 always reports it (`{}` on errors).
 An error result is skipped as well: claude `is_error` (an API error, or a refusal mid-stream without a
 fallback; also in the array form `verbose` output takes), whose text is the error message, an `error_*`
 subtype (also with `is_error: false`), output that is neither a JSON object nor a JSON array (also with
-exit 0), or any claude output with a non-zero exit; a failed result without a `result` text carries its
-`errors` messages as text; and for Codex a `turn.failed` event, an `error` event that no
+exit 0), JSON without a result (a result that did not fail without a string `result`, an array without a
+`result` event), or any claude output with a non-zero exit; a failed result without a `result` text
+carries its `errors` messages as text; and for Codex a `turn.failed` event, an `error` event that no
 `turn.completed` follows (codex also reports retried stream errors as `error`), or a non-zero exit,
 whose text is at most a partial answer. A failed Codex run without an answer makes the bridge call fail,
 with Codex's error message (which it writes to stdout only) as the reason: the latest non-empty
@@ -556,7 +557,8 @@ empty brief (a body that was no JSON made the handoff fail) and kept the partial
 answer. Until 2026-10-13 the claude bridge also stored output that was no JSON (or JSON `null`) with exit 0
 raw as the brief; an `error_*` result without `is_error`, an OpenAI `message.refusal` and a blocked Gemini
 prompt failed as an answer without text, but text beside them was stored as the brief (a string `result`,
-`content` beside the refusal, a candidate beside the block). That is fixed (see "Who writes the brief").
+`content` beside the refusal, a candidate beside the block); claude JSON without a result failed as an
+answer without text. That is fixed (see "Who writes the brief").
 
 **Reviewers.** All seven pool models review, at exactly `high`, and each brief is scored by the six
 others (k = pool − 1); a model never reviews its own brief. Pool entries are normalised to base ids, so
@@ -721,9 +723,10 @@ recommendation:
     neither);
   - a claude error result (`is_error`, or an `error_*` subtype also with `is_error: false`; one without a
     `result` text is reported with its `errors` messages), claude output that is neither a JSON object nor
-    a JSON array (also with exit 0: a wrapper, a changed format, `null`, text after the JSON; an array
-    without a `result` event is an answer without text), or a failed Codex run, also one with a partial
-    answer;
+    a JSON array (also with exit 0: a wrapper, a changed format, `null`, text after the JSON), claude JSON
+    without a result (a result that did not fail without a string `result`, an array without a `result`
+    event, `{}`; reported as `claude's JSON output has no result`), or a failed Codex run, also one with a
+    partial answer;
   - an answer the provider stopped short of a regular end or the output cap, with or without partial
     text: Anthropic `stop_reason: "refusal"`, OpenAI `finish_reason: "content_filter"` or a
     `message.refusal` (reported with its text), or any Gemini finish reason other than `STOP`,

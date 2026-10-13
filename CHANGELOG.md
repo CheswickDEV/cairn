@@ -64,8 +64,9 @@ independent reviews). See ADR-0012.
     unreported, and none for a gemini endpoint, which runs no pool model.
 - **A failed compaction stores nothing** `[CODE-IMPACTING]`: a failed call (CLI, network or API HTTP
   error), a claude error result (`is_error`, or an `error_*` subtype even with `is_error: false`), claude
-  output that is neither a JSON object nor a JSON array (also with exit 0), a failed Codex run (also one
-  with a partial answer),
+  output that is neither a JSON object nor a JSON array (also with exit 0), claude JSON without a result (a
+  result that did not fail without a string `result`, an array without a `result` event), a failed Codex
+  run (also one with a partial answer),
   an answer the provider stopped short of a regular end or the output cap (Anthropic `refusal`, OpenAI
   `content_filter` or `message.refusal`, a Gemini finish reason other than `STOP`/`MAX_TOKENS`, a blocked
   Gemini prompt) or an answer without text now fails the handoff with `CompactionFailedError`, and nothing
@@ -116,15 +117,17 @@ independent reviews). See ADR-0012.
     which Claude Code 2.1.296 always sends, is not checked), e.g. after a `fallbackModel` swap
     or the automatic switch after a refusal, instead of crediting it to the requested id. It also skips
     error results: claude `is_error` (e.g. a refusal mid-stream, also in `verbose` array output), whose
-    text is the error message, an `error_*` subtype (also with `is_error: false`) or output that is
-    neither a JSON object nor a JSON array, and for Codex a `turn.failed` event, an `error` event without a following
-    `turn.completed` (retried stream errors also come as `error`) or a non-zero exit, whose text is at
+    text is the error message, an `error_*` subtype (also with `is_error: false`), output that is
+    neither a JSON object nor a JSON array, JSON without a result, and for Codex a `turn.failed` event, an
+    `error` event without a following `turn.completed` (retried stream errors also come as `error`) or a non-zero exit, whose text is at
     most a partial answer. A redirect behind the requested id (`modelOverrides`, a
     gateway) stays invisible to this check; for Codex only a safeguard reroute is visible (an error item
     `model rerouted: <from> -> <to>`, best-effort: Codex may drop it under backpressure), and the product
     bridge does not check the model. A claude run with a
-    non-zero exit also counts as an error result, and the "context exceeds window" label is given to error
-    results only, so a valid brief that mentions a context window is no longer rejected.
+    non-zero exit also counts as an error result, and the "context exceeds window" label is given only to
+    a claude JSON error result (also an `error_*` result's `errors`), not to raw output that is no JSON or
+    a failed Codex run's partial answer, so a valid brief that mentions a context window is no longer
+    rejected.
   - Bridge mode (`CAIRN_BRIDGE`) now always passes `--effort high` / `model_reasoning_effort=high`.
   - API mode sends `output_config.effort` (Anthropic) or `reasoning_effort` (OpenAI) as `high` for pool
     models of the endpoint's own provider and raises the output budget to 32,000 tokens (Anthropic:
