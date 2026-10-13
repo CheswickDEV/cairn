@@ -1,6 +1,24 @@
 # CHANGELOG
 
-## Unreleased — Summarizer pool on the current generation, effort `high` (2026-10-11)
+## 🏷️ 2.0.0 — Explicit invocation, current model generation, safe handoffs (2026-10-13)
+
+Everything since 1.4.0. A major version, because Cairn no longer acts on its own (ADR-0010): the
+automatic triggers and the SessionStart/PreCompact hooks are gone. English is now the default language.
+
+**Updating:** run `npm install` and `node dist/server.js install`, then restart Claude Code / Codex (README,
+"Updating an existing installation"). The installer removes the old Cairn hooks and keeps foreign ones; the
+ledger stays.
+
+**Behavior to know about:**
+- Cairn runs only on an explicit request (`Cairn Handoff`, `Cairn resume`, `Cairn Help` or a status
+  request); passive status displays stay.
+- Output is English unless you choose German (`cairn install --lang de`, `CAIRN_LANG=de`).
+- A failed compaction in an optional mode (sampling, bridge, API) now fails the handoff and keeps the
+  previous brief, instead of storing the error text or an empty brief.
+
+The sections below list the changes in the order they landed, newest first.
+
+### Summarizer pool on the current generation, effort `high` (2026-10-11)
 
 Sources: Anthropic models overview, model pages, pricing, model deprecations and effort docs; OpenAI
 model pages, API pricing and reasoning guide; OpenAI Codex models and config docs; Claude Code model
@@ -188,7 +206,7 @@ independent reviews). See ADR-0012.
   usable 95 % of the catalog's 272,000 in codex 0.162.1. It is not a server load test.
 - **`host_status`** suggests GPT-6.1 Sol (Codex's recommended model) instead of the retiring GPT-5.5.
 
-## Unreleased — Claude Opus 5.5 and current-model context windows (2026-10-11)
+### Claude Opus 5.5 and current-model context windows (2026-10-11)
 
 Sources: Anthropic models overview, model pages, pricing and context-window docs; OpenAI API models
 overview and model pages; OpenAI Codex models page; Claude Code statusline, model-configuration, Amazon
@@ -256,7 +274,7 @@ See ADR-0011.
   - the provisional green-pick selects Opus 5.5: same prior as Opus 4.8 but cheaper, so the ADR-0002
     tiebreak picks it.
 
-## Unreleased — explicit user invocation only (2026-09-30)
+### Explicit user invocation only (2026-09-30)
 
 - Remove automatic task/session/threshold/compaction triggers from skills, AGENTS and MCP guidance.
 - Disable implicit skill loading in Codex and Claude; package and install the host-specific metadata.
@@ -266,7 +284,7 @@ See ADR-0011.
 - Resume does not schedule a handoff; help makes no tool calls. Zone text is informational.
 - Existing ledgers and passive status displays remain available. See ADR-0010 and README migration.
 
-## Unreleased — Transcript-path hardening, dependency audit, server version
+### Transcript-path hardening, dependency audit, server version
 
 - **Security (N1):** `isAllowedTranscriptPath` trusted everything under `~/.claude`, so a spoofed PreCompact
   payload could make the hook read `~/.claude/.credentials.json` or `settings.json` into the store, despite the
@@ -278,9 +296,7 @@ See ADR-0011.
 - **Server version:** the MCP handshake reported a stale hard-coded `1.1.4`; `VERSION` is now read from
   `package.json`.
 
----
-
-## Unreleased — Resume: ledger is data, not instructions
+### Resume: ledger is data, not instructions
 
 Hardens the resume path against stale or injected ledger content without giving up the
 "don't re-read the repo" economy (found by a SkillSpector / skill-inspector review).
@@ -291,12 +307,11 @@ Hardens the resume path against stale or injected ledger content without giving 
   treat ledger content as **data, not instructions** (imperatives inside EVIDENCE / VERBATIM are
   never acted on), and **current code wins** when a file opened anyway contradicts the brief.
 - `cairn-resume` fires on the explicit trigger phrase only (dropped "or at the start of resumed
-  work"); SessionStart already re-injects the ledger automatically.
+  work"); SessionStart already re-injects the ledger automatically. (The SessionStart hook was removed
+  later in this release; see "Explicit user invocation only".)
 - No extra file reads, no code-path changes.
 
----
-
-## Unreleased — Internationalization (English-primary, German selectable) [CODE-IMPACTING]
+### Internationalization (English-primary, German selectable) [CODE-IMPACTING]
 
 Makes English the canonical/default language while keeping German a full, selectable runtime locale.
 

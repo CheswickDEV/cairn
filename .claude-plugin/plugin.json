@@ -1,6 +1,6 @@
 {
   "name": "cairn",
-  "version": "1.4.0",
+  "version": "2.0.0",
   "description": "AI Context Continuity Engine — warns before the context window degrades, hands off a faithful 7-bucket brief, and keeps a decision/evidence ledger across sessions and models.",
   "author": "CheswickDEV",
   "keywords": ["mcp", "context", "handoff", "compaction"],

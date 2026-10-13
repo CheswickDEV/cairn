@@ -8,13 +8,17 @@
 
 | ADR | Title | Status |
 |---|---|---|
-| 0001 | MCP core with a skill/hook skin instead of skill-only or an extension port | Accepted |
+| 0001 | MCP core with a skill/hook skin instead of skill-only or an extension port | Accepted; hooks superseded by ADR-0010 |
 | 0002 | Fidelity is the primary goal, cost is a constraint | Accepted |
 | 0003 | Context zones relative to the active surface window (40/70/100, provisional) | Accepted |
 | 0004 | Summarizer pool restricted to the host ecosystem, with a reachability filter and verbatim floor | Accepted |
 | 0005 | Calibration of fidelityScore/verbosityCoeff via a fixed probe context + model peer-review | Accepted |
 | 0006 | Condensation via the host agent's account session, not via API keys | Accepted |
 | 0007 | Handoff trigger and continuation flow | Invocation/hooks superseded by ADR-0010 |
+| 0008 | Ambient zone indicator for Codex via rollout tailing | Accepted |
+| 0009 | Installer sets up shell shortcuts (`cairn window`/`tab`) | Accepted |
+| 0010 | Cairn runs only on explicit user requests | Accepted |
+| 0011 | New model generations: full profiles, context-only entries, pinned calibration ids | Accepted |
 | 0012 | Summarizer pool = current generation; calibration at effort `high` with a full reviewer matrix | Accepted |
 
 ---

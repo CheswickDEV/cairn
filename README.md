@@ -16,7 +16,7 @@ faithful 7-bucket brief to the next session, or the next model.
 
 `Cairn resume` &nbsp;·&nbsp; `Cairn Handoff` &nbsp;·&nbsp; `Cairn Help`
 
-**v1.4.0** · MIT License
+**v2.0.0** · MIT License
 
 </div>
 
@@ -365,13 +365,15 @@ cap) or a managed `env` setting, so make sure none of them sets less than `high`
 
 ---
 
-## ✅ Status v1.4.0
+## ✅ Status v2.0.0
 
 - MCP core with four tools + SQLite decision/evidence ledger
 - Account mode as the default (no egress)
 - Passive Claude Code statusline · Codex ambient zone via rollout reader · no automatic hooks
 - Named trigger skills: `Cairn resume` · `Cairn Handoff` · `Cairn Help`
 - Lean ledger: a new handoff supersedes the previous brief
+- Summarizer selection calibrated on the current generation at effort `high` (Claude Opus 5.5 / GPT-6.1 Sol); the session model writes the brief, the selection is a recommendation
+- A failed compaction stores nothing; the previous brief stays current
 - Strict TypeScript + Vitest
 - English-primary, with selectable German for both commands (`cairn install --lang de`) and runtime output (`CAIRN_LANG=de`)
 
