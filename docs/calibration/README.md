@@ -13,6 +13,8 @@ Spec/rubric: `../calibration-spec.md`.
 3. Score the brief against `ground-truth.json`:
    - **verbatim** items (`exact: true`): hard string comparison, pass/fail — no reviewer.
    - **recall / supersession / hallucination**: blind peer-review by every other pool model (full matrix, effort `high`, no self-review; ADR-0012).
+     The reviewers also get the probe and judge hallucination against it, listing each invented item;
+     `npm run calibrate -- --real --rereview <golden artifact>` scores a run's stored briefs again.
 4. `fidelityScore` = weighted mean (`scoring.weights`), averaged over reviewers; spread as `confidence`.
    The profiles take each reviewer's leniency out first (least squares over all reviews; ADR-0012), and
    `npm run calibrate -- --pool <golden artifacts>` pools several runs without a model call.

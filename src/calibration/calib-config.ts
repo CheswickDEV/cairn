@@ -58,6 +58,8 @@ export interface CalibConfig {
   maxTokens: number;
   /** Large probe only: target probe size in tokens. */
   probeTokens?: number;
+  /** `--rereview <golden.json>`: score that artifact's stored briefs again, no compaction (ADR-0012). */
+  rereview?: string;
 }
 
 function list(raw: string | undefined): string[] | undefined {
@@ -96,15 +98,24 @@ function ecosystemsFrom(raw: string | undefined): CalibEcosystem[] {
  * first model call. Modes: `--real` (live), `--dry-run` (live config, no egress), else offline.
  * Probes: `--golden` (5-probe golden set; wins over `--probe`), `--probe large` /
  * `CAIRN_CALIB_PROBE=large` (high-fill, live/dry run only), else the single standard probe.
+ * `--rereview <golden.json>` (live/dry run only) scores a golden artifact's stored briefs again.
  */
 export function resolveCalibConfig(env: Env, argv: readonly string[], profiles: ModelProfile[] = PROFILES): CalibConfig {
   const real = argv.includes("--real");
   const dryRun = argv.includes("--dry-run");
   if (real && dryRun) throw new Error("--real and --dry-run exclude each other");
   const mode: CalibMode = real ? "real" : dryRun ? "dry-run" : "offline";
-  const golden = argv.includes("--golden");
+  const rr = argv.indexOf("--rereview");
+  const rereview = rr >= 0 ? argv[rr + 1] : undefined;
+  if (rr >= 0) {
+    if (!rereview || rereview.startsWith("--")) throw new Error("--rereview needs the path of a golden artifact");
+    if (argv.indexOf("--rereview", rr + 1) >= 0) throw new Error("--rereview takes one artifact per run");
+    if (mode === "offline") throw new Error("--rereview needs --real or --dry-run");
+  }
+  const golden = argv.includes("--golden") || rereview !== undefined;
   const idx = argv.indexOf("--probe");
   const large = env.CAIRN_CALIB_PROBE === "large" || (idx >= 0 && argv[idx + 1] === "large");
+  if (rereview !== undefined && large) throw new Error("--rereview re-scores a golden artifact, not the high-fill probe");
   const explicit = list(env.CAIRN_CALIB_VARIANTS);
 
   if (mode === "offline") {
@@ -169,6 +180,7 @@ export function resolveCalibConfig(env: Env, argv: readonly string[], profiles: 
     timeoutMs: positiveInt(env, "CAIRN_CALIB_TIMEOUT_MS", probe === "large" ? 900_000 : 120_000),
     maxTokens: positiveInt(env, "CAIRN_CALIB_MAXTOK", probe === "large" ? 8192 : 4096),
     ...(probe === "large" ? { probeTokens: positiveInt(env, "CAIRN_CALIB_PROBE_TOKENS", 800_000) } : {}),
+    ...(rereview !== undefined ? { rereview } : {}),
   };
 }
 
@@ -189,9 +201,10 @@ export function assertCalibPreflight(cfg: Pick<CalibConfig, "candidates" | "revi
   }
 }
 
-/** Artifact name suffix after the date: ISO time + mode + probe, e.g. `T14-05-09Z-real-golden`. With
- *  `persistArtifact`'s write-once rule no run replaces another run's file. */
-export function artifactSuffix(now: Date, mode: CalibMode, probe: CalibProbeKind): string {
+/** Artifact name suffix after the date: ISO time + mode (+ `rereview`) + probe, e.g. `T14-05-09Z-real-golden`
+ *  or `T14-05-09Z-real-rereview-golden`. With `persistArtifact`'s write-once rule no run replaces another
+ *  run's file. */
+export function artifactSuffix(now: Date, mode: CalibMode, probe: CalibProbeKind, rereview = false): string {
   const time = now.toISOString().slice(10, 19).replace(/:/g, "-"); // "T14:05:09" → "T14-05-09"
-  return `${time}Z-${mode}${probe === "single" ? "" : `-${probe}`}`;
+  return `${time}Z-${mode}${rereview ? "-rereview" : ""}${probe === "single" ? "" : `-${probe}`}`;
 }

@@ -6,7 +6,7 @@
  * (1 - spread). High spread raises a warning instead of being silently adopted.
  */
 
-import type { RubricScore } from "./review.js";
+import type { InventedClaim, RubricScore } from "./review.js";
 import type { RunProvenance } from "./provenance.js";
 
 /** Recall + hallucination weighted highest - those are the expensive errors (calibration-spec §4). */
@@ -72,6 +72,8 @@ export interface ReviewRecord {
   reviewerModelId: string;
   rubric: RubricScore;
   fidelity: number;
+  /** What the reviewer scored as invented (reviewer with source, ADR-0012); absent when it gave no list. */
+  invented?: InventedClaim[];
 }
 
 export interface CalibrationArtifact {

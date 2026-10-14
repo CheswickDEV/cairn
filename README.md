@@ -371,7 +371,8 @@ every golden-set brief all seven models kept every marker and every key fact (fi
 the verbatim blocks).
 `npm run calibrate -- --dry-run --golden` shows how many model calls a live run makes;
 `npm run calibrate -- --real --golden` measures all seven at effort `high` on your accounts, and
-`npm run calibrate -- --pool <artifacts>` pools golden runs without a model call. Cairn cannot
+`npm run calibrate -- --pool <artifacts>` pools golden runs without a model call, and
+`npm run calibrate -- --real --rereview <artifact>` scores a golden run's stored briefs again. Cairn cannot
 override a Claude Code effort cap (`maxEffortLevel` in your user or managed settings, an Enterprise role
 cap) or a managed `env` setting, so make sure none of them sets less than `high` before a live run.
 

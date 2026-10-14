@@ -20,6 +20,21 @@ ledger stays.
 
 The sections below list the changes in the order they landed, newest first.
 
+### Reviewers judge hallucination against the source (2026-10-14)
+
+See ADR-0012, "Reviewer with the source". The reviewers saw the ground truth but not the probe, so a true
+detail or quote beyond the ground truth read as invented: 596 of the 630 reviews of the three real golden
+runs scored hallucination below 1.0 without naming anything.
+
+- **Reviewer prompt** (calibration only): the golden set and the single probe give each reviewer the
+  probe. Invented means not supported by it or contradicting it; a quote from it, a `(derived)` inference
+  that follows from it and an omission are not. The reviewer lists each invented item with its reason, and
+  the review keeps the list. The high-fill probe keeps the old prompt.
+- **`--rereview <golden.json>`** scores the stored briefs of a golden run again, without a compaction
+  (210 reviews per run); the artifact records the run it re-reviewed.
+- **Artifacts** record `reviewerPromptSha256`; `--pool` pools only runs of one reviewer prompt and refuses
+  two inputs with the same briefs.
+
 ### Grounded briefs: quotes for what was said, (derived) for inference (2026-10-13)
 
 See ADR-0013. In the real end-to-end test, Claude Opus 5.5 at `high` got every fact right but wrote three

@@ -45,7 +45,7 @@ Each brief is rated by **every other model of the pool** (full matrix, effort `h
 | Criterion | Question | Source |
 |---|---|---|
 | Recall | How many `must_survive` items are substantively present in the brief? | Ground-Truth |
-| Hallucination | Does anything from `must_not_appear`, or otherwise invented, appear? (inverted) | Ground-Truth |
+| Hallucination | Does anything from `must_not_appear`, or anything the probe does not support, appear? (inverted; the reviewer lists each item) | Probe + Ground-Truth (high-fill probe: Ground-Truth) |
 | Supersession | Are superseded decisions correctly marked as obsolete rather than current? | Ground-Truth |
 | Verbatim | Are `exact` blocks byte-accurate? | String comparison, no model needed |
 
@@ -62,5 +62,5 @@ Weight recall and hallucination higher (those are the expensive errors). Verbati
 
 - Full reviewer matrix (ADR-0012): every other pool model reviews each brief, so every brief gets reviewers from both ecosystems. Compare a family's scores from its own family with those from the other family.
 - Reviewer leniency (ADR-0012): no model reviews its own brief, so each brief misses its author's own leniency or strictness. Fit fidelity ≈ brief quality + reviewer effect by least squares (effects centred on 0) and score with each reviewer's effect taken out (`fitReviewerEffects`, `--pool`).
-- Reviewers receive brief + ground-truth, but **not** the author's model name (blind).
+- Reviewers receive brief + ground-truth + the probe (not for the high-fill probe; ADR-0012), but **not** the author's model name (blind).
 - Re-run on every new model / price update; old scores remain versioned and preserved.

@@ -587,7 +587,31 @@ rubric, fidelity), list only reviewers that actually scored, and record `reviewe
 output adds verbosity, spread and the spread warning per probe. That allows a bias check: a model
 family's mean score from its own family against the mean from the other family.
 
-**Runs and artifacts.** Artifacts are named `<date>T<time>Z-<mode>[-golden|-large].json` and never
+**Reviewer with the source (2026-10-14).** The reviewers saw the ground truth but not the probe, so
+"invented" could only mean "not in the ground truth": a true detail or a quote from the probe read like a
+made-up one. 596 of the 630 reviews of the three real golden runs scored hallucination below 1.0 without
+naming anything, while the deterministic trap check finds no trap text in any brief. Now:
+- The golden set and the single probe give each reviewer the probe as the source (`QUELLE`), before the
+  ground truth. Invented is what the source does not support or what contradicts it, including a
+  suggestion given as a constraint and a quote with the wrong speaker. Not invented: what the source holds
+  but the ground truth does not list, a literal quote from it, a `(derived)` inference that follows from it,
+  and an omission (that is recall). Guide value: about −0.1 per invented item, −0.25 for one that
+  contradicts the source or is a trap.
+- The reviewer lists each invented item with its reason, empty exactly when hallucination is 1.0. The
+  review keeps the list (`invented`, at most 50 items of 400 characters); the rubric stays the numbers.
+- The high-fill probe keeps the old prompt: its probe is too large to hand to every reviewer.
+- A live artifact records `reviewerPromptSha256`; a test pins both prompts. An artifact without it was
+  scored without the source. `--pool` pools only runs of one reviewer prompt and refuses two inputs that
+  hold the same stored briefs.
+- `--rereview <golden.json>` with `--real` scores the stored briefs of one golden artifact again: no
+  compaction, each brief with its model, probe and output tokens, by its six foreign reviewers against the
+  current ground truth. Recorded probe contents must match the current probes; an artifact without them
+  gets a note. It writes `…-real-rereview-golden.json` with `rereviewOf` (path and SHA-256) and the briefs'
+  `promptSha256`. A dry run counts 210 reviews per golden artifact.
+- Recall, supersession and the weights are unchanged. Earlier artifacts and the profiles stay as they are;
+  a re-review is a new measurement and compares only with other re-reviews.
+
+**Runs and artifacts.** Artifacts are named `<date>T<time>Z-<mode>[-rereview][-golden|-large].json` and never
 overwritten (a taken name gets `-2`, `-3`, …). They keep each scored brief and the ids of the
 must-survive items the deterministic check missed (`missingMustSurvive`, the same matching as
 `computeRecall`). A paid run can then be checked again without rerunning it. A `provenance` block
@@ -1000,7 +1024,8 @@ calls on 2bf881a, recomputed bit-exact by two agents):
 - So the plan's bar (hallucination up by more than the gap between the old runs, recall down by no more
   than it, verbatim 1.0) is missed for hallucination and, formally, for recall; the golden set cannot show
   whether the prompt stops invented lines. The user kept the profiles as measured and left the prompt to
-  the end-to-end rerun (2026-10-14).
+  the end-to-end rerun (2026-10-14). Since then the reviewers get the source (ADR-0012, "Reviewer with
+  the source").
 - End-to-end rerun (2026-10-14, the scenario of the context above, one subscription call each through the
   built bridge on c4374b3, checked by two agents): neither Claude Opus 5.5 nor GPT-6.1 Sol wrote any of the
   three lines. No constraint on option (b), the 0 lost writes under EVIDENCE, option (b) deferred and open

@@ -8,7 +8,7 @@ import type { ModelProfile } from "../core/model-profiles.js";
 import { SEVEN_BUCKET_PROMPT } from "../core/prompts.js";
 import { loadProbeContext, loadExactSpans, loadGroundTruth } from "./fixtures.js";
 import type { GroundTruth } from "./ground-truth.js";
-import { runCompactions, type Compactor } from "./runner.js";
+import { runCompactions, type CompactionRun, type Compactor } from "./runner.js";
 import { parseVariant } from "./variants.js";
 import { mapWithConcurrency } from "./concurrency.js";
 import {
@@ -51,6 +51,9 @@ export interface RunCalibrationInput {
   prompt?: string;
   exactSpans?: string[];
   groundTruth?: GroundTruth;
+  /** Give the reviewers the probe, so they judge hallucination against it (default true, ADR-0012). The
+   *  high-fill probe sets false: its reviewers see only the brief and the ground truth. */
+  reviewerSeesSource?: boolean;
   now?: () => number;
 }
 
@@ -71,8 +74,6 @@ export async function runCalibration(input: RunCalibrationInput): Promise<Calibr
   const prompt = input.prompt ?? SEVEN_BUCKET_PROMPT;
   const exactSpans = input.exactSpans ?? loadExactSpans();
   const gt = input.groundTruth ?? loadGroundTruth();
-  const k = input.reviewersPerBrief ?? 2;
-  const strengthOf = strengthOfFactory(input.profiles);
 
   const runs = await runCompactions({
     candidates: input.candidates,
@@ -84,6 +85,53 @@ export async function runCalibration(input: RunCalibrationInput): Promise<Calibr
     concurrency: input.concurrency,
     onSkip: input.onSkip,
   });
+
+  const { models, notes } = await reviewBriefs({
+    runs,
+    groundTruth: gt,
+    ...(input.reviewerSeesSource === false ? {} : { source: probe }),
+    profiles: input.profiles,
+    reviewer: input.reviewer,
+    reviewerPool: input.reviewerPool,
+    reviewersPerBrief: input.reviewersPerBrief,
+    concurrency: input.concurrency,
+    onSkip: input.onSkip,
+  });
+
+  const retained = models.filter((m) => m.retainedAllMustSurvive);
+  const floorProposal = retained.length ? Math.min(...retained.map((m) => m.fidelityScore)) : null;
+
+  return {
+    date: input.date,
+    ...(input.reviewerEffort ? { reviewerEffort: input.reviewerEffort } : {}),
+    models,
+    floorProposal,
+    notes,
+  };
+}
+
+export interface ReviewBriefsInput {
+  /** The briefs of one probe (fresh compactions, or the stored briefs of an earlier run). */
+  runs: CompactionRun[];
+  groundTruth: GroundTruth;
+  /** The probe, passed to every reviewer (ADR-0012); absent: the reviewers see only the ground truth. */
+  source?: string;
+  profiles: ModelProfile[];
+  reviewer: Reviewer;
+  reviewersPerBrief?: number;
+  reviewerPool?: string[];
+  concurrency?: number;
+  onSkip?: (label: string, error: unknown) => void;
+}
+
+/**
+ * Score the briefs of one probe: every brief by its reviewers (the strongest foreign pool models, never its
+ * own base model), the hard verbatim check, spread and the deterministic must-survive check.
+ */
+export async function reviewBriefs(input: ReviewBriefsInput): Promise<{ models: ModelCalibration[]; notes: string[] }> {
+  const { runs, groundTruth: gt } = input;
+  const k = input.reviewersPerBrief ?? 2;
+  const strengthOf = strengthOfFactory(input.profiles);
 
   // Reviewers are BASE models (not effort variants), strongest available foreign ones - drawn only
   // from models that actually produced a real brief (so unreachable/garbage models can't review).
@@ -102,9 +150,15 @@ export async function runCalibration(input: RunCalibrationInput): Promise<Calibr
     const reviews: ReviewRecord[] = [];
     for (const reviewerModelId of reviewers) {
       try {
-        const rs = await input.reviewer({ authorModelId: run.modelId, reviewerModelId, brief: run.brief, groundTruth: gt });
+        const { invented, ...rs } = await input.reviewer({
+          authorModelId: run.modelId,
+          reviewerModelId,
+          brief: run.brief,
+          groundTruth: gt,
+          ...(input.source !== undefined ? { source: input.source } : {}),
+        });
         const rubric: RubricScore = { ...rs, verbatim };
-        reviews.push({ reviewerModelId, rubric, fidelity: weightedFidelity(rubric) });
+        reviews.push({ reviewerModelId, rubric, fidelity: weightedFidelity(rubric), ...(invented ? { invented } : {}) });
       } catch (e) {
         input.onSkip?.(`review ${run.modelId} by ${reviewerModelId}`, e);
       }
@@ -137,17 +191,8 @@ export async function runCalibration(input: RunCalibrationInput): Promise<Calibr
     return { model, note };
   });
 
-  const models = perRun.map((r) => r.model);
-  const notes = perRun.map((r) => r.note).filter((n): n is string => n !== null);
-
-  const retained = models.filter((m) => m.retainedAllMustSurvive);
-  const floorProposal = retained.length ? Math.min(...retained.map((m) => m.fidelityScore)) : null;
-
   return {
-    date: input.date,
-    ...(input.reviewerEffort ? { reviewerEffort: input.reviewerEffort } : {}),
-    models,
-    floorProposal,
-    notes,
+    models: perRun.map((r) => r.model),
+    notes: perRun.map((r) => r.note).filter((n): n is string => n !== null),
   };
 }

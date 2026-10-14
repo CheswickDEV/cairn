@@ -18,6 +18,10 @@
  * reviewer-effect fit over all their reviews, corrected means, and the stored briefs checked again against
  * the current ground truth (ADR-0012). Writes `…-pooled-golden.json` with the inputs' SHA-256.
  *
+ * `--rereview <golden.json>` with `--real` (or `--dry-run`) = the stored briefs of one golden artifact scored
+ * again by the current reviewers, which see the probe as the source (ADR-0012); no compaction. Writes
+ * `…-real-rereview-golden.json` with the input's SHA-256.
+ *
  * Artifacts: `calibration/results/<date>T<time>Z-<mode>[-golden|-large].json`, never overwritten.
  */
 
@@ -30,9 +34,17 @@ import { runCalibration } from "./harness.js";
 import { applyCalibration, persistArtifact, bestPerBaseModel } from "./writer.js";
 import { parseVariant } from "./variants.js";
 import { makeAccountCompactor } from "./account-compactor.js";
-import { makeModelReviewer } from "./model-reviewer.js";
+import { makeModelReviewer, reviewerPromptSha256 } from "./model-reviewer.js";
 import { buildLargeProbe, LARGE_GROUND_TRUTH } from "./large-probe.js";
-import { runGoldenSet, goldenProbes, poolGoldenResults, checkPoolInputs, type GoldenResult, type PoolInput } from "./golden-set.js";
+import {
+  runGoldenSet,
+  rereviewGoldenResult,
+  goldenProbes,
+  poolGoldenResults,
+  checkPoolInputs,
+  type GoldenResult,
+  type PoolInput,
+} from "./golden-set.js";
 import { resolveCalibConfig, assertCalibPreflight, artifactSuffix, type CalibConfig } from "./calib-config.js";
 import { collectProvenance, collectsCliVersions, probeInfo } from "./provenance.js";
 import { compactionPromptSha256 } from "./account-compactor.js";
@@ -65,6 +77,7 @@ function poolArtifacts(paths: string[], now: Date, out: NodeJS.WriteStream): voi
       probes: inputs[0].res.probes,
       // checkPoolInputs admits only inputs of one prompt, so the first input's hash is every input's.
       ...(inputs[0].res.promptSha256 ? { promptSha256: inputs[0].res.promptSha256 } : {}),
+      ...(inputs[0].res.reviewerPromptSha256 ? { reviewerPromptSha256: inputs[0].res.reviewerPromptSha256 } : {}),
       ...pooled,
       provenance,
     },
@@ -141,7 +154,7 @@ async function main(): Promise<void> {
   if (live) assertCalibPreflight(cfg);
   const calls: CallCount = { compactions: 0, reviews: 0 };
   const { makeCompactor, reviewer } = seams(cfg, calls);
-  const suffix = artifactSuffix(now, cfg.mode, cfg.probe);
+  const suffix = artifactSuffix(now, cfg.mode, cfg.probe, cfg.rereview !== undefined);
   // Commit always; CLI versions only for a real run (a dry run must not start claude or codex).
   const provenance = collectProvenance({ live: collectsCliVersions(cfg.mode) });
   const skips: string[] = [];
@@ -154,6 +167,67 @@ async function main(): Promise<void> {
     `Candidates: ${cfg.candidates.length} (${cfg.candidates.join(", ")})\n` +
     `Reviewer pool: ${cfg.reviewerPool?.join(", ")}; ${cfg.reviewersPerBrief} reviewers per brief at effort ` +
     `'${cfg.reviewerEffort}'. Concurrency ${cfg.concurrency}, timeout ${cfg.timeoutMs}ms.\n`;
+
+  // ---- RE-REVIEW of a golden artifact's stored briefs (no compaction) ----
+  if (cfg.rereview !== undefined) {
+    const path = cfg.rereview;
+    const body = readFileSync(path, "utf8");
+    const input: PoolInput = { path, sha256: createHash("sha256").update(body).digest("hex"), res: JSON.parse(body) as GoldenResult };
+    // A well-formed golden artifact; its notes say which hashes it lacks. Without probeInfo the probes the
+    // briefs were made from cannot be compared with the current ones the reviewers get as the source.
+    const notes = checkPoolInputs([input]).map((n) =>
+      n.endsWith("so its probe contents are not compared")
+        ? `${path}: no probeInfo (written before it was recorded), so the current probes the reviewers see are not compared with the briefs' probes`
+        : n,
+    );
+    const probes = goldenProbes();
+    out.write(`Cairn GOLDEN RE-REVIEW (${modeLabel(cfg)}) — ${date} — ${path} (sha256 ${input.sha256.slice(0, 12)}…)
+`);
+    out.write(
+      `Reviewer pool: ${cfg.reviewerPool?.join(", ")}; ${cfg.reviewersPerBrief} reviewers per brief at effort ` +
+        `'${cfg.reviewerEffort}', with the probe as the source. Concurrency ${cfg.concurrency}, timeout ${cfg.timeoutMs}ms.\n`,
+    );
+    for (const n of notes) out.write(`Note: ${n}\n`);
+    const res = await rereviewGoldenResult({
+      res: input.res,
+      probes,
+      profiles: PROFILES,
+      reviewer,
+      reviewerPool: cfg.reviewerPool,
+      reviewersPerBrief: cfg.reviewersPerBrief,
+      reviewerEffort: cfg.reviewerEffort,
+      concurrency: cfg.concurrency,
+      date,
+      onSkip,
+    });
+    const info = res.probes.map((label) => probeInfo(label, probes.find((p) => p.label === label)!.probe));
+    const gpath = persistArtifact(
+      RESULTS_DIR,
+      {
+        ...res,
+        probeInfo: info,
+        // The briefs' compaction prompt, not the current one: the briefs were written with it.
+        ...(input.res.promptSha256 ? { promptSha256: input.res.promptSha256 } : {}),
+        ...(cfg.mode === "real" ? { reviewerPromptSha256: reviewerPromptSha256(true) } : {}),
+        rereviewOf: { path, sha256: input.sha256 },
+        ...(notes.length ? { inputNotes: notes } : {}),
+        provenance,
+      },
+      suffix,
+    );
+    out.write(`\nWrote ${gpath} (skipped ${skips.length})\n\nPer model (mean over ${res.probes.length} probes; hallucination; invented items per review):\n`);
+    for (const m of [...res.perModel].sort((a, b) => b.meanFidelity - a.meanFidelity)) {
+      const reviews = m.perProbe.flatMap((p) => p.reviews);
+      const hall = reviews.reduce((a, r) => a + r.rubric.hallucination, 0) / Math.max(1, reviews.length);
+      const listed = reviews.reduce((a, r) => a + (r.invented?.length ?? 0), 0) / Math.max(1, reviews.length);
+      out.write(
+        `  ${m.modelId.padEnd(30)} mean=${m.meanFidelity.toFixed(3)} corrected=${m.meanFidelityAdjusted?.toFixed(3) ?? "n/a"} ` +
+          `hallucination=${hall.toFixed(3)} invented=${listed.toFixed(2)}\n`,
+      );
+    }
+    writeCallSummary(out, cfg, calls);
+    return;
+  }
 
   // ---- GOLDEN SET (multi-probe) ----
   if (cfg.probe === "golden") {
@@ -174,7 +248,17 @@ async function main(): Promise<void> {
       onSkip,
     });
     const info = probes.map((p) => probeInfo(p.label, p.probe));
-    const gpath = persistArtifact(RESULTS_DIR, { ...res, probeInfo: info, promptSha256: compactionPromptSha256(), provenance }, suffix);
+    const gpath = persistArtifact(
+      RESULTS_DIR,
+      {
+        ...res,
+        probeInfo: info,
+        promptSha256: compactionPromptSha256(),
+        ...(cfg.mode === "real" ? { reviewerPromptSha256: reviewerPromptSha256(true) } : {}),
+        provenance,
+      },
+      suffix,
+    );
     out.write(`\nWrote ${gpath} (skipped ${skips.length})\n\nPer model (mean over ${res.probes.length} probes):\n`);
     for (const m of [...res.perModel].sort((a, b) => b.meanFidelity - a.meanFidelity)) {
       const pp = m.perProbe.map((p) => `${p.label}=${p.fidelity.toFixed(3)}`).join("  ");
@@ -270,12 +354,25 @@ async function main(): Promise<void> {
     groundTruth,
     probe,
     exactSpans,
+    // The high-fill probe is too large to hand to every reviewer: they see the brief and the ground truth.
+    reviewerSeesSource: cfg.probe !== "large",
     onSkip,
   });
 
   const info = probeInfo(cfg.probe === "large" ? "large" : "standard", probe ?? loadProbeContext(), cfg.probe === "large" ? cfg.probeTokens ?? 800_000 : undefined);
   const preExcluded = part.excluded.map((e) => ({ id: e.id, window: e.window, request: e.request }));
-  const path = persistArtifact(RESULTS_DIR, { ...artifact, probeInfo: [info], promptSha256: compactionPromptSha256(), preExcluded, provenance }, suffix);
+  const path = persistArtifact(
+    RESULTS_DIR,
+    {
+      ...artifact,
+      probeInfo: [info],
+      promptSha256: compactionPromptSha256(),
+      ...(cfg.mode === "real" ? { reviewerPromptSha256: reviewerPromptSha256(cfg.probe !== "large") } : {}),
+      preExcluded,
+      provenance,
+    },
+    suffix,
+  );
   out.write(`\nWrote versioned artifact: ${path}\n`);
   out.write(`Scored variants: ${artifact.models.length}/${candidates.length} (skipped ${skips.length})\n\n`);
   out.write(`Per (model × effort):\n`);

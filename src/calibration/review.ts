@@ -20,12 +20,26 @@ export interface RubricScore extends ReviewerScore {
   verbatim: number;
 }
 
+/** A brief statement a reviewer scored as invented, with its reason (ADR-0012, reviewer with source). */
+export interface InventedClaim {
+  claim: string;
+  why: string;
+}
+
+/** A reviewer's scores plus, where it gave them, the statements it scored as invented. */
+export interface ReviewerVerdict extends ReviewerScore {
+  invented?: InventedClaim[];
+}
+
 export type Reviewer = (input: {
   authorModelId: string;
   reviewerModelId: string;
   brief: string;
   groundTruth: GroundTruth;
-}) => Promise<ReviewerScore>;
+  /** The probe the brief was made from: hallucination is judged against it (ADR-0012). Absent for the
+   *  high-fill probe, whose reviewers see only the ground truth. */
+  source?: string;
+}) => Promise<ReviewerVerdict>;
 
 /* --------------------------- deterministic metrics --------------------------- */
 

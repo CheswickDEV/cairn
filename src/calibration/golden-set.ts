@@ -7,10 +7,10 @@
 import { createHash } from "node:crypto";
 import type { ModelProfile } from "../core/model-profiles.js";
 import type { GroundTruth } from "./ground-truth.js";
-import type { Compactor } from "./runner.js";
+import type { CompactionRun, Compactor } from "./runner.js";
 import type { Reviewer } from "./review.js";
-import { runCalibration } from "./harness.js";
-import { median, stddev, clamp01, fitReviewerEffects, type ReviewRecord, type ReviewObservation } from "./score.js";
+import { runCalibration, reviewBriefs } from "./harness.js";
+import { median, stddev, clamp01, fitReviewerEffects, type ModelCalibration, type ReviewRecord, type ReviewObservation } from "./score.js";
 import { missingMustSurvive, computeVerbatimScore } from "./review.js";
 import type { RunProvenance } from "./provenance.js";
 import { loadProbeContext, loadGroundTruth, loadExactSpans } from "./fixtures.js";
@@ -95,6 +95,11 @@ export interface GoldenResult {
   provenance?: RunProvenance;
   /** SHA-256 of the compaction system prompt (set by the CLI; ADR-0013, `compactionPromptSha256`). */
   promptSha256?: string;
+  /** SHA-256 of the reviewer prompt (set by the CLI for a live run; ADR-0012, `reviewerPromptSha256`). An
+   *  artifact without it was scored by the reviewer that saw only the ground truth. */
+  reviewerPromptSha256?: string;
+  /** A re-review (`--rereview`): the artifact whose stored briefs were scored again. */
+  rereviewOf?: { path: string; sha256: string };
 }
 
 export interface RunGoldenSetInput {
@@ -118,8 +123,7 @@ function mean(xs: number[]): number {
 }
 
 export async function runGoldenSet(input: RunGoldenSetInput): Promise<GoldenResult> {
-  const byVariant = new Map<string, GoldenModelResult>();
-
+  const perProbe: { label: string; models: ModelCalibration[] }[] = [];
   for (const gp of input.probes) {
     const art = await runCalibration({
       candidates: input.candidates,
@@ -137,7 +141,80 @@ export async function runGoldenSet(input: RunGoldenSetInput): Promise<GoldenResu
       exactSpans: gp.exactSpans,
       onSkip: input.onSkip,
     });
-    for (const m of art.models) {
+    perProbe.push({ label: gp.label, models: art.models });
+  }
+  return collectGolden(input.date, input.reviewerEffort, input.probes.map((p) => p.label), perProbe);
+}
+
+export interface RereviewInput {
+  /** The golden artifact whose stored briefs are scored again. */
+  res: GoldenResult;
+  /** The current probes; each of the artifact's probes must be among them (by label). */
+  probes: GoldenProbe[];
+  profiles: ModelProfile[];
+  reviewer: Reviewer;
+  reviewerPool?: string[];
+  reviewersPerBrief?: number;
+  reviewerEffort?: string;
+  concurrency?: number;
+  date: string;
+  onSkip?: (label: string, error: unknown) => void;
+}
+
+/**
+ * Score the stored briefs of a golden artifact again, with the current reviewer, ground truth and probes as
+ * the source (ADR-0012): no compaction, only reviews. Each brief keeps its model, probe and output tokens; a
+ * model the run did not score on a probe stays out there too. Throws before any review when a probe is
+ * unknown, its recorded contents differ from the current probe, or a scored brief was not stored.
+ */
+export async function rereviewGoldenResult(input: RereviewInput): Promise<GoldenResult> {
+  const { res } = input;
+  const byLabel = new Map(input.probes.map((p) => [p.label, p]));
+  const recorded = new Map(((res as { probeInfo?: { label: string; sha256: string }[] }).probeInfo ?? []).map((p) => [p.label, p.sha256]));
+  const plan = res.probes.map((label) => {
+    const gp = byLabel.get(label);
+    if (!gp) throw new Error(`rereview: unknown probe '${label}'`);
+    const sha = recorded.get(label);
+    if (sha !== undefined && sha !== createHash("sha256").update(gp.probe, "utf8").digest("hex")) {
+      throw new Error(`rereview: probe '${label}' differs from the one the briefs were made from`);
+    }
+    const runs: CompactionRun[] = [];
+    for (const m of res.perModel) {
+      const p = m.perProbe.find((x) => x.label === label);
+      if (!p) continue;
+      if (typeof p.brief !== "string") throw new Error(`rereview: no stored brief for ${m.modelId} on '${label}'`);
+      runs.push({ modelId: m.modelId, brief: p.brief, outputTokens: p.outputTokens, runtimeMs: 0 });
+    }
+    return { gp, runs };
+  });
+  const perProbe: { label: string; models: ModelCalibration[] }[] = [];
+  for (const { gp, runs } of plan) {
+    const { models } = await reviewBriefs({
+      runs,
+      groundTruth: gp.groundTruth,
+      source: gp.probe,
+      profiles: input.profiles,
+      reviewer: input.reviewer,
+      reviewerPool: input.reviewerPool,
+      reviewersPerBrief: input.reviewersPerBrief,
+      concurrency: input.concurrency,
+      onSkip: input.onSkip,
+    });
+    perProbe.push({ label: gp.label, models });
+  }
+  return collectGolden(input.date, input.reviewerEffort, res.probes, perProbe);
+}
+
+/** Per-model means over the probes, the floor proposal and the reviewer correction of one golden run. */
+function collectGolden(
+  date: string,
+  reviewerEffort: string | undefined,
+  probes: string[],
+  perProbe: { label: string; models: ModelCalibration[] }[],
+): GoldenResult {
+  const byVariant = new Map<string, GoldenModelResult>();
+  for (const { label, models } of perProbe) {
+    for (const m of models) {
       const e =
         byVariant.get(m.modelId) ??
         {
@@ -145,7 +222,7 @@ export async function runGoldenSet(input: RunGoldenSetInput): Promise<GoldenResu
           meanFidelity: 0, meanConfidence: 0, meanVerbosityCoeff: 0, highSpreadWarnings: 0, probesScored: 0, perProbe: [],
         };
       e.perProbe.push({
-        label: gp.label,
+        label,
         fidelity: m.fidelityScore,
         confidence: m.confidence,
         verbosityCoeff: m.verbosityCoeff,
@@ -183,9 +260,9 @@ export async function runGoldenSet(input: RunGoldenSetInput): Promise<GoldenResu
   }
 
   return {
-    date: input.date,
-    ...(input.reviewerEffort ? { reviewerEffort: input.reviewerEffort } : {}),
-    probes: input.probes.map((p) => p.label),
+    date,
+    ...(reviewerEffort ? { reviewerEffort } : {}),
+    probes,
     perModel: corrected ? corrected.runs[0] : perModel,
     floorProposal,
     ...(corrected
@@ -267,12 +344,22 @@ function runFingerprint(r: GoldenResult): string {
   return createHash("sha256").update(rows.sort().join("\n")).digest("hex");
 }
 
+/** What the briefs of a run are: each stored (model, probe) brief, in any order; null when none is stored. */
+function briefsFingerprint(r: GoldenResult): string | null {
+  const rows = r.perModel.flatMap((m) =>
+    m.perProbe.filter((p) => typeof p.brief === "string").map((p) => canonicalJson([m.modelId, p.label, p.brief])),
+  );
+  return rows.length ? createHash("sha256").update(rows.sort().join("\n")).digest("hex") : null;
+}
+
 /**
  * Only runs of the same configuration pool (ADR-0012): no artifact twice (by file hash, or by its briefs and
  * reviews when re-serialized, reordered or re-scored), the same probes (and probe contents, where recorded),
  * the same models, the same reviewer effort and the same compaction prompt (ADR-0013). An artifact without a
- * prompt hash predates it and ran the prompt before 2.0.0: it pools only with others without one. Throws
- * naming the input; returns notes on what could not be compared.
+ * prompt hash predates it and ran the prompt before 2.0.0: it pools only with others without one. The same
+ * holds for the reviewer prompt: an artifact without its hash was scored without the source. Two inputs with
+ * the same stored briefs are one run scored twice (a re-review), never two runs. Throws naming the input;
+ * returns notes on what could not be compared.
  */
 export function checkPoolInputs(inputs: PoolInput[]): string[] {
   if (inputs.length === 0) throw new Error("--pool needs at least one golden artifact");
@@ -283,6 +370,7 @@ export function checkPoolInputs(inputs: PoolInput[]): string[] {
   const runs = new Map<string, string>();
   const notes: string[] = [];
   let probeRef: PoolInput | undefined;
+  const briefSets = new Map<string, string>();
   for (const i of inputs) {
     const wellFormed =
       Array.isArray(i.res.perModel) &&
@@ -301,11 +389,18 @@ export function checkPoolInputs(inputs: PoolInput[]): string[] {
     const twin = runs.get(run);
     if (twin) throw new Error(`${i.path}: the same run as ${twin} (identical results)`);
     runs.set(run, i.path);
+    const briefs = briefsFingerprint(i.res);
+    if (briefs) {
+      const twinBriefs = briefSets.get(briefs);
+      if (twinBriefs) throw new Error(`${i.path}: the same briefs as ${twinBriefs} (a re-review of the same run)`);
+      briefSets.set(briefs, i.path);
+    }
     if (i.res.probes.join(",") !== first.res.probes.join(",")) throw new Error(`${i.path}: other probes than ${first.path}`);
     if (models(i.res) !== models(first.res)) throw new Error(`${i.path}: other models than ${first.path}`);
     if (i.res.reviewerEffort !== first.res.reviewerEffort) throw new Error(`${i.path}: other reviewer effort than ${first.path}`);
     if (i.res.promptSha256 !== first.res.promptSha256) throw new Error(`${i.path}: another compaction prompt than ${first.path}`);
     if (!i.res.promptSha256) notes.push(`${i.path}: no promptSha256 (written before it was recorded), so its compaction prompt is not compared`);
+    if (i.res.reviewerPromptSha256 !== first.res.reviewerPromptSha256) throw new Error(`${i.path}: another reviewer prompt than ${first.path}`);
     const h = hashes(i.res);
     if (!h) {
       notes.push(`${i.path}: no probeInfo (written before it was recorded), so its probe contents are not compared`);
