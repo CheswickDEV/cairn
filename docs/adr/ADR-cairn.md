@@ -593,10 +593,12 @@ made-up one. 596 of the 630 reviews of the three real golden runs scored halluci
 naming anything, while the deterministic trap check finds no trap text in any brief. Now:
 - The golden set and the single probe give each reviewer the probe as the source (`QUELLE`), before the
   ground truth. Invented is what the source does not support or what contradicts it, including a
-  suggestion given as a constraint and a quote with the wrong speaker. Not invented: what the source holds
-  but the ground truth does not list, a literal quote from it, a `(derived)` inference that follows from it,
-  and an omission (that is recall). Guide value: about −0.1 per invented item, −0.25 for one that
-  contradicts the source or is a trap.
+  suggestion or inference given as a constraint or decision and a quote with the wrong speaker. Not
+  invented: what the source holds but the ground truth does not list, a literal quote from it, an inference
+  that follows from it, marked `(derived)` or not, unless given as a constraint, decision or someone's
+  words, and an omission (that is recall). The marker does not count either way, so the briefs of the old
+  prompt, which mark nothing, are judged by the same rule. Guide value: about −0.1 per invented item, −0.25
+  for one that contradicts the source or is a trap.
 - The reviewer lists each invented item with its reason, empty exactly when hallucination is 1.0. The
   review keeps the list (`invented`, at most 50 items of 400 characters); the rubric stays the numbers.
 - The high-fill probe keeps the old prompt: its probe is too large to hand to every reviewer.

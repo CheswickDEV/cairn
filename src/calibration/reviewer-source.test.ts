@@ -30,7 +30,9 @@ describe("model reviewer with the source", () => {
     const [, args, opts] = exec.mock.calls[0];
     const system = args[args.indexOf("--system-prompt") + 1];
     expect(system).toContain("gegen die QUELLE");
-    expect(system).toContain("ein mit (derived) markierter Schluss, der aus der QUELLE folgt");
+    // An inference that follows from the source counts the same with or without the marker: the old prompt's
+    // briefs mark none, so a rule for marked ones only would favour the new prompt in a re-review.
+    expect(system).toContain("ein Schluss, der aus der QUELLE folgt, ob mit (derived) markiert oder nicht");
     expect(system).toContain('"invented"');
     expect(opts.stdin!.startsWith("QUELLE:\n<<<QUELLE\nSRC\nQUELLE>>>\n\nMUST_SURVIVE:\n")).toBe(true);
     expect(opts.stdin).toContain("\nBRIEF:\nB\n");
@@ -67,7 +69,7 @@ describe("model reviewer with the source", () => {
     expect(reviewerPromptSha256(false)).not.toBe(reviewerPromptSha256(true));
     // Without the source: the prompt of every run before 2026-10-14 (those artifacts record no hash).
     expect(reviewerPromptSha256(false)).toBe("d87c8b9cc9d2712df242d7cbc2d7ac21b48e25e0b807f522d3e69d829316d28d");
-    expect(reviewerPromptSha256(true)).toBe("2983f39c904f6d31353db6023b7fa1f42a1136d6a67faf8fb3fb98679f8d0407");
+    expect(reviewerPromptSha256(true)).toBe("7198a7935dc323f6a92970ecd7d4ff96f97478e62983e92f05c20bd43b748c17");
   });
 });
 

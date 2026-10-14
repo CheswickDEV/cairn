@@ -27,8 +27,9 @@ detail or quote beyond the ground truth read as invented: 596 of the 630 reviews
 runs scored hallucination below 1.0 without naming anything.
 
 - **Reviewer prompt** (calibration only): the golden set and the single probe give each reviewer the
-  probe. Invented means not supported by it or contradicting it; a quote from it, a `(derived)` inference
-  that follows from it and an omission are not. The reviewer lists each invented item with its reason, and
+  probe. Invented means not supported by it or contradicting it; a quote from it, an inference that
+  follows from it (marked `(derived)` or not, unless given as a constraint, decision or someone's words) and
+  an omission are not. The reviewer lists each invented item with its reason, and
   the review keeps the list. The high-fill probe keeps the old prompt.
 - **`--rereview <golden.json>`** scores the stored briefs of a golden run again, without a compaction
   (210 reviews per run); the artifact records the run it re-reviewed.
