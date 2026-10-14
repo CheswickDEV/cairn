@@ -61,7 +61,8 @@ target, a deferred option as discarded).
   reviewers, who see the ground truth but not the source, scored hallucination lower (0.8376 against 0.8523
   for the old prompt), mostly the GPT reviewers and most on briefs with `(derived)` items; recall moved
   within noise (0.9866 against 0.9889), verbatim held, and every must-survive item and verbatim span was
-  kept. The profiles stay as measured (ADR-0013).
+  kept. The profiles stay as measured (ADR-0013). In the end-to-end rerun neither Opus 5.5 nor GPT-6.1 Sol
+  wrote the three lines; both quoted the user, every quote in the source.
 
 ### Summarizer pool on the current generation, effort `high` (2026-10-11 to 2026-10-13)
 
