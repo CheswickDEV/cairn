@@ -999,15 +999,15 @@ calls on 2bf881a, recomputed bit-exact by two agents):
   CLI moved from 2.1.296 to 2.1.299 between the runs.
 - So the plan's bar (hallucination up by more than the gap between the old runs, recall down by no more
   than it, verbatim 1.0) is missed for hallucination and, formally, for recall; the golden set cannot show
-  whether the prompt stops invented lines. The user kept the prompt, with the end-to-end rerun to decide,
-  and the profiles as measured (2026-10-14).
+  whether the prompt stops invented lines. The user kept the profiles as measured and left the prompt to
+  the end-to-end rerun (2026-10-14).
 - End-to-end rerun (2026-10-14, the scenario of the context above, one subscription call each through the
   built bridge on c4374b3, checked by two agents): neither Claude Opus 5.5 nor GPT-6.1 Sol wrote any of the
   three lines. No constraint on option (b), the 0 lost writes under EVIDENCE, option (b) deferred and open
   instead of discarded. Both give the user's words in quotes ("Do not switch to Postgres."), every quote is
   in the source, and neither marks an item `(derived)`. Left over: Opus lists the assistant's "should use
   8" (workers) as a constraint without its speaker, and Sol adds the unit "ms" to `busy_timeout = 5000`,
-  right for SQLite but not stated.
+  right for SQLite but not stated. On that result the user kept the prompt (2026-10-14).
 
 **Limits.**
 - Account mode checks nothing: the session model writes the brief from its own context, and Cairn sees only
