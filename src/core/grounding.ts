@@ -12,7 +12,8 @@
  * fenced code blocks are skipped (a string literal in code is no quote), inline code is read as its text, so
  * a quote may contain it. The check finds the words, not who said them or in which sense: a sentence the user
  * rejected is in the source too, and a quote may leave out words around it ("in this sprint"), except a
- * negation right before it (or a German one right after it). A paraphrase without quotes is not checked.
+ * negation right before it (or a German one right after it) that the brief does not keep right outside the
+ * quote marks. A paraphrase without quotes is not checked.
  * Where a rule is in doubt it flags rather than passes; ADR-0013 lists what still passes.
  */
 
@@ -72,14 +73,21 @@ function wordCount(text: string): number {
   return text.split(/\s+/).filter((w) => WORD.test(w)).length;
 }
 
-/** The quoted spans of a brief with at least MIN_QUOTE_WORDS words, outside fenced code, in order, each
- *  once. Inline code keeps its text without the backticks, as the comparison drops them anyway. A quote
+/** One quote of a brief: its text, and where its opening mark is and its closing mark ends in `text`, the
+ *  brief as read (fences as line breaks, inline code as its text). */
+interface QuoteSpan {
+  text: string;
+  at: number;
+  end: number;
+}
+
+/** Every quote of a brief with at least MIN_QUOTE_WORDS words, outside fenced code, in brief order. A quote
  *  inside a quote is read as well; once a pair is read, its marks pair nothing else. */
-export function extractQuotes(brief: string): string[] {
+function quoteSpans(brief: string): { text: string; spans: QuoteSpan[] } {
   // A fence becomes a line break, so it also ends a quote.
   const text = brief.replace(FENCE_RE, "\n").replace(INLINE_RE, (code) => code.slice(1, -1));
   let rest = text;
-  const found: { at: number; text: string }[] = [];
+  const spans: QuoteSpan[] = [];
   for (const re of QUOTE_RES) {
     // Again while something pairs, up to MAX_NESTING passes: an outer quote pairs once the marks of the
     // quote inside it are read.
@@ -88,12 +96,19 @@ export function extractQuotes(brief: string): string[] {
       rest = rest.replace(re, (whole: string, inner: string, at: number) => {
         paired = true;
         const quote = text.slice(at + 1, at + whole.length - 1).trim();
-        if (wordCount(quote) >= MIN_QUOTE_WORDS) found.push({ at, text: quote });
+        if (wordCount(quote) >= MIN_QUOTE_WORDS) spans.push({ text: quote, at, end: at + whole.length });
         return PAIRED + inner + PAIRED;
       });
     }
   }
-  return [...new Set(found.sort((a, b) => a.at - b.at).map((q) => q.text))];
+  return { text, spans: spans.sort((a, b) => a.at - b.at) };
+}
+
+/** The quoted spans of a brief with at least MIN_QUOTE_WORDS words, outside fenced code, in order, each
+ *  once. Inline code keeps its text without the backticks, as the comparison drops them anyway. A quote
+ *  inside a quote is read as well; once a pair is read, its marks pair nothing else. */
+export function extractQuotes(brief: string): string[] {
+  return [...new Set(quoteSpans(brief).spans.map((q) => q.text))];
 }
 
 /** Text form for the comparison: escapes read (`\uXXXX` as its character, `\n`, `\t`, `\r` as a space, a
@@ -166,33 +181,66 @@ function trimEdges(text: string): string {
   return chars.slice(start, end).join("");
 }
 
+/** The WINDOW characters of normalized text before `at`, without a word the window start cuts: "knot" must
+ *  not read as "not". */
+function windowBefore(normalized: string, at: number): string {
+  let from = Math.max(0, at - WINDOW);
+  // Never split a surrogate pair, and judge the cut on the whole character before the window.
+  if (from > 0 && /[\uDC00-\uDFFF]/.test(normalized[from])) from--;
+  const window = normalized.slice(from, at);
+  const cut = from > 0 && /[\p{L}\p{N}']$/u.test(normalized.slice(Math.max(0, from - 2), from));
+  return cut ? window.replace(/^[\p{L}\p{N}']+/u, "") : window;
+}
+
+/** Characters of the brief read beside a quote's marks for the negation rule: normalization can shorten
+ *  them, and the rule reads WINDOW characters of the result. */
+const BRIEF_CONTEXT = 4 * WINDOW;
+const LINE_BREAK = /[\n\r\u2028\u2029]/;
+
+/** Whether the brief keeps a negation right outside a quote's marks, on the quote's line, read like one in
+ *  the source: before the opening mark (`kein "Write-Lock > 1 s"`), or a German one after the closing mark
+ *  (`"Wir deployen am Freitag" nicht.`). A quote mark separates words, as a blank would. */
+function briefNegation(text: string, span: QuoteSpan): { before: boolean; after: boolean } {
+  const from = Math.max(0, span.at - BRIEF_CONTEXT);
+  const head = text.slice(from, span.at).split(LINE_BREAK);
+  // A word the slice start cuts is dropped, unless a line break bounds the slice.
+  const prefix = normalizeForQuotes(head.length === 1 && from > 0 ? head[0].replace(/^\S*/u, "") : head[head.length - 1]);
+  const to = Math.min(text.length, span.end + BRIEF_CONTEXT);
+  const tail = text.slice(span.end, to).split(LINE_BREAK);
+  const suffix = normalizeForQuotes(tail.length === 1 && to < text.length ? tail[0].replace(/\S*$/u, "") : tail[0]);
+  return {
+    before: NEGATED_BEFORE.test(windowBefore(`${prefix} `, prefix.length + 1)),
+    after: NEGATED_AFTER.test(` ${suffix}`),
+  };
+}
+
 /** True if the quote, normalized and without the punctuation at its edges, occurs in the normalized source
  *  as one piece, at word boundaries and with no negation dropped: no omission ("…", "[…]"), no part of a
- *  longer word. Each occurrence is checked in a window of WINDOW characters around it, so the cost stays
- *  linear in the source. */
-function inSource(quote: string, normalizedSource: string): boolean {
+ *  longer word, and a negation right before (or a German one right after) the occurrence only if the brief
+ *  keeps one there too (`kept`). Each occurrence is checked in a window of WINDOW characters around it, so
+ *  the cost stays linear in the source. */
+function inSource(quote: string, normalizedSource: string, kept: { before: boolean; after: boolean }): boolean {
   const q = trimEdges(normalizeForQuotes(quote));
   if (!WORD.test(q)) return true;
   for (let at = normalizedSource.indexOf(q); at !== -1; at = normalizedSource.indexOf(q, at + 1)) {
-    let from = Math.max(0, at - WINDOW);
-    // Never split a surrogate pair, and judge the cut on the whole character before the window.
-    if (from > 0 && /[\uDC00-\uDFFF]/.test(normalizedSource[from])) from--;
-    // A word cut by the window start is no word: "knot" must not read as "not".
-    const window = normalizedSource.slice(from, at);
-    const cut = from > 0 && /[\p{L}\p{N}']$/u.test(normalizedSource.slice(Math.max(0, from - 2), from));
-    const before = cut ? window.replace(/^[\p{L}\p{N}']+/u, "") : window;
+    const before = windowBefore(normalizedSource, at);
     const after = normalizedSource.slice(at + q.length, at + q.length + WINDOW);
     if (WORD_BEFORE.test(before) || WORD_AFTER.test(after)) continue;
-    if (NEGATED_BEFORE.test(before) || NEGATED_AFTER.test(after)) continue;
+    if ((NEGATED_BEFORE.test(before) && !kept.before) || (NEGATED_AFTER.test(after) && !kept.after)) continue;
     return true;
   }
   return false;
 }
 
-/** An item a summarizer marked as its own inference: a part of a line that ends in "(derived)", also
+/** How long a remark inside the marker may be: "(derived: not confirmed)", "(derived aus D10)". */
+export const MAX_DERIVED_REMARK = 80;
+/** The marker "(derived)", or with a remark after a colon or a blank, on one line, without parentheses, a
+ *  straight `"` or a backslash in it. */
+const DERIVED_MARK = `\\(derived(?:[: \\t](?:(?![()"\\\\])${NOT_EOL}){0,${MAX_DERIVED_REMARK}})?\\)`;
+/** An item a summarizer marked as its own inference: a part of a line that ends in the marker, also
  *  emphasized, no source for a quote. A part ends at a line end, a literal `\n` or `\r` (escaped text) or a
  *  straight `"`, so a JSON string, a quote and the mention `"(derived)"` keep the text around them. */
-const DERIVED_ITEM_RE = new RegExp(`(?:^|(?<=\\\\[nr]|"))(?:(?!\\\\[nr]|")${NOT_EOL})*\\(derived\\)[ \\t.,;*_]*(?=\\\\[nr]|"|$)`, "gim");
+const DERIVED_ITEM_RE = new RegExp(`(?:^|(?<=\\\\[nr]|"))(?:(?!\\\\[nr]|")${NOT_EOL})*${DERIVED_MARK}[ \\t.,;*_]*(?=\\\\[nr]|"|$)`, "gim");
 /** Quote markers at line starts or after a literal `\n` (`> `, `> > `), read as layout in the source; not a
  *  `>` before a number. */
 const QUOTE_MARKERS_RE = /(?:^|(?<=\\n))[ \t]*(?:>(?![ \t]*\d)[ \t]?)+/gm;
@@ -201,7 +249,8 @@ const QUOTE_MARKERS_RE = /(?:^|(?<=\\n))[ \t]*(?:>(?![ \t]*\d)[ \t]?)+/gm;
  * The brief's quotes that are not word for word in the source. A quote that a Cairn check note in the source
  * already lists stays unverified, and so does a quote inside or around a listed one: a resumed brief in the
  * conversation holds both the quote and its note, and the quote must not pass on its own earlier copy. An
- * item marked `(derived)` is no source either, and a quote over MAX_QUOTE_CHARS is not searched.
+ * item marked `(derived)` is no source either, and a quote over MAX_QUOTE_CHARS is not searched. A quote the
+ * brief repeats is judged at each place, as its negation may differ; it is listed once.
  */
 export function unverifiedQuotes(brief: string, source: string): string[] {
   const src = source.replace(MARK_RUN_RE, "$1").normalize("NFC");
@@ -209,9 +258,22 @@ export function unverifiedQuotes(brief: string, source: string): string[] {
   const normalizedSource = normalizeForQuotes(
     src.replace(NOTE_RE, "").replace(DERIVED_ITEM_RE, "").replace(QUOTE_MARKERS_RE, ""),
   );
-  return extractQuotes(brief).filter((q) => {
-    const n = normalizeForQuotes(q);
-    if (q.length > MAX_QUOTE_CHARS || !inSource(q, normalizedSource)) return true;
-    return noted.some((m) => m.includes(n) || n.includes(m));
-  });
+  const { text, spans } = quoteSpans(brief);
+  // Each quote is searched at most once per kind of kept negation, however often the brief repeats it.
+  const verdicts = new Map<string, boolean>();
+  const unverified = new Set<string>();
+  for (const span of spans) {
+    const q = span.text;
+    if (unverified.has(q)) continue;
+    const kept = briefNegation(text, span);
+    const key = `${kept.before ? 1 : 0}${kept.after ? 1 : 0}${q}`;
+    let found = verdicts.get(key);
+    if (found === undefined) {
+      const n = normalizeForQuotes(q);
+      found = q.length <= MAX_QUOTE_CHARS && inSource(q, normalizedSource, kept) && !noted.some((m) => m.includes(n) || n.includes(m));
+      verdicts.set(key, found);
+    }
+    if (!found) unverified.add(q);
+  }
+  return [...new Set(spans.map((s) => s.text))].filter((q) => unverified.has(q));
 }

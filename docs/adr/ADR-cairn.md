@@ -824,7 +824,10 @@ Limits:
   high-fill probe) and the candidates pre-excluded by window (`preExcluded`); the 2026-10-12 artifacts
   predate that.
 - The profiles were measured with the compaction prompt before 2.0.0. ADR-0013 changes the prompt, and
-  artifacts record its hash (`promptSha256`) from then on.
+  artifacts record its hash (`promptSha256`) from then on. A golden run with the new prompt (2026-10-14)
+  scored lower on hallucination, with reviewers that do not see the source. The profiles stay as measured
+  (user decision, 2026-10-14): one run whose reviewers cannot tell a marked inference from an invented line
+  is no basis, and its values would put Opus (0.9382 corrected) under the red-zone floor of 0.94.
 
 **Codex alternative.** `host_status` now suggests GPT-6.1 Sol for Codex. ADR-0011 names GPT-6 Sol: that is
 Codex's direct replacement for the retiring GPT-5.5 on Plus, Pro, Business, Enterprise and Edu plans.
@@ -914,7 +917,9 @@ acts on them. So the brief marks which is which, and Cairn checks it where it ha
     `` ` ``, soft hyphens or zero-width characters, one space per whitespace run. In the source, `>` quote
     markers at line starts or after a literal `\n` (not a `>` before a number) are dropped too, and an item
     that ends in `(derived)` (also emphasized, or before `.`, `,` or `;`) is no source: it is an earlier
-    brief's inference. An item is a part of a line that ends at a line end, a literal `\n` or `\r` (escaped
+    brief's inference. The marker may carry a remark of up to 80 characters after a colon or a blank, without
+    parentheses, a straight `"` or a backslash (`(derived: not confirmed)`, `(derived aus D10)`), as the
+    models write it. An item is a part of a line that ends at a line end, a literal `\n` or `\r` (escaped
     text) or a straight `"`, so a JSON string, a quote and the mention `"(derived)"` keep the text around
     them.
   - The quote, without the punctuation at its edges, must occur in one piece (an omission, `…` or `[…]`, is
@@ -932,6 +937,12 @@ acts on them. So the brief marks which is which, and Cairn checks it where it ha
     `nichts`, `ohne`, `kein…`). One occurrence that passes is enough. Each occurrence is judged on 48
     characters around it, without a word the window start cuts ("knot" is not "not"), so the cost is linear
     in the source.
+  - A negation the brief keeps right outside the quote marks, on the quote's line, counts as kept: one
+    before the opening mark (`kein "Write-Lock > 1 s"` for the source's `kein **Write-Lock > 1 s**`) or a
+    German one after the closing mark (`„Wir deployen am Freitag“ nicht.`). The brief's text there is
+    normalized and read by the same rules and window, and a quote mark separates words like a blank, so
+    `Never -- "force push to main"` has a spaced dash and keeps nothing. A quote the brief repeats is judged
+    at each place and listed once.
   - A quote that a Cairn check note in the source lists stays unverified, and so does a quote inside or
     around a listed one, so a resumed brief in the conversation cannot clear its own note on the next
     handoff. A note starts a line (after blanks or `>`) or follows a literal `\n` in escaped text (a JSON
@@ -957,6 +968,26 @@ acts on them. So the brief marks which is which, and Cairn checks it where it ha
 **Measured before the change** (no model call): over the 72 real briefs above, the quote check finds 5
 quotes, all in the source, and no `(derived)` marker.
 
+**Measured with the new prompt** (golden run 2026-10-14, the same matrix as ADR-0012, 245 subscription
+calls on 2bf881a, recomputed bit-exact by two agents):
+- The 35 briefs hold 250 quotes (the 70 old ones held 3). The check as of 2bf881a flagged 2, both
+  `kein "Write-Lock > 1 s"`: a negation kept outside the quote marks. The rule above fixes that; now none
+  is flagged. 14 items are marked `(derived)` and 3 more carry a remark (`(derived: …)`), all from the
+  Claude models; the GPT models mark none.
+- Against the two runs with the old prompt (pooled): hallucination 0.8376 against 0.8523 (the old runs
+  differ by 0.0070; z about −2.2 with their spread, −1.75 with the observed one; 21 briefs lower, 12 higher,
+  2 equal), recall 0.9866 against 0.9889 (z about −1.2), supersession 0.9946 against 0.9863, verbatim 1.0.
+  Every must-survive item and verbatim span is kept, and the briefs are about 5 % shorter.
+- The drop in hallucination comes from the GPT reviewers (−0.03 to −0.05 per reviewer) and Haiku
+  (−0.04); Fable, Opus and Sonnet score the new briefs higher (+0.01 to +0.03). Briefs with `(derived)`
+  lose 0.028 against their old scores, the others 0.009. The reviewers see the ground truth, not the
+  source, so a marked inference or a quote beyond the ground truth can read as invented to them. The claude
+  CLI moved from 2.1.296 to 2.1.299 between the runs.
+- So the plan's bar (hallucination up by more than the gap between the old runs, recall down by no more
+  than it, verbatim 1.0) is missed for hallucination and, formally, for recall; the golden set cannot show
+  whether the prompt stops invented lines. The user kept the prompt, with the end-to-end rerun to decide,
+  and the profiles as measured (2026-10-14).
+
 **Limits.**
 - Account mode checks nothing: the session model writes the brief from its own context, and Cairn sees only
   the brief. Its quotes, never checked, count as source when that brief is later part of an optional mode's
@@ -970,12 +1001,16 @@ quotes, all in the source, and no `(derived)` marker.
 - The negation rule has a word list and a window: a negation further away, in single quotes or in a word
   not listed is not seen. It also flags on the safe side: "no" or "kein" before a quoted noun phrase ("no
   single writer queue"), "without"/"ohne" with a noun before a quote ("ohne Downtime deployen wir"), the
-  German noun "Not", a negation the brief keeps outside the quote marks, a negation at the end of the line
-  before (the source's line breaks count as spaces), a quote inside a noted one, and the rest of a line
-  after a fake or escaped note.
-- The cost is linear in the source: eighteen prepared 1 MB sources (progress bars with `\r`, escaped or
-  half-width combining marks, U+2028 lines, notes and `(derived)` items on `\r` lines, nested quotes,
-  brackets, punctuation, negations, a one-line JSON string) took 16–290 ms with a brief of 50 quotes. On
+  German noun "Not", a negation at the end of the line before (the source's line breaks count as spaces), a
+  negation the brief keeps on the line before the quote or farther than the window, a quote inside a noted
+  one, and the rest of a line after a fake or escaped note. The brief's own words before a quote are read by
+  the same rule, so a phrase there that reads as a negation ("Kein Problem: "…"") counts as keeping the
+  source's one.
+- The cost is linear in the source: twenty-three prepared 1 MB sources (progress bars with `\r`, escaped or
+  half-width combining marks, U+2028 lines, notes and `(derived)` items on `\r` lines, markers with open or
+  long remarks, nested quotes, brackets, punctuation, negations, a one-line JSON string) took 22–363 ms
+  with a brief of 50 quotes, also with each quote behind a kept negation, on 4,000-character lines or
+  repeated 5,000 times (a repeated quote is searched once per kind of kept negation). On
   the brief's side it grows with the number of quotes times the source and, for a quote that overlaps itself
   many times, with its length (both bounded by MAX_QUOTE_CHARS and a brief's size).
 - An item marked `(derived)` that wraps over lines is dropped from the source only on the line that ends in
@@ -993,4 +1028,5 @@ quotes, all in the source, and no `(derived)` marker.
   counts as not found.
 - The reviewers see the ground truth, not the source, so they may score a correct `(derived)` line as
   invented.
-- The profiles (ADR-0012) were measured with the prompt before 2.0.0.
+- The profiles (ADR-0012) were measured with the prompt before 2.0.0 and stay so (see the measurement
+  above).

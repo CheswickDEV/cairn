@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { extractQuotes, normalizeForQuotes, unverifiedQuotes, MIN_QUOTE_WORDS, MAX_NESTING, MAX_QUOTE_CHARS, NOTE_PREFIXES } from "./grounding.js";
+import { extractQuotes, normalizeForQuotes, unverifiedQuotes, MIN_QUOTE_WORDS, MAX_NESTING, MAX_QUOTE_CHARS, MAX_DERIVED_REMARK, NOTE_PREFIXES } from "./grounding.js";
 import { t } from "../i18n/index.js";
 
 /** Invisible or look-alike characters by code point, so the test file holds none as literals. */
@@ -260,6 +260,56 @@ describe("unverifiedQuotes", () => {
     expect(unverifiedQuotes('"switch to Postgres fully"', "I do not know. Switch to Postgres fully.")).toEqual([]);
   });
 
+  it("accepts a negation the brief keeps right outside the quote marks, on the quote's line", () => {
+    // From the golden run of 2026-10-14 (db-migration, D01).
+    const d01 = "[D01] Iris: Zwei harte Vorgaben: (1) **Zero-Downtime**, kein **Write-Lock > 1 s** auf Hot-Tables.";
+    for (const brief of ['- Iris (D01): "Zero-Downtime", kein "Write-Lock > 1 s" auf Hot-Tables.', '- D01 (Iris): Kein "Write-Lock > 1 s" auf Hot-Tables.']) {
+      expect(unverifiedQuotes(brief, d01), brief).toEqual([]);
+    }
+    for (const [brief, src] of [
+      ['Do not "switch to Postgres now".', "Do not switch to Postgres now."],
+      ['We do not yet "deploy on Fridays again".', "We do not yet deploy on Fridays again."],
+      ["Nichts davon: „ohne Review mergen wir“ nie.", "Nichts davon: ohne Review mergen wir nie."],
+      ["„Wir deployen am Freitag“ nicht.", "Wir deployen am Freitag nicht."],
+      ["- „Wir deployen am Freitag“ auch nicht mehr (Lea)", "Wir deployen am Freitag auch nicht mehr."],
+    ] as const) {
+      expect(unverifiedQuotes(brief, src), brief).toEqual([]);
+    }
+    for (const [brief, src] of [
+      // Not on the quote's line, out of reach, or on the other side of the quote.
+      ['kein\n"Write-Lock > 1 s" auf Hot-Tables', d01],
+      ['kein\r"Write-Lock > 1 s" auf Hot-Tables', d01],
+      [`kein${ch(0x2028)}"Write-Lock > 1 s" auf Hot-Tables`, d01],
+      ['kein Problem damit, "Write-Lock > 1 s" auf Hot-Tables', d01],
+      [`Kein Redis ${ch(0x2014)} "Write-Lock > 1 s" auf Hot-Tables`, d01],
+      // The quote mark separates words, so a dash before it has blanks around it and ends the reach.
+      ['Never -- "force push to main"', "Never --force push to main."],
+      ["nicht „Wir deployen am Freitag“", "Wir deployen am Freitag nicht."],
+      ["„Wir deployen am Freitag“\nnicht.", "Wir deployen am Freitag nicht."],
+      ['"switch to Postgres now", not today', "Do not switch to Postgres now."],
+      // A word the brief's slice start cuts is no negation word ("knot"); whole, it is one.
+      [`knot ${"*".repeat(188)}"switch to Postgres now"`, "Do not switch to Postgres now."],
+      [`„Wir deployen am Freitag“${"*".repeat(186)} nichtig.`, "Wir deployen am Freitag nicht."],
+    ] as const) {
+      expect(unverifiedQuotes(brief, src), JSON.stringify(brief)).toHaveLength(1);
+    }
+    expect(unverifiedQuotes(`not ${"*".repeat(188)}"switch to Postgres now"`, "Do not switch to Postgres now.")).toEqual([]);
+    // The brief's negation counts within the same window as the source's.
+    expect(unverifiedQuotes(`not ${".".repeat(60)} "switch to Postgres now"`, "Do not switch to Postgres now.")).toHaveLength(1);
+    expect(unverifiedQuotes(`not ${".".repeat(40)} "switch to Postgres now"`, "Do not switch to Postgres now.")).toEqual([]);
+    // A quote repeated without the negation is flagged once, wherever the brief repeats it.
+    expect(unverifiedQuotes('- kein "Write-Lock > 1 s"\n- "Write-Lock > 1 s" (Iris)\n- kein "Write-Lock > 1 s"', d01)).toEqual(["Write-Lock > 1 s"]);
+    expect(unverifiedQuotes('- "Write-Lock > 1 s" (Iris)\n- kein "Write-Lock > 1 s"\n- "one two three"', d01)).toEqual(["Write-Lock > 1 s", "one two three"]);
+    expect(unverifiedQuotes('- kein "Write-Lock > 1 s"\n- "one two three"\n- "Write-Lock > 1 s" (Iris)', d01)).toEqual(["Write-Lock > 1 s", "one two three"]);
+    // A kept negation does not clear a quote that is not in the source, nor one a note lists.
+    expect(unverifiedQuotes('kein "Write-Lock > 2 s"', d01)).toHaveLength(1);
+    expect(unverifiedQuotes('kein "Write-Lock > 1 s"', `${d01}\n[Cairn check] x: "Write-Lock > 1 s"`)).toHaveLength(1);
+    // Many repeats are searched once per kind of kept negation.
+    const t0 = Date.now();
+    unverifiedQuotes(`- kein "one two three"\n- "one two three" x\n`.repeat(20_000), "kein one two three ".repeat(50_000));
+    expect(Date.now() - t0).toBeLessThan(3_000);
+  });
+
   it("checks a quote inside a quote and the outer quote", () => {
     const src = "Lea: Keep the label “beta release tag” until launch. The log shows \"database is locked\" twice.";
     expect(unverifiedQuotes('- "Keep the label “beta release tag” until launch"', src)).toEqual([]);
@@ -383,6 +433,24 @@ describe("unverifiedQuotes", () => {
         "it would touch the worker protocol",
       ]);
     }
+  });
+
+  it("reads the marker with a short remark: (derived: …), (derived aus …), in any case", () => {
+    const quote = '- "Backfill in batches of 5000 rows"';
+    for (const mark of ["(derived: not confirmed yet)", "(derived aus D10)", "(Derived: D07)", `(derived ${"x".repeat(MAX_DERIVED_REMARK)})`, "**(derived: D07)**."]) {
+      expect(unverifiedQuotes(quote, `- keep it\n- Backfill in batches of 5000 rows ${mark}\n- more`), mark).toHaveLength(1);
+    }
+    // No marker: a longer remark, one with parentheses or a quote mark, another word, or text after it.
+    for (const mark of [`(derived ${"x".repeat(MAX_DERIVED_REMARK + 1)})`, "(derived (D07))", "(derivedx)", "(derived: D07) and then more"]) {
+      expect(unverifiedQuotes(quote, `- keep it\n- Backfill in batches of 5000 rows ${mark}\n- more`), mark).toEqual([]);
+    }
+    // In escaped text the remark ends before a literal \n.
+    const json = JSON.stringify({ b: "- Backfill in batches of 5000 rows (derived: D07)\n- keep the worker protocol as is" });
+    expect(unverifiedQuotes(`${quote}\n- "keep the worker protocol as is"`, json)).toEqual(["Backfill in batches of 5000 rows"]);
+    const t0 = Date.now();
+    unverifiedQuotes('"one two three"', `(derived ${"x".repeat(MAX_DERIVED_REMARK - 1)}`.repeat(12_000));
+    unverifiedQuotes('"one two three"', `- step (derived: ${"y".repeat(70)})\r`.repeat(10_000));
+    expect(Date.now() - t0).toBeLessThan(3_000);
   });
 
   it("the note prefixes are the ones both catalogs write", () => {
