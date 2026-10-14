@@ -275,6 +275,14 @@ describe("unverifiedQuotes", () => {
       ['Wir mergen nicht ohne "Review von Lea und Tarek"', "Wir mergen nicht ohne Review von Lea und Tarek."],
       ['- Never merge without "a green build" (CI)', "Never merge without a green build."],
       ['- **Kein** Deploy ohne "Freigabe durch Lea"', "Kein Deploy ohne Freigabe durch Lea."],
+      // A later negation of the clause, after the quote.
+      ['Ohne "Review von Lea und Tarek" mergen wir nicht.', "Ohne Review von Lea und Tarek mergen wir nicht."],
+      ['Without "a green build", we don\'t merge.', "Without a green build, we don't merge."],
+      // Punctuation and blanks beside the quote marks do not count, on either side.
+      ['Don\'t use "git push --force" on main', "Don't use 'git push --force' on main."],
+      ['Kein "Write-Lock über 1 s" auf Hot-Tables', "Kein (Write-Lock über 1 s) auf Hot-Tables."],
+      ['Never -- "force push to main"', "Never --force push to main."],
+      [`not ${".".repeat(4)} "switch to Postgres now"`, "Do not switch to Postgres now."],
     ] as const) {
       expect(unverifiedQuotes(brief, src), brief).toEqual([]);
     }
@@ -285,32 +293,37 @@ describe("unverifiedQuotes", () => {
       [`kein${ch(0x2028)}"Write-Lock > 1 s" auf Hot-Tables`, d01],
       ['kein Problem damit, "Write-Lock > 1 s" auf Hot-Tables', d01],
       [`Kein Redis ${ch(0x2014)} "Write-Lock > 1 s" auf Hot-Tables`, d01],
-      // The quote mark separates words, so a dash before it has blanks around it and ends the reach.
-      ['Never -- "force push to main"', "Never --force push to main."],
+      ['not now "switch to Postgres now"', "Do not switch to Postgres now."],
       ["nicht „Wir deployen am Freitag“", "Wir deployen am Freitag nicht."],
       ["„Wir deployen am Freitag“\nnicht.", "Wir deployen am Freitag nicht."],
       ['"switch to Postgres now", not today', "Do not switch to Postgres now."],
-      // Only the source's own words count, from its first negation word in the window on: a double negation
-      // stays whole, and another negation word or wording is no copy.
+      // Only the source's own words count, from the clause's first negation word to its last: a double, an
+      // outer or a later negation stays whole, and another negation word or wording is no copy.
       ['Wir mergen ohne "Review von Lea und Tarek"', "Wir mergen nicht ohne Review von Lea und Tarek."],
+      ['Wir mergen ohne "Review von Lea und Tarek"', "Ohne Review von Lea und Tarek mergen wir nicht."],
+      ['Merge without "a green build"', "Without a green build, we don't merge."],
       ['Merge without "a green build"', "Never merge without a green build."],
+      ['Merge pull requests into the main branch without "a green build"', "Never merge pull requests into the main branch without a green build."],
+      ['Merge without "a green build"', `Never ${ch(0x2014)} not even on Fridays ${ch(0x2014)} merge without a green build.`],
+      ['Merge without "a green build"', "Never, e.g. on Fridays, merge without a green build."],
       ['Deploy ohne "Freigabe durch Lea"', "Kein Deploy ohne Freigabe durch Lea."],
+      ["„Wir deployen am Freitag“ nicht.", "Kein Mensch sagt, wir deployen am Freitag nicht."],
       ['nicht "Write-Lock > 1 s" auf Hot-Tables', d01],
       ['Kein Problem "Write-Lock > 1 s" auf Hot-Tables', d01],
       ['Never "switch to Postgres now"', "Do not switch to Postgres now."],
+      ['Cannot "switch to Postgres now"', "Do not switch to Postgres now."],
+      [`${String.fromCodePoint(0x20000)}not "switch to Postgres now"`, "Do not switch to Postgres now."],
       ["„Wir deployen am Freitag“ nie.", "Wir deployen am Freitag nicht."],
-      // A word the brief's slice start cuts is no negation word ("knot"); whole, it is one.
-      [`knot ${"*".repeat(188)}"switch to Postgres now"`, "Do not switch to Postgres now."],
-      [`„Wir deployen am Freitag“${"*".repeat(186)} nichtig.`, "Wir deployen am Freitag nicht."],
+      ["„Wir deployen am Freitag“ nicht.", "Wir deployen am Freitag nicht mehr."],
+      ["„Wir deployen am Freitag“ nichtig.", "Wir deployen am Freitag nicht."],
+      // A word the brief's slice start or end cuts is no negation word ("knot", "nichtig"); whole, it is one.
+      [`knot ${"*".repeat(380)}"switch to Postgres now"`, "Do not switch to Postgres now."],
+      [`„Wir deployen am Freitag“${"*".repeat(378)} nichtig.`, "Wir deployen am Freitag nicht."],
     ] as const) {
       expect(unverifiedQuotes(brief, src), JSON.stringify(brief)).toHaveLength(1);
     }
-    expect(unverifiedQuotes(`not ${"*".repeat(188)}"switch to Postgres now"`, "Do not switch to Postgres now.")).toEqual([]);
-    // The source's words must end the brief's text before the quote: nothing may stand between, and the
-    // first word must be whole.
-    expect(unverifiedQuotes(`not ${".".repeat(4)} "switch to Postgres now"`, "Do not switch to Postgres now.")).toHaveLength(1);
-    expect(unverifiedQuotes('Cannot "switch to Postgres now"', "Do not switch to Postgres now.")).toHaveLength(1);
-    expect(unverifiedQuotes(`${String.fromCodePoint(0x20000)}not "switch to Postgres now"`, "Do not switch to Postgres now.")).toHaveLength(1);
+    expect(unverifiedQuotes(`not ${"*".repeat(380)}"switch to Postgres now"`, "Do not switch to Postgres now.")).toEqual([]);
+    expect(unverifiedQuotes(`„Wir deployen am Freitag“${"*".repeat(377)} nicht.`, "Wir deployen am Freitag nicht.")).toEqual([]);
     // A quote repeated without the negation is flagged once, wherever the brief repeats it.
     expect(unverifiedQuotes('- kein "Write-Lock > 1 s"\n- "Write-Lock > 1 s" (Iris)\n- kein "Write-Lock > 1 s"', d01)).toEqual(["Write-Lock > 1 s"]);
     expect(unverifiedQuotes('- "Write-Lock > 1 s" (Iris)\n- kein "Write-Lock > 1 s"\n- "one two three"', d01)).toEqual(["Write-Lock > 1 s", "one two three"]);
@@ -318,18 +331,20 @@ describe("unverifiedQuotes", () => {
     // A kept negation does not clear a quote that is not in the source, nor one a note lists.
     expect(unverifiedQuotes('kein "Write-Lock > 2 s"', d01)).toHaveLength(1);
     expect(unverifiedQuotes('kein "Write-Lock > 1 s"', `${d01}\n[Cairn check] x: "Write-Lock > 1 s"`)).toHaveLength(1);
-    // The words needed run from the clause's first negation word: an earlier sentence or clause is not
-    // needed, an earlier word of the same clause is ("Never, ever merge without").
+    // The clause ends at . ! ? ; : before a blank, so an earlier sentence is not needed; a dash is no end,
+    // and an earlier word of the same clause is needed ("Never, ever merge without").
     expect(unverifiedQuotes('Kein "Write-Lock > 1 s" auf Hot-Tables', "Kein Redis. Kein Write-Lock > 1 s auf Hot-Tables.")).toEqual([]);
-    expect(unverifiedQuotes('Kein "Write-Lock > 1 s" auf Hot-Tables', `Nie wieder ${ch(0x2014)} kein Write-Lock > 1 s auf Hot-Tables.`)).toEqual([]);
+    expect(unverifiedQuotes('Kein "Write-Lock > 1 s" auf Hot-Tables', "Nie wieder Redis; kein Write-Lock > 1 s auf Hot-Tables.")).toEqual([]);
+    expect(unverifiedQuotes('Kein "Write-Lock > 1 s" auf Hot-Tables', `Nie wieder ${ch(0x2014)} kein Write-Lock > 1 s auf Hot-Tables.`)).toHaveLength(1);
     expect(unverifiedQuotes('Merge without "a green build"', "Never, ever merge without a green build.")).toHaveLength(1);
     expect(unverifiedQuotes('Never, ever merge without "a green build"', "Never, ever merge without a green build.")).toEqual([]);
+    expect(unverifiedQuotes('Kein "Write-Lock > 1 s" auf Hot-Tables', "Kein Write-Lock > 1 s auf Hot-Tables. Nicht verhandelbar.")).toEqual([]);
     // A clause end between the negation and the quote leaves the negation's own words needed.
     expect(unverifiedQuotes('Do not . "switch to Postgres now"', "Do not . switch to Postgres now.")).toEqual([]);
     expect(unverifiedQuotes('Do "switch to Postgres now"', "Do not . switch to Postgres now.")).toHaveLength(1);
     // Limit (ADR-0013): the words are kept, their sense is not checked.
     expect(unverifiedQuotes('Why not "switch to Postgres now"?', "Do not switch to Postgres now.")).toEqual([]);
-    // At most MAX_NEEDS different negations are kept per quote; an occurrence beyond them counts as not found.
+    // What the brief must keep comes from the first MAX_NEEDS negated occurrences; a later one counts as not found.
     const many = Array.from({ length: MAX_NEEDS + 2 }, (_, i) => `kein w${i} one two three.`).join("\n");
     expect(unverifiedQuotes('kein w2 "one two three"', many)).toEqual([]);
     expect(unverifiedQuotes(`kein w${MAX_NEEDS + 1} "one two three"`, many)).toHaveLength(1);

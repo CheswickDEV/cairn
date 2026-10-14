@@ -41,8 +41,8 @@ target, a deferred option as discarded).
 - **Quote check** `[CODE-IMPACTING]` (sampling, bridge, API): every quote of three or more words must
   appear in the source in one piece, at word boundaries (also across `-`, `.`, `/`) and without a dropped
   negation ("do not", "not yet", a German "nicht" at the end; one the brief repeats in the source's words
-  right outside the quote marks counts, as in `kein "Write-Lock > 1 s"`, a double negation whole),
-  normalized for case, whitespace, quote
+  right outside the quote marks counts, as in `kein "Write-Lock > 1 s"`, with all negation words of the
+  clause), normalized for case, whitespace, quote
   marks, escapes, Markdown and typography; fenced code is skipped. The cost is linear in the source, and a
   quote over 1,000 characters counts as unverified without a search.
   - A quote that a Cairn check note in the source already lists stays unverified, so a resumed brief cannot
