@@ -602,16 +602,18 @@ naming anything, while the deterministic trap check finds no trap text in any br
 - The reviewer lists each invented item with its reason, empty exactly when hallucination is 1.0. The
   review keeps the list (`invented`, at most 50 items of 400 characters); the rubric stays the numbers.
 - The high-fill probe keeps the old prompt: its probe is too large to hand to every reviewer.
-- A live artifact records `reviewerPromptSha256`; a test pins both prompts. An artifact without it was
-  scored without the source. `--pool` pools only runs of one reviewer prompt and refuses two inputs that
-  hold the same stored briefs.
+- Every artifact the CLI writes records `reviewerPromptSha256`: the prompt's hash for a real run,
+  `heuristic` for the offline reviewer of a dry or offline run; a test pins both prompts. A real artifact
+  without it was scored without the source (dry and offline artifacts written before carry none either).
+  `--pool` pools only runs of one reviewer prompt and refuses two inputs that hold the same stored briefs.
 - `--rereview <golden.json>` with `--real` scores the stored briefs of one golden artifact again: no
   compaction, each brief with its model, probe and output tokens, by its six foreign reviewers against the
   current ground truth. Recorded probe contents must match the current probes; an artifact without them
   gets a note. It writes `…-real-rereview-golden.json` with `rereviewOf` (path and SHA-256) and the briefs'
   `promptSha256`. A dry run counts 210 reviews per golden artifact.
 - Recall, supersession and the weights are unchanged. Earlier artifacts and the profiles stay as they are;
-  a re-review is a new measurement and compares only with other re-reviews.
+  a re-review is a new measurement and pools only with runs scored by the same reviewer prompt (other
+  re-reviews, or golden runs of the same compaction prompt from now on).
 
 **Runs and artifacts.** Artifacts are named `<date>T<time>Z-<mode>[-rereview][-golden|-large].json` and never
 overwritten (a taken name gets `-2`, `-3`, …). They keep each scored brief and the ids of the
@@ -1020,8 +1022,8 @@ calls on 2bf881a, recomputed bit-exact by two agents):
   Every must-survive item and verbatim span is kept, and the briefs are about 5 % shorter.
 - The drop in hallucination comes from the GPT reviewers (−0.03 to −0.05 per reviewer) and Haiku
   (−0.04); Fable, Opus and Sonnet score the new briefs higher (+0.01 to +0.03). Briefs with `(derived)`
-  lose 0.028 against their old scores, the others 0.009. The reviewers see the ground truth, not the
-  source, so a marked inference or a quote beyond the ground truth can read as invented to them. The claude
+  lose 0.028 against their old scores, the others 0.009. The reviewers saw the ground truth, not the
+  source, so a marked inference or a quote beyond the ground truth could read as invented to them. The claude
   CLI moved from 2.1.296 to 2.1.299 between the runs.
 - So the plan's bar (hallucination up by more than the gap between the old runs, recall down by no more
   than it, verbatim 1.0) is missed for hallucination and, formally, for recall; the golden set cannot show
@@ -1081,7 +1083,8 @@ calls on 2bf881a, recomputed bit-exact by two agents):
   quote inside („… “…” …“) is read only up to the inner mark, so an invented rest behind three real words
   passes; guillemets inside guillemets of the other direction («… »…« …») are not read. A translated quote
   counts as not found.
-- The reviewers see the ground truth, not the source, so they may score a correct `(derived)` line as
-  invented.
+- Until 2026-10-14 the reviewers saw the ground truth, not the source, so they could score a correct
+  `(derived)` line or a true quote as invented. Since then they get the source (ADR-0012, "Reviewer with the
+  source"); the runs above were scored before.
 - The profiles (ADR-0012) were measured with the prompt before 2.0.0 and stay so (see the measurement
   above).

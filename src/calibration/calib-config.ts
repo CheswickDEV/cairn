@@ -23,6 +23,7 @@ import {
   CALIB_EFFORT,
   type CalibEcosystem,
 } from "./variants.js";
+import { reviewerPromptSha256 } from "./model-reviewer.js";
 
 /** The calibration pool = the summarizer pool (ADR-0012). Every model here is also a reviewer. */
 export const CALIB_POOL = [
@@ -109,7 +110,10 @@ export function resolveCalibConfig(env: Env, argv: readonly string[], profiles: 
   const rereview = rr >= 0 ? argv[rr + 1] : undefined;
   if (rr >= 0) {
     if (!rereview || rereview.startsWith("--")) throw new Error("--rereview needs the path of a golden artifact");
-    if (argv.indexOf("--rereview", rr + 1) >= 0) throw new Error("--rereview takes one artifact per run");
+    const next = argv[rr + 2];
+    if (argv.indexOf("--rereview", rr + 1) >= 0 || (next !== undefined && !next.startsWith("--"))) {
+      throw new Error("--rereview takes one artifact per run");
+    }
     if (mode === "offline") throw new Error("--rereview needs --real or --dry-run");
   }
   const golden = argv.includes("--golden") || rereview !== undefined;
@@ -199,6 +203,15 @@ export function assertCalibPreflight(cfg: Pick<CalibConfig, "candidates" | "revi
   for (const id of cfg.reviewerPool ?? []) {
     if (parseVariant(id).baseModelId !== id) throw new Error(`reviewer pool: '${id}' is not a base model id`);
   }
+}
+
+/** `reviewerPromptSha256` of a dry or offline run: its reviewer is the heuristic one, which has no prompt. */
+export const HEURISTIC_REVIEWER = "heuristic";
+
+/** What an artifact records as `reviewerPromptSha256` (ADR-0012): the model reviewer's prompt hash for a real
+ *  run (with or without the source), `heuristic` otherwise, so `--pool` never mixes heuristic and model scores. */
+export function reviewerPromptRecord(mode: CalibMode, withSource: boolean): string {
+  return mode === "real" ? reviewerPromptSha256(withSource) : HEURISTIC_REVIEWER;
 }
 
 /** Artifact name suffix after the date: ISO time + mode (+ `rereview`) + probe, e.g. `T14-05-09Z-real-golden`

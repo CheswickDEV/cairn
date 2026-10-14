@@ -95,8 +95,9 @@ export interface GoldenResult {
   provenance?: RunProvenance;
   /** SHA-256 of the compaction system prompt (set by the CLI; ADR-0013, `compactionPromptSha256`). */
   promptSha256?: string;
-  /** SHA-256 of the reviewer prompt (set by the CLI for a live run; ADR-0012, `reviewerPromptSha256`). An
-   *  artifact without it was scored by the reviewer that saw only the ground truth. */
+  /** SHA-256 of the reviewer prompt, or `heuristic` for a dry or offline run (set by the CLI; ADR-0012,
+   *  `reviewerPromptRecord`). A real artifact without it was scored by the reviewer that saw only the ground
+   *  truth. */
   reviewerPromptSha256?: string;
   /** A re-review (`--rereview`): the artifact whose stored briefs were scored again. */
   rereviewOf?: { path: string; sha256: string };

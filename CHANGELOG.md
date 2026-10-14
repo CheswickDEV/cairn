@@ -33,8 +33,8 @@ runs scored hallucination below 1.0 without naming anything.
   the review keeps the list. The high-fill probe keeps the old prompt.
 - **`--rereview <golden.json>`** scores the stored briefs of a golden run again, without a compaction
   (210 reviews per run); the artifact records the run it re-reviewed.
-- **Artifacts** record `reviewerPromptSha256`; `--pool` pools only runs of one reviewer prompt and refuses
-  two inputs with the same briefs.
+- **Artifacts** record `reviewerPromptSha256` (`heuristic` for a dry or offline run); `--pool` pools only
+  runs of one reviewer prompt and refuses two inputs with the same briefs.
 
 ### Grounded briefs: quotes for what was said, (derived) for inference (2026-10-13)
 

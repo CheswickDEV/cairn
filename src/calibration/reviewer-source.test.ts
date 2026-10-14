@@ -7,7 +7,7 @@ import { runCalibration } from "./harness.js";
 import { runGoldenSet, rereviewGoldenResult, goldenProbes, checkPoolInputs, type GoldenResult } from "./golden-set.js";
 import { makeFixtureCompactor } from "./runner.js";
 import { heuristicReviewer, type Reviewer } from "./review.js";
-import { resolveCalibConfig, artifactSuffix } from "./calib-config.js";
+import { resolveCalibConfig, artifactSuffix, reviewerPromptRecord, HEURISTIC_REVIEWER } from "./calib-config.js";
 import { loadGroundTruth } from "./fixtures.js";
 
 /* ADR-0012: the reviewers judge hallucination against the source (the probe), list what they score as invented,
@@ -252,7 +252,7 @@ describe("checkPoolInputs: reviewer prompt and re-reviews", () => {
     const b = await goldenRun();
     b.perModel[0].perProbe[0].brief = "another brief";
     const rp = (r: GoldenResult, h?: string) => ({ ...r, ...(h ? { reviewerPromptSha256: h } : {}) }) as GoldenResult;
-    for (const [x, y] of [["s", "t"], [undefined, "s"], ["s", undefined]] as const) {
+    for (const [x, y] of [["s", "t"], [undefined, "s"], ["s", undefined], ["heuristic", "s"]] as const) {
       expect(() => checkPoolInputs([input("a", "1", rp(a, x)), input("b", "2", rp(b, y))])).toThrow(/^b: another reviewer prompt than a$/);
     }
     expect(() => checkPoolInputs([input("a", "1", rp(a, "s")), input("b", "2", rp(b, "s"))])).not.toThrow();
@@ -289,10 +289,20 @@ describe("calibration config: --rereview", () => {
     ["no path", [...REAL, "--rereview"], /needs the path/],
     ["a flag as the path", [...REAL, "--rereview", "--golden"], /needs the path/],
     ["two artifacts", [...REAL, "--rereview", "a.json", "--rereview", "b.json"], /one artifact per run/],
+    ["a second path (as --pool takes them)", [...REAL, "--rereview", "a.json", "b.json"], /one artifact per run/],
     ["offline", ["node", "cli.ts", "--rereview", "a.json"], /needs --real or --dry-run/],
     ["the high-fill probe", [...REAL, "--rereview", "a.json", "--probe", "large"], /not the high-fill probe/],
   ] as const)("refuses %s", (_, argv, error) => {
     expect(() => resolveCalibConfig({}, argv)).toThrow(error);
+  });
+
+  it("records the reviewer prompt of a real run and `heuristic` for a dry or offline run", () => {
+    expect(reviewerPromptRecord("real", true)).toBe(reviewerPromptSha256(true));
+    expect(reviewerPromptRecord("real", false)).toBe(reviewerPromptSha256(false));
+    for (const mode of ["dry-run", "offline"] as const) {
+      for (const withSource of [true, false]) expect(reviewerPromptRecord(mode, withSource)).toBe(HEURISTIC_REVIEWER);
+    }
+    expect(HEURISTIC_REVIEWER).toBe("heuristic");
   });
 
   it("names the artifact as a re-review", () => {

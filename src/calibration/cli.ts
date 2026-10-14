@@ -22,7 +22,7 @@
  * again by the current reviewers, which see the probe as the source (ADR-0012); no compaction. Writes
  * `…-real-rereview-golden.json` with the input's SHA-256.
  *
- * Artifacts: `calibration/results/<date>T<time>Z-<mode>[-golden|-large].json`, never overwritten.
+ * Artifacts: `calibration/results/<date>T<time>Z-<mode>[-rereview][-golden|-large].json`, never overwritten.
  */
 
 import { PROFILES } from "../core/model-profiles.js";
@@ -34,7 +34,7 @@ import { runCalibration } from "./harness.js";
 import { applyCalibration, persistArtifact, bestPerBaseModel } from "./writer.js";
 import { parseVariant } from "./variants.js";
 import { makeAccountCompactor } from "./account-compactor.js";
-import { makeModelReviewer, reviewerPromptSha256 } from "./model-reviewer.js";
+import { makeModelReviewer } from "./model-reviewer.js";
 import { buildLargeProbe, LARGE_GROUND_TRUTH } from "./large-probe.js";
 import {
   runGoldenSet,
@@ -45,7 +45,7 @@ import {
   type GoldenResult,
   type PoolInput,
 } from "./golden-set.js";
-import { resolveCalibConfig, assertCalibPreflight, artifactSuffix, type CalibConfig } from "./calib-config.js";
+import { resolveCalibConfig, assertCalibPreflight, artifactSuffix, reviewerPromptRecord, type CalibConfig } from "./calib-config.js";
 import { collectProvenance, collectsCliVersions, probeInfo } from "./provenance.js";
 import { compactionPromptSha256 } from "./account-compactor.js";
 import type { GroundTruth } from "./ground-truth.js";
@@ -208,7 +208,7 @@ async function main(): Promise<void> {
         probeInfo: info,
         // The briefs' compaction prompt, not the current one: the briefs were written with it.
         ...(input.res.promptSha256 ? { promptSha256: input.res.promptSha256 } : {}),
-        ...(cfg.mode === "real" ? { reviewerPromptSha256: reviewerPromptSha256(true) } : {}),
+        reviewerPromptSha256: reviewerPromptRecord(cfg.mode, true),
         rereviewOf: { path, sha256: input.sha256 },
         ...(notes.length ? { inputNotes: notes } : {}),
         provenance,
@@ -254,7 +254,7 @@ async function main(): Promise<void> {
         ...res,
         probeInfo: info,
         promptSha256: compactionPromptSha256(),
-        ...(cfg.mode === "real" ? { reviewerPromptSha256: reviewerPromptSha256(true) } : {}),
+        reviewerPromptSha256: reviewerPromptRecord(cfg.mode, true),
         provenance,
       },
       suffix,
@@ -289,7 +289,13 @@ async function main(): Promise<void> {
     });
     const path = persistArtifact(
       RESULTS_DIR,
-      { ...artifact, probeInfo: [probeInfo("standard", loadProbeContext())], promptSha256: compactionPromptSha256(), provenance },
+      {
+        ...artifact,
+        probeInfo: [probeInfo("standard", loadProbeContext())],
+        promptSha256: compactionPromptSha256(),
+        reviewerPromptSha256: reviewerPromptRecord(cfg.mode, true),
+        provenance,
+      },
       suffix,
     );
     const updated = applyCalibration(PROFILES, artifact);
@@ -367,7 +373,7 @@ async function main(): Promise<void> {
       ...artifact,
       probeInfo: [info],
       promptSha256: compactionPromptSha256(),
-      ...(cfg.mode === "real" ? { reviewerPromptSha256: reviewerPromptSha256(cfg.probe !== "large") } : {}),
+      reviewerPromptSha256: reviewerPromptRecord(cfg.mode, cfg.probe !== "large"),
       preExcluded,
       provenance,
     },
