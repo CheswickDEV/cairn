@@ -283,6 +283,7 @@ describe("unverifiedQuotes", () => {
       ['Kein "Write-Lock über 1 s" auf Hot-Tables', "Kein (Write-Lock über 1 s) auf Hot-Tables."],
       ['Never -- "force push to main"', "Never --force push to main."],
       [`not ${".".repeat(4)} "switch to Postgres now"`, "Do not switch to Postgres now."],
+      ['Latency must not be > "200 ms at p99"', "Latency must not be > 200 ms at p99."],
     ] as const) {
       expect(unverifiedQuotes(brief, src), brief).toEqual([]);
     }
@@ -316,6 +317,21 @@ describe("unverifiedQuotes", () => {
       ["„Wir deployen am Freitag“ nie.", "Wir deployen am Freitag nicht."],
       ["„Wir deployen am Freitag“ nicht.", "Wir deployen am Freitag nicht mehr."],
       ["„Wir deployen am Freitag“ nichtig.", "Wir deployen am Freitag nicht."],
+      // An abbreviation, an ordinal or an ellipsis ends no clause.
+      ['Wir deployen ohne "Freigabe von Lea".', "Ohne Freigabe von Lea deployen wir vor dem 12. Oktober nicht."],
+      ['Wir mergen ohne "Review von Lea"', "Ohne Review von Lea bzw. Tarek mergen wir nicht."],
+      ['Deploy before Oct. 12 without "a green build".', "Don't deploy before Oct. 12 without a green build."],
+      ['We merge without "a green build".', "Without a green build, docs etc. we don't merge."],
+      ['Wir mergen ohne "Review von Lea"', `Ohne Review von Lea${ch(0x2026)} mergen wir nicht.`],
+      // A colon ends no clause, and the dot rule sees the quote's last word.
+      ['Deploy auf Prod ohne "Freigabe von Lea und Tarek"', "Ohne Freigabe von Lea und Tarek: kein Deploy auf Prod."],
+      ['Wir mergen ohne "Review durch Team A"', "Ohne Review durch Team A. mergen wir nicht."],
+      // A sentence end inside the quote does not end the clause after it.
+      ['Wir mergen ohne "Review von Tarek. Ja"', "Ohne Review von Tarek. Ja mergen wir nicht."],
+      // Symbols beside the quote marks count: another operator or a table cell keeps nothing.
+      ['Latency must not be < "200 ms at p99"', "Latency must not be > 200 ms at p99."],
+      ['| not | "use Redis for caching" |', "Do not use Redis for caching."],
+      [`not ${ch(0x2192)} "use Redis for caching"`, "Do not use Redis for caching."],
       // A word the brief's slice start or end cuts is no negation word ("knot", "nichtig"); whole, it is one.
       [`knot ${"*".repeat(380)}"switch to Postgres now"`, "Do not switch to Postgres now."],
       [`„Wir deployen am Freitag“${"*".repeat(378)} nichtig.`, "Wir deployen am Freitag nicht."],
@@ -331,10 +347,11 @@ describe("unverifiedQuotes", () => {
     // A kept negation does not clear a quote that is not in the source, nor one a note lists.
     expect(unverifiedQuotes('kein "Write-Lock > 2 s"', d01)).toHaveLength(1);
     expect(unverifiedQuotes('kein "Write-Lock > 1 s"', `${d01}\n[Cairn check] x: "Write-Lock > 1 s"`)).toHaveLength(1);
-    // The clause ends at . ! ? ; : before a blank, so an earlier sentence is not needed; a dash is no end,
+    // The clause ends at . ! ? ; before a blank, so an earlier sentence is not needed; a dash or colon is no end,
     // and an earlier word of the same clause is needed ("Never, ever merge without").
     expect(unverifiedQuotes('Kein "Write-Lock > 1 s" auf Hot-Tables', "Kein Redis. Kein Write-Lock > 1 s auf Hot-Tables.")).toEqual([]);
     expect(unverifiedQuotes('Kein "Write-Lock > 1 s" auf Hot-Tables', "Nie wieder Redis; kein Write-Lock > 1 s auf Hot-Tables.")).toEqual([]);
+    expect(unverifiedQuotes('Wir mergen ohne "Review von Tarek"', "Wir mergen ohne Review von Tarek. Nicht ohne Tests.")).toEqual([]);
     expect(unverifiedQuotes('Kein "Write-Lock > 1 s" auf Hot-Tables', `Nie wieder ${ch(0x2014)} kein Write-Lock > 1 s auf Hot-Tables.`)).toHaveLength(1);
     expect(unverifiedQuotes('Merge without "a green build"', "Never, ever merge without a green build.")).toHaveLength(1);
     expect(unverifiedQuotes('Never, ever merge without "a green build"', "Never, ever merge without a green build.")).toEqual([]);
@@ -355,6 +372,8 @@ describe("unverifiedQuotes", () => {
     unverifiedQuotes(`- kein "one two three"\n- "one two three" x\n`.repeat(20_000), "kein one two three ".repeat(50_000));
     const spellings = Array.from({ length: 200 }, (_, i) => `- "${".".repeat(i + 1)}one two three"`).join("\n");
     unverifiedQuotes(spellings, "xkein one two three nicht. ".repeat(40_000));
+    // The brief is read only as far as the source needs, also for many places on one line.
+    unverifiedQuotes('kein "one two three" '.repeat(20_000), "kein one two three.");
     expect(Date.now() - t0).toBeLessThan(3_000);
   });
 

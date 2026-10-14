@@ -939,20 +939,24 @@ acts on them. So the brief marks which is which, and Cairn checks it where it ha
     in the source.
   - A negation beside an occurrence counts as kept if the brief repeats the negation words of its clause in
     the source's words right outside the quote marks, on the quote's line. The clause is read up to 192
-    characters each way and ends at `.`, `!`, `?`, `;` or `:` before a blank, but not at the dot after a
-    one-letter word ("e.g.", "z.B."); a dash ends none, as it often sets off an aside. Before the opening
-    mark, the brief's text (normalized) must end in the source's text from the clause's first negation word
-    up to the occurrence, as whole words; after the closing mark, it must start with the source's text up to
-    the clause's last negation word, or the German clause-final negation found there. Punctuation and blanks
-    right beside the quote marks do not count (`Don't use "git push --force"` for `Don't use 'git push
-    --force'`). So a double, an outer or a later negation stays whole: `kein "Write-Lock > 1 s"` for `kein
-    **Write-Lock > 1 s**`, `Never merge without "a green build"` but not `Merge without "a green build"`,
+    characters each way and ends at `.`, `!`, `?` or `;` before a blank, a dot only after a word of four
+    letters or more, so an abbreviation ("e.g.", "bzw.", "etc.", "Oct."), an ordinal ("12. Oktober") or an
+    ellipsis ends none; a colon ("Ohne Freigabe: kein Deploy") or a dash (an aside) ends none either.
+    Before the opening mark, the brief's text (normalized) must end in the source's text from the clause's
+    first negation word up to the occurrence, as whole words; after the closing mark, it must start with the
+    source's text up to the clause's last negation word, or the German clause-final negation found there.
+    Punctuation and blanks right beside the quote marks do not count (`Don't use "git push --force"` for
+    `Don't use 'git push --force'`); symbols do (`must not be < "200 ms"` keeps nothing of
+    `must not be > 200 ms`). So a double,
+    an outer or a later negation stays whole: `kein "Write-Lock > 1 s"` for `kein **Write-Lock > 1 s**`,
+    `Never merge without "a green build"` but not `Merge without "a green build"`,
     `Ohne "Review von Lea" mergen wir nicht.` but not `Wir mergen ohne "Review von Lea"` for "Ohne Review
     von Lea mergen wir nicht." Another negation word or wording keeps nothing (`nicht` for `kein`, `Never`
     for `Do not`, `nicht` for `nicht mehr`). A quote the brief repeats is judged at each place and listed
     once. The source is searched once per quote as compared; what the brief must keep is taken from the
     first 16 negated occurrences of a quote (`MAX_NEEDS`), and a later negated one counts as not found, so
-    the cost per occurrence stays that of the plain check.
+    the cost per occurrence stays that of the plain check. The brief is read on each side only as far as
+    the source needs.
   - A quote that a Cairn check note in the source lists stays unverified, and so does a quote inside or
     around a listed one, so a resumed brief in the conversation cannot clear its own note on the next
     handoff. A note starts a line (after blanks or `>`) or follows a literal `\n` in escaped text (a JSON
@@ -1017,13 +1021,15 @@ calls on 2bf881a, recomputed bit-exact by two agents):
   einmal kurz"), a quote inside a noted one, and the rest of a line after a fake or escaped note. The
   brief's words are compared, not their sense: `Why not "…"?` keeps the source's `not`. A negation word
   beyond 192 characters or the clause, or not in the list ("Niemand", "keinesfalls"), is not part of what
-  the brief must keep.
+  the brief must keep. An abbreviation of four letters or more ("evtl.", "inkl.") ends a clause, `;` ends
+  one too ("Ohne Review; kein Merge"), and a sentence that ends after a short word ("now.") goes on.
 - The cost is linear in the source: twenty-six prepared 1 MB sources (progress bars with `\r`, escaped or
   half-width combining marks, U+2028 lines, notes and `(derived)` items on `\r` lines, markers with open or
   long remarks, nested quotes, brackets, punctuation, negations, negated clauses, many different negations,
   clause ends, a one-line JSON string) took 15–360 ms with a brief of 50 quotes, also with each quote
-  behind a kept negation, on 4,000-character lines, repeated 5,000 times or in 50 spellings. A source where
-  every occurrence of 34 quotes is negated takes about 0.9 s (2.4 s with the check as of 2bf881a). On
+  behind a kept negation, on 4,000-character lines, repeated 5,000 times or in 50 spellings. Where every
+  occurrence is negated, a quote costs what the plain check costs past its first 16 negated occurrences
+  (about 0.5–1 s for 50 such quotes in 1 MB). On
   the brief's side it grows with the number of quotes times the source and, for a quote that overlaps itself
   many times, with its length (both bounded by MAX_QUOTE_CHARS and a brief's size).
 - An item marked `(derived)` that wraps over lines is dropped from the source only on the line that ends in
