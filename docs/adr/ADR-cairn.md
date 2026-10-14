@@ -909,19 +909,20 @@ acts on them. So the brief marks which is which, and Cairn checks it where it ha
   - Both texts are normalized: escapes read (`\uXXXX` as its character, `\n`, `\t`, `\r` as a space, a
     backslash before punctuation or a symbol dropped), then runs of combining marks (and of U+FF9E/U+FF9F,
     which NFKC turns into ones) cut to eight, apostrophes folded and ″ read as a double quote, NFKC, lower
-    case, ß as ss, a Markdown link as its text, a hyphen, an en dash or a minus as `-` ("1–2 h", "Mo–Fr")
-    but an em dash as ` - ` (it separates words: "Decision—switch"), no double quote marks, `*`, `_`, `~~`,
+    case, ß as ss, a Markdown link as its text, a hyphen, a figure or en dash or a minus as `-` ("1–2 h",
+    "Mo–Fr") but an em dash or a horizontal bar as ` - ` (it separates words: "Decision—switch"), no double quote marks, `*`, `_`, `~~`,
     `` ` ``, soft hyphens or zero-width characters, one space per whitespace run. In the source, `>` quote
     markers at line starts or after a literal `\n` (not a `>` before a number) are dropped too, and an item
     that ends in `(derived)` (also emphasized, or before `.`, `,` or `;`) is no source: it is an earlier
-    brief's inference. An item is a line, or in escaped text a part between literal `\n`, up to an escaped
-    `\r` or the string's closing quote.
+    brief's inference. An item is a part of a line that ends at a line end, a literal `\n` or `\r` (escaped
+    text) or a straight `"`, so a JSON string, a quote and the mention `"(derived)"` keep the text around
+    them.
   - The quote, without the punctuation at its edges, must occur in one piece (an omission, `…` or `[…]`, is
     not word for word) at word boundaries: a letter or digit, or one joined by `-`, `.` or `/`, continues the
     word ("safe" is not in "unsafe", nor "blocking" in "non-blocking", nor "22.10" in "22.10.1").
   - No negation may be dropped: no negation word right before the occurrence, with at most one word
     (hyphens allowed) and then only punctuation, symbols and blanks between ("do not" + "switch to
-    Postgres", "not yet" + "deploy", "never -- " + "force push"), unless that word affirms ("not only",
+    Postgres", "not yet" + "deploy", "never --" + "force push"), unless that word affirms ("not only",
     "not just", "no doubt", "without question", "nicht nur", "ohne Frage", "ohne Zweifel"); and no German
     "nicht", "nie" or "niemals" (after "auch", before "mehr" or "länger") ending the clause right after it,
     before punctuation, a dash or a parenthesis. A dash with blanks around it ends a negation's reach ("Not
@@ -978,7 +979,9 @@ quotes, all in the source, and no `(derived)` marker.
   the brief's side it grows with the number of quotes times the source and, for a quote that overlaps itself
   many times, with its length (both bounded by MAX_QUOTE_CHARS and a brief's size).
 - An item marked `(derived)` that wraps over lines is dropped from the source only on the line that ends in
-  the marker. An item that mixes stated and inferred content loses its stated part as a source; the prompt
+  the marker, and a wrapped prose line that happens to end in "(derived)," drops whole. An en dash without
+  blanks used as a separator ("Postgres–not Redis") joins words like a hyphen, so a quote ending before it
+  is flagged. An item that mixes stated and inferred content loses its stated part as a source; the prompt
   asks for inferences as items of their own.
 - The unverified quote keeps its quote marks in the brief; only the closing note marks it as derived.
 - A paraphrase without quotes is not checked.

@@ -249,6 +249,10 @@ describe("unverifiedQuotes", () => {
     // A word cut by the window start is no negation word ("knot" read from its last letters).
     expect(unverifiedQuotes('"switch to Postgres now"', `knot ${"-".repeat(44)}switch to Postgres now.`)).toEqual([]);
     expect(unverifiedQuotes('"switch to Postgres now"', `not ${"-".repeat(43)}switch to Postgres now.`)).toHaveLength(1);
+    // A letter outside the BMP right before the window counts as a letter: the start cuts "𠀀not".
+    const astral = String.fromCodePoint(0x20000);
+    expect(unverifiedQuotes('"switch to Postgres now"', `${astral}not ${"-".repeat(44)}switch to Postgres now.`)).toEqual([]);
+    expect(unverifiedQuotes('"switch to Postgres now"', `${astral}not ${"-".repeat(43)}switch to Postgres now.`)).toEqual([]);
     // A word right at the window start that the start does not cut stays a word.
     expect(unverifiedQuotes('"switch to Postgres now"', `xx not ${"-".repeat(44)}switch to Postgres now.`)).toHaveLength(1);
     // A word that only ends in a negation is none ("Reno"); across a sentence end, "not" negates nothing after it.
@@ -334,6 +338,21 @@ describe("unverifiedQuotes", () => {
     for (const prefix of ["[cairn check]", "\\[Cairn check\\]", "[Cairn-Pr\\u00fcfung]", `[Cairn-Pru${DIAERESIS}fung]`]) {
       expect(unverifiedQuotes(brief, `${body}\n${prefix} x: "${invented}"`), prefix).toEqual([invented]);
     }
+  });
+
+  it("splits (derived) items at straight quotes and escaped line ends, so the text around them stays source", () => {
+    const quote = '- "keep the worker protocol as is"';
+    for (const src of [
+      '{"items":["keep the worker protocol as is","Option (b) would touch it (derived)"]}',
+      'Keep the worker protocol as is, and tag guesses "(derived)".',
+      'Tim: keep the worker protocol as is and mark the rest "(derived)".',
+      '- "keep the worker protocol as is" means (b) waits (derived)',
+    ]) {
+      expect(unverifiedQuotes(quote, src), src).toEqual([]);
+    }
+    expect(unverifiedQuotes('- "Option (b) would touch it"', '{"items":["keep it","Option (b) would touch it (derived)"]}')).toHaveLength(1);
+    const cr = JSON.stringify({ r: "- keep (b) as a ticket\r- Option (b) touches it (derived)\r- more" });
+    expect(unverifiedQuotes('- "keep (b) as a ticket"\n- "Option (b) touches it"', cr)).toEqual(["Option (b) touches it"]);
   });
 
   it("ends a note at a carriage return like at a line feed", () => {

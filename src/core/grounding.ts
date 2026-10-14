@@ -174,10 +174,12 @@ function inSource(quote: string, normalizedSource: string): boolean {
   const q = trimEdges(normalizeForQuotes(quote));
   if (!WORD.test(q)) return true;
   for (let at = normalizedSource.indexOf(q); at !== -1; at = normalizedSource.indexOf(q, at + 1)) {
-    const from = Math.max(0, at - WINDOW);
+    let from = Math.max(0, at - WINDOW);
+    // Never split a surrogate pair, and judge the cut on the whole character before the window.
+    if (from > 0 && /[\uDC00-\uDFFF]/.test(normalizedSource[from])) from--;
     // A word cut by the window start is no word: "knot" must not read as "not".
     const window = normalizedSource.slice(from, at);
-    const cut = from > 0 && /[\p{L}\p{N}']/u.test(normalizedSource[from - 1]);
+    const cut = from > 0 && /[\p{L}\p{N}']$/u.test(normalizedSource.slice(Math.max(0, from - 2), from));
     const before = cut ? window.replace(/^[\p{L}\p{N}']+/u, "") : window;
     const after = normalizedSource.slice(at + q.length, at + q.length + WINDOW);
     if (WORD_BEFORE.test(before) || WORD_AFTER.test(after)) continue;
@@ -187,10 +189,10 @@ function inSource(quote: string, normalizedSource: string): boolean {
   return false;
 }
 
-/** An item a summarizer marked as its own inference, a line (or, in escaped text, a part between literal
- *  `\n`, up to an escaped `\r` or the string's closing quote) that ends in "(derived)", also emphasized: no
- *  source for a quote. */
-const DERIVED_ITEM_RE = new RegExp(`(?:^|(?<=\\\\n))(?:(?!\\\\n)${NOT_EOL})*\\(derived\\)[ \\t.,;*_]*(?=\\\\[nr]|"|$)`, "gim");
+/** An item a summarizer marked as its own inference: a part of a line that ends in "(derived)", also
+ *  emphasized, no source for a quote. A part ends at a line end, a literal `\n` or `\r` (escaped text) or a
+ *  straight `"`, so a JSON string, a quote and the mention `"(derived)"` keep the text around them. */
+const DERIVED_ITEM_RE = new RegExp(`(?:^|(?<=\\\\[nr]|"))(?:(?!\\\\[nr]|")${NOT_EOL})*\\(derived\\)[ \\t.,;*_]*(?=\\\\[nr]|"|$)`, "gim");
 /** Quote markers at line starts or after a literal `\n` (`> `, `> > `), read as layout in the source; not a
  *  `>` before a number. */
 const QUOTE_MARKERS_RE = /(?:^|(?<=\\n))[ \t]*(?:>(?![ \t]*\d)[ \t]?)+/gm;
