@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { extractQuotes, normalizeForQuotes, unverifiedQuotes, MIN_QUOTE_WORDS, MAX_NESTING, MAX_QUOTE_CHARS, MAX_DERIVED_REMARK, NOTE_PREFIXES } from "./grounding.js";
+import { extractQuotes, normalizeForQuotes, unverifiedQuotes, MIN_QUOTE_WORDS, MAX_NESTING, MAX_QUOTE_CHARS, MAX_DERIVED_REMARK, MAX_NEEDS, NOTE_PREFIXES } from "./grounding.js";
 import { t } from "../i18n/index.js";
 
 /** Invisible or look-alike characters by code point, so the test file holds none as literals. */
@@ -260,7 +260,7 @@ describe("unverifiedQuotes", () => {
     expect(unverifiedQuotes('"switch to Postgres fully"', "I do not know. Switch to Postgres fully.")).toEqual([]);
   });
 
-  it("accepts a negation the brief keeps right outside the quote marks, on the quote's line", () => {
+  it("accepts a negation the brief keeps in the source's words right outside the quote marks, on the quote's line", () => {
     // From the golden run of 2026-10-14 (db-migration, D01).
     const d01 = "[D01] Iris: Zwei harte Vorgaben: (1) **Zero-Downtime**, kein **Write-Lock > 1 s** auf Hot-Tables.";
     for (const brief of ['- Iris (D01): "Zero-Downtime", kein "Write-Lock > 1 s" auf Hot-Tables.', '- D01 (Iris): Kein "Write-Lock > 1 s" auf Hot-Tables.']) {
@@ -272,6 +272,9 @@ describe("unverifiedQuotes", () => {
       ["Nichts davon: „ohne Review mergen wir“ nie.", "Nichts davon: ohne Review mergen wir nie."],
       ["„Wir deployen am Freitag“ nicht.", "Wir deployen am Freitag nicht."],
       ["- „Wir deployen am Freitag“ auch nicht mehr (Lea)", "Wir deployen am Freitag auch nicht mehr."],
+      ['Wir mergen nicht ohne "Review von Lea und Tarek"', "Wir mergen nicht ohne Review von Lea und Tarek."],
+      ['- Never merge without "a green build" (CI)', "Never merge without a green build."],
+      ['- **Kein** Deploy ohne "Freigabe durch Lea"', "Kein Deploy ohne Freigabe durch Lea."],
     ] as const) {
       expect(unverifiedQuotes(brief, src), brief).toEqual([]);
     }
@@ -287,6 +290,15 @@ describe("unverifiedQuotes", () => {
       ["nicht „Wir deployen am Freitag“", "Wir deployen am Freitag nicht."],
       ["„Wir deployen am Freitag“\nnicht.", "Wir deployen am Freitag nicht."],
       ['"switch to Postgres now", not today', "Do not switch to Postgres now."],
+      // Only the source's own words count, from its first negation word in the window on: a double negation
+      // stays whole, and another negation word or wording is no copy.
+      ['Wir mergen ohne "Review von Lea und Tarek"', "Wir mergen nicht ohne Review von Lea und Tarek."],
+      ['Merge without "a green build"', "Never merge without a green build."],
+      ['Deploy ohne "Freigabe durch Lea"', "Kein Deploy ohne Freigabe durch Lea."],
+      ['nicht "Write-Lock > 1 s" auf Hot-Tables', d01],
+      ['Kein Problem "Write-Lock > 1 s" auf Hot-Tables', d01],
+      ['Never "switch to Postgres now"', "Do not switch to Postgres now."],
+      ["„Wir deployen am Freitag“ nie.", "Wir deployen am Freitag nicht."],
       // A word the brief's slice start cuts is no negation word ("knot"); whole, it is one.
       [`knot ${"*".repeat(188)}"switch to Postgres now"`, "Do not switch to Postgres now."],
       [`„Wir deployen am Freitag“${"*".repeat(186)} nichtig.`, "Wir deployen am Freitag nicht."],
@@ -294,9 +306,11 @@ describe("unverifiedQuotes", () => {
       expect(unverifiedQuotes(brief, src), JSON.stringify(brief)).toHaveLength(1);
     }
     expect(unverifiedQuotes(`not ${"*".repeat(188)}"switch to Postgres now"`, "Do not switch to Postgres now.")).toEqual([]);
-    // The brief's negation counts within the same window as the source's.
-    expect(unverifiedQuotes(`not ${".".repeat(60)} "switch to Postgres now"`, "Do not switch to Postgres now.")).toHaveLength(1);
-    expect(unverifiedQuotes(`not ${".".repeat(40)} "switch to Postgres now"`, "Do not switch to Postgres now.")).toEqual([]);
+    // The source's words must end the brief's text before the quote: nothing may stand between, and the
+    // first word must be whole.
+    expect(unverifiedQuotes(`not ${".".repeat(4)} "switch to Postgres now"`, "Do not switch to Postgres now.")).toHaveLength(1);
+    expect(unverifiedQuotes('Cannot "switch to Postgres now"', "Do not switch to Postgres now.")).toHaveLength(1);
+    expect(unverifiedQuotes(`${String.fromCodePoint(0x20000)}not "switch to Postgres now"`, "Do not switch to Postgres now.")).toHaveLength(1);
     // A quote repeated without the negation is flagged once, wherever the brief repeats it.
     expect(unverifiedQuotes('- kein "Write-Lock > 1 s"\n- "Write-Lock > 1 s" (Iris)\n- kein "Write-Lock > 1 s"', d01)).toEqual(["Write-Lock > 1 s"]);
     expect(unverifiedQuotes('- "Write-Lock > 1 s" (Iris)\n- kein "Write-Lock > 1 s"\n- "one two three"', d01)).toEqual(["Write-Lock > 1 s", "one two three"]);
@@ -304,9 +318,28 @@ describe("unverifiedQuotes", () => {
     // A kept negation does not clear a quote that is not in the source, nor one a note lists.
     expect(unverifiedQuotes('kein "Write-Lock > 2 s"', d01)).toHaveLength(1);
     expect(unverifiedQuotes('kein "Write-Lock > 1 s"', `${d01}\n[Cairn check] x: "Write-Lock > 1 s"`)).toHaveLength(1);
-    // Many repeats are searched once per kind of kept negation.
+    // The words needed run from the clause's first negation word: an earlier sentence or clause is not
+    // needed, an earlier word of the same clause is ("Never, ever merge without").
+    expect(unverifiedQuotes('Kein "Write-Lock > 1 s" auf Hot-Tables', "Kein Redis. Kein Write-Lock > 1 s auf Hot-Tables.")).toEqual([]);
+    expect(unverifiedQuotes('Kein "Write-Lock > 1 s" auf Hot-Tables', `Nie wieder ${ch(0x2014)} kein Write-Lock > 1 s auf Hot-Tables.`)).toEqual([]);
+    expect(unverifiedQuotes('Merge without "a green build"', "Never, ever merge without a green build.")).toHaveLength(1);
+    expect(unverifiedQuotes('Never, ever merge without "a green build"', "Never, ever merge without a green build.")).toEqual([]);
+    // A clause end between the negation and the quote leaves the negation's own words needed.
+    expect(unverifiedQuotes('Do not . "switch to Postgres now"', "Do not . switch to Postgres now.")).toEqual([]);
+    expect(unverifiedQuotes('Do "switch to Postgres now"', "Do not . switch to Postgres now.")).toHaveLength(1);
+    // Limit (ADR-0013): the words are kept, their sense is not checked.
+    expect(unverifiedQuotes('Why not "switch to Postgres now"?', "Do not switch to Postgres now.")).toEqual([]);
+    // At most MAX_NEEDS different negations are kept per quote; an occurrence beyond them counts as not found.
+    const many = Array.from({ length: MAX_NEEDS + 2 }, (_, i) => `kein w${i} one two three.`).join("\n");
+    expect(unverifiedQuotes('kein w2 "one two three"', many)).toEqual([]);
+    expect(unverifiedQuotes(`kein w${MAX_NEEDS + 1} "one two three"`, many)).toHaveLength(1);
+    // An occurrence without a negation counts however many negated ones come before it.
+    expect(unverifiedQuotes('"one two three"', `${many}\nAnd one two three, as said.`)).toEqual([]);
+    // The source is searched once per compared form: many repeats and spellings of one quote stay cheap.
     const t0 = Date.now();
     unverifiedQuotes(`- kein "one two three"\n- "one two three" x\n`.repeat(20_000), "kein one two three ".repeat(50_000));
+    const spellings = Array.from({ length: 200 }, (_, i) => `- "${".".repeat(i + 1)}one two three"`).join("\n");
+    unverifiedQuotes(spellings, "xkein one two three nicht. ".repeat(40_000));
     expect(Date.now() - t0).toBeLessThan(3_000);
   });
 
@@ -435,20 +468,31 @@ describe("unverifiedQuotes", () => {
     }
   });
 
-  it("reads the marker with a short remark: (derived: …), (derived aus …), in any case", () => {
+  it("reads the marker with a short remark after a colon, in any case", () => {
     const quote = '- "Backfill in batches of 5000 rows"';
-    for (const mark of ["(derived: not confirmed yet)", "(derived aus D10)", "(Derived: D07)", `(derived ${"x".repeat(MAX_DERIVED_REMARK)})`, "**(derived: D07)**."]) {
+    for (const mark of ["(derived: not confirmed yet)", "(Derived: D07)", "(derived:D07)", `(derived:${"x".repeat(MAX_DERIVED_REMARK)})`, "**(derived: D07)**."]) {
       expect(unverifiedQuotes(quote, `- keep it\n- Backfill in batches of 5000 rows ${mark}\n- more`), mark).toHaveLength(1);
     }
-    // No marker: a longer remark, one with parentheses or a quote mark, another word, or text after it.
-    for (const mark of [`(derived ${"x".repeat(MAX_DERIVED_REMARK + 1)})`, "(derived (D07))", "(derivedx)", "(derived: D07) and then more"]) {
+    // No marker: a longer remark, one with parentheses or a quote mark, another word, text after it, or a
+    // remark after a blank (ordinary words: "derived class", "derived from").
+    for (const mark of [
+      `(derived:${"x".repeat(MAX_DERIVED_REMARK + 1)})`,
+      "(derived: (D07))",
+      '(derived: "D07")',
+      "(derivedx)",
+      "(derived: D07) and then more",
+      "(derived aus D10)",
+      "(derived class)",
+      "(derived state)",
+      "(derived from the JWT)",
+    ]) {
       expect(unverifiedQuotes(quote, `- keep it\n- Backfill in batches of 5000 rows ${mark}\n- more`), mark).toEqual([]);
     }
     // In escaped text the remark ends before a literal \n.
     const json = JSON.stringify({ b: "- Backfill in batches of 5000 rows (derived: D07)\n- keep the worker protocol as is" });
     expect(unverifiedQuotes(`${quote}\n- "keep the worker protocol as is"`, json)).toEqual(["Backfill in batches of 5000 rows"]);
     const t0 = Date.now();
-    unverifiedQuotes('"one two three"', `(derived ${"x".repeat(MAX_DERIVED_REMARK - 1)}`.repeat(12_000));
+    unverifiedQuotes('"one two three"', `(derived:${"x".repeat(MAX_DERIVED_REMARK - 1)}`.repeat(12_000));
     unverifiedQuotes('"one two three"', `- step (derived: ${"y".repeat(70)})\r`.repeat(10_000));
     expect(Date.now() - t0).toBeLessThan(3_000);
   });

@@ -12,8 +12,8 @@
  * fenced code blocks are skipped (a string literal in code is no quote), inline code is read as its text, so
  * a quote may contain it. The check finds the words, not who said them or in which sense: a sentence the user
  * rejected is in the source too, and a quote may leave out words around it ("in this sprint"), except a
- * negation right before it (or a German one right after it) that the brief does not keep right outside the
- * quote marks. A paraphrase without quotes is not checked.
+ * negation right before it (or a German one right after it) that the brief does not repeat in the source's
+ * words right outside the quote marks. A paraphrase without quotes is not checked.
  * Where a rule is in doubt it flags rather than passes; ADR-0013 lists what still passes.
  */
 
@@ -152,18 +152,23 @@ const AFFIRMING = `(?:${AFFIRMING_WORDS.join("|")})(?![\\p{L}\\p{N}])`;
  *  symbols and blanks between, so a quote cannot drop it ("do not" + "switch to Postgres", "not yet" +
  *  "deploy", "never --" + "force push"). A dash with blanks around it ends its reach: "Not Redis — we use
  *  Postgres". "no" and "kein" also flag a noun phrase after them, and the German
- *  noun "Not" reads as "not": the safe side. */
+ *  noun "Not" reads as "not": the safe side. The group holds the text from the negation word on. */
 const NEGATED_BEFORE = new RegExp(
-  `(?:^|[^\\p{L}\\p{N}'])(?:${NEGATIONS.join("|")}|\\p{L}+n't)` +
+  `(?:^|[^\\p{L}\\p{N}'])((?:${NEGATIONS.join("|")}|\\p{L}+n't)` +
     // at most one word in between, not an affirming one
     `(?: (?!${AFFIRMING})[\\p{L}\\p{N}][\\p{L}\\p{N}'-]*)?` +
     // then blanks, punctuation and symbols up to the match, but no dash with blanks around it
-    ` (?![\\p{P}\\p{S} ]*?(?<= )-+ )[\\p{P}\\p{S} ]*$`,
+    ` (?![\\p{P}\\p{S} ]*?(?<= )-+ )[\\p{P}\\p{S} ]*)$`,
   "u",
 );
 /** A German negation that ends the clause right after a match ("Wir deployen am Freitag nicht.", "… auch
- *  nicht", "… nicht mehr.", "… nicht - …", "… nie (…)"). */
-const NEGATED_AFTER = /^ (?:auch )?(?:nicht|nie|niemals)(?: mehr| länger)?(?:$|[.,;:!?)\]]| -| \()/u;
+ *  nicht", "… nicht mehr.", "… nicht - …", "… nie (…)"); the group holds its words. */
+const NEGATED_AFTER = /^( (?:auch )?(?:nicht|nie|niemals)(?: mehr| länger)?)(?:$|[.,;:!?)\]]| -| \()/u;
+/** A negation word as a whole word; the group holds the word. */
+const NEGATION_WORD = new RegExp(`(?:^|[^\\p{L}\\p{N}'])((?:${NEGATIONS.join("|")}|\\p{L}+n't)(?![\\p{L}\\p{N}']))`, "u");
+/** The end of a sentence or clause in normalized text: `.`, `!`, `?`, `;` or `:` before a blank, or a dash with
+ *  blanks around it. */
+const CLAUSE_END = /[.!?;:](?= )| -+ /g;
 /** Word boundaries: a letter or digit, or one joined by a hyphen, dot or slash ("non-blocking", "22.10.1",
  *  "config/prod/app.yml"), continues the word. */
 const WORD_BEFORE = /(?:[\p{L}\p{N}]|[\p{L}\p{N}][-./])$/u;
@@ -192,15 +197,57 @@ function windowBefore(normalized: string, at: number): string {
   return cut ? window.replace(/^[\p{L}\p{N}']+/u, "") : window;
 }
 
-/** Characters of the brief read beside a quote's marks for the negation rule: normalization can shorten
- *  them, and the rule reads WINDOW characters of the result. */
+/** Characters of the brief read beside a quote's marks: normalization can shorten them, and a source's
+ *  negation run is at most WINDOW characters. */
 const BRIEF_CONTEXT = 4 * WINDOW;
 const LINE_BREAK = /[\n\r\u2028\u2029]/;
 
-/** Whether the brief keeps a negation right outside a quote's marks, on the quote's line, read like one in
- *  the source: before the opening mark (`kein "Write-Lock > 1 s"`), or a German one after the closing mark
- *  (`"Wir deployen am Freitag" nicht.`). A quote mark separates words, as a blank would. */
-function briefNegation(text: string, span: QuoteSpan): { before: boolean; after: boolean } {
+/** What one occurrence in the source asks the brief to keep right outside the quote marks: the source's own
+ *  words from its negation up to the occurrence, from the clause's first negation word on (`before`), and
+ *  the German clause-final negation after it (`after`); "" where it has none. */
+interface Needs {
+  before: string;
+  after: string;
+}
+
+/** At most this many different needs are kept per quote, so the brief's side stays bounded; an occurrence
+ *  beyond them counts as not found (the safe side). */
+export const MAX_NEEDS = 16;
+
+/** The source's occurrences of a quote (normalized, without the punctuation at its edges) in one piece and
+ *  at word boundaries: `free` if one has no negation beside it, else what the brief must keep for one of
+ *  them to count. No omission ("…", "[…]") and no part of a longer word passes. Each occurrence is judged in
+ *  a window of WINDOW characters around it, so the cost stays linear in the source. */
+function occurrences(q: string, normalizedSource: string): { free: boolean; needs: Needs[] } {
+  if (!WORD.test(q)) return { free: true, needs: [] };
+  const needs = new Map<string, Needs>();
+  for (let at = normalizedSource.indexOf(q); at !== -1; at = normalizedSource.indexOf(q, at + 1)) {
+    const before = windowBefore(normalizedSource, at);
+    const after = normalizedSource.slice(at + q.length, at + q.length + WINDOW);
+    if (WORD_BEFORE.test(before) || WORD_AFTER.test(after)) continue;
+    let need = { before: "", after: NEGATED_AFTER.exec(after)?.[1] ?? "" };
+    const negated = NEGATED_BEFORE.exec(before);
+    if (negated) {
+      let from = before.length - negated[1].length;
+      // An earlier negation word in the same clause belongs to it: "never merge without", "nicht ohne".
+      const clause = before.slice(0, from);
+      let start = 0;
+      for (const end of clause.matchAll(CLAUSE_END)) start = end.index + end[0].length;
+      const first = NEGATION_WORD.exec(clause.slice(start));
+      if (first) from = start + first.index + first[0].length - first[1].length;
+      need = { ...need, before: before.slice(from) };
+    }
+    if (!need.before && !need.after) return { free: true, needs: [] };
+    const key = JSON.stringify([need.before, need.after]);
+    if (needs.size < MAX_NEEDS && !needs.has(key)) needs.set(key, need);
+  }
+  return { free: false, needs: [...needs.values()] };
+}
+
+/** The brief's text beside a quote's marks, on the quote's line, normalized: what stands before the opening
+ *  mark, ending in a blank (a quote mark separates words, as a blank would), and the German clause-final
+ *  negation after the closing mark, "" if none. */
+function briefContext(text: string, span: QuoteSpan): Needs {
   const from = Math.max(0, span.at - BRIEF_CONTEXT);
   const head = text.slice(from, span.at).split(LINE_BREAK);
   // A word the slice start cuts is dropped, unless a line break bounds the slice.
@@ -208,35 +255,27 @@ function briefNegation(text: string, span: QuoteSpan): { before: boolean; after:
   const to = Math.min(text.length, span.end + BRIEF_CONTEXT);
   const tail = text.slice(span.end, to).split(LINE_BREAK);
   const suffix = normalizeForQuotes(tail.length === 1 && to < text.length ? tail[0].replace(/\S*$/u, "") : tail[0]);
-  return {
-    before: NEGATED_BEFORE.test(windowBefore(`${prefix} `, prefix.length + 1)),
-    after: NEGATED_AFTER.test(` ${suffix}`),
-  };
+  return { before: `${prefix} `, after: NEGATED_AFTER.exec(` ${suffix}`)?.[1] ?? "" };
 }
 
-/** True if the quote, normalized and without the punctuation at its edges, occurs in the normalized source
- *  as one piece, at word boundaries and with no negation dropped: no omission ("…", "[…]"), no part of a
- *  longer word, and a negation right before (or a German one right after) the occurrence only if the brief
- *  keeps one there too (`kept`). Each occurrence is checked in a window of WINDOW characters around it, so
- *  the cost stays linear in the source. */
-function inSource(quote: string, normalizedSource: string, kept: { before: boolean; after: boolean }): boolean {
-  const q = trimEdges(normalizeForQuotes(quote));
-  if (!WORD.test(q)) return true;
-  for (let at = normalizedSource.indexOf(q); at !== -1; at = normalizedSource.indexOf(q, at + 1)) {
-    const before = windowBefore(normalizedSource, at);
-    const after = normalizedSource.slice(at + q.length, at + q.length + WINDOW);
-    if (WORD_BEFORE.test(before) || WORD_AFTER.test(after)) continue;
-    if ((NEGATED_BEFORE.test(before) && !kept.before) || (NEGATED_AFTER.test(after) && !kept.after)) continue;
-    return true;
+/** Whether the brief keeps what an occurrence needs: its text before the quote ends in the source's words
+ *  from the negation on, as whole words (`kein "Write-Lock > 1 s"` for `kein **Write-Lock > 1 s**`), and,
+ *  where the source has one, the same clause-final negation after the quote. */
+function keeps(brief: Needs, need: Needs): boolean {
+  if (need.before) {
+    const start = brief.before.length - need.before.length;
+    if (!brief.before.endsWith(need.before)) return false;
+    if (start > 0 && /[\p{L}\p{N}']$/u.test(brief.before.slice(Math.max(0, start - 2), start))) return false;
   }
-  return false;
+  return need.after === "" || brief.after === need.after;
 }
 
-/** How long a remark inside the marker may be: "(derived: not confirmed)", "(derived aus D10)". */
+/** How long a remark inside the marker may be: "(derived: not confirmed)". */
 export const MAX_DERIVED_REMARK = 80;
-/** The marker "(derived)", or with a remark after a colon or a blank, on one line, without parentheses, a
- *  straight `"` or a backslash in it. */
-const DERIVED_MARK = `\\(derived(?:[: \\t](?:(?![()"\\\\])${NOT_EOL}){0,${MAX_DERIVED_REMARK}})?\\)`;
+/** The marker "(derived)", or with a remark after a colon, on one line, without parentheses, a straight `"`
+ *  or a backslash in it. A remark after a blank is no marker: "(derived class)", "(derived from the JWT)"
+ *  are ordinary words. */
+const DERIVED_MARK = `\\(derived(?::(?:(?![()"\\\\])${NOT_EOL}){0,${MAX_DERIVED_REMARK}})?\\)`;
 /** An item a summarizer marked as its own inference: a part of a line that ends in the marker, also
  *  emphasized, no source for a quote. A part ends at a line end, a literal `\n` or `\r` (escaped text) or a
  *  straight `"`, so a JSON string, a quote and the mention `"(derived)"` keep the text around them. */
@@ -249,8 +288,10 @@ const QUOTE_MARKERS_RE = /(?:^|(?<=\\n))[ \t]*(?:>(?![ \t]*\d)[ \t]?)+/gm;
  * The brief's quotes that are not word for word in the source. A quote that a Cairn check note in the source
  * already lists stays unverified, and so does a quote inside or around a listed one: a resumed brief in the
  * conversation holds both the quote and its note, and the quote must not pass on its own earlier copy. An
- * item marked `(derived)` is no source either, and a quote over MAX_QUOTE_CHARS is not searched. A quote the
- * brief repeats is judged at each place, as its negation may differ; it is listed once.
+ * item marked `(derived)` is no source either, and a quote over MAX_QUOTE_CHARS is not searched. Where the
+ * source has a negation beside the quote, the brief must keep its words right outside the quote marks
+ * (`keeps`). A quote the brief repeats is judged at each place, as what stands beside it may differ; it is
+ * listed once.
  */
 export function unverifiedQuotes(brief: string, source: string): string[] {
   const src = source.replace(MARK_RUN_RE, "$1").normalize("NFC");
@@ -259,21 +300,29 @@ export function unverifiedQuotes(brief: string, source: string): string[] {
     src.replace(NOTE_RE, "").replace(DERIVED_ITEM_RE, "").replace(QUOTE_MARKERS_RE, ""),
   );
   const { text, spans } = quoteSpans(brief);
-  // Each quote is searched at most once per kind of kept negation, however often the brief repeats it.
-  const verdicts = new Map<string, boolean>();
+  // Each quote's compared form (null if it cannot pass), and the source searched once per form, however
+  // often and in whatever spelling the brief has it.
+  const compared = new Map<string, string | null>();
+  const searched = new Map<string, { free: boolean; needs: Needs[] }>();
   const unverified = new Set<string>();
   for (const span of spans) {
     const q = span.text;
     if (unverified.has(q)) continue;
-    const kept = briefNegation(text, span);
-    const key = `${kept.before ? 1 : 0}${kept.after ? 1 : 0}${q}`;
-    let found = verdicts.get(key);
-    if (found === undefined) {
+    let key = compared.get(q);
+    if (key === undefined) {
       const n = normalizeForQuotes(q);
-      found = q.length <= MAX_QUOTE_CHARS && inSource(q, normalizedSource, kept) && !noted.some((m) => m.includes(n) || n.includes(m));
-      verdicts.set(key, found);
+      key = q.length > MAX_QUOTE_CHARS || noted.some((m) => m.includes(n) || n.includes(m)) ? null : trimEdges(n);
+      compared.set(q, key);
     }
-    if (!found) unverified.add(q);
+    if (key === null) {
+      unverified.add(q);
+      continue;
+    }
+    let found = searched.get(key);
+    if (!found) searched.set(key, (found = occurrences(key, normalizedSource)));
+    if (found.free) continue;
+    const kept = briefContext(text, span);
+    if (!found.needs.some((need) => keeps(kept, need))) unverified.add(q);
   }
   return [...new Set(spans.map((s) => s.text))].filter((q) => unverified.has(q));
 }

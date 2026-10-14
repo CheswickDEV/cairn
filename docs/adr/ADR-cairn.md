@@ -917,9 +917,9 @@ acts on them. So the brief marks which is which, and Cairn checks it where it ha
     `` ` ``, soft hyphens or zero-width characters, one space per whitespace run. In the source, `>` quote
     markers at line starts or after a literal `\n` (not a `>` before a number) are dropped too, and an item
     that ends in `(derived)` (also emphasized, or before `.`, `,` or `;`) is no source: it is an earlier
-    brief's inference. The marker may carry a remark of up to 80 characters after a colon or a blank, without
-    parentheses, a straight `"` or a backslash (`(derived: not confirmed)`, `(derived aus D10)`), as the
-    models write it. An item is a part of a line that ends at a line end, a literal `\n` or `\r` (escaped
+    brief's inference. The marker may carry a remark of up to 80 characters after a colon, without
+    parentheses, a straight `"` or a backslash (`(derived: not confirmed)`), as the models write it. An item
+    is a part of a line that ends at a line end, a literal `\n` or `\r` (escaped
     text) or a straight `"`, so a JSON string, a quote and the mention `"(derived)"` keep the text around
     them.
   - The quote, without the punctuation at its edges, must occur in one piece (an omission, `…` or `[…]`, is
@@ -937,12 +937,18 @@ acts on them. So the brief marks which is which, and Cairn checks it where it ha
     `nichts`, `ohne`, `kein…`). One occurrence that passes is enough. Each occurrence is judged on 48
     characters around it, without a word the window start cuts ("knot" is not "not"), so the cost is linear
     in the source.
-  - A negation the brief keeps right outside the quote marks, on the quote's line, counts as kept: one
-    before the opening mark (`kein "Write-Lock > 1 s"` for the source's `kein **Write-Lock > 1 s**`) or a
-    German one after the closing mark (`„Wir deployen am Freitag“ nicht.`). The brief's text there is
-    normalized and read by the same rules and window, and a quote mark separates words like a blank, so
-    `Never -- "force push to main"` has a spaced dash and keeps nothing. A quote the brief repeats is judged
-    at each place and listed once.
+  - A negation beside an occurrence counts as kept if the brief repeats it in the source's words right
+    outside the quote marks, on the quote's line. Before the opening mark, the brief's text (normalized,
+    a quote mark read as a blank) must end in the source's text from the negation up to the occurrence, as
+    whole words, and from the first negation word of its clause on, so a double or an outer negation stays
+    whole: `kein "Write-Lock > 1 s"` for `kein **Write-Lock > 1 s**`, `Never merge without "a green build"`
+    but not `Merge without "a green build"`, `Wir mergen nicht ohne "Review …"` but not `Wir mergen ohne
+    "Review …"`. A clause starts after `.`, `!`, `?`, `;` or `:` before a blank, or after a dash with blanks
+    around it. After the closing mark, the brief needs the same German clause-final negation (`„Wir
+    deployen am Freitag“ nicht.`). Another negation word or wording keeps nothing (`nicht` for `kein`,
+    `Never` for `Do not`, `Never -- "…"` for `Never --…`). A quote the brief repeats is judged at each
+    place and listed once. The source is searched once per quote as compared, and at most 16 different
+    negations are kept per quote (`MAX_NEEDS`); an occurrence beyond them counts as not found.
   - A quote that a Cairn check note in the source lists stays unverified, and so does a quote inside or
     around a listed one, so a resumed brief in the conversation cannot clear its own note on the next
     handoff. A note starts a line (after blanks or `>`) or follows a literal `\n` in escaped text (a JSON
@@ -972,8 +978,8 @@ quotes, all in the source, and no `(derived)` marker.
 calls on 2bf881a, recomputed bit-exact by two agents):
 - The 35 briefs hold 250 quotes (the 70 old ones held 3). The check as of 2bf881a flagged 2, both
   `kein "Write-Lock > 1 s"`: a negation kept outside the quote marks. The rule above fixes that; now none
-  is flagged. 14 items are marked `(derived)` and 3 more carry a remark (`(derived: …)`), all from the
-  Claude models; the GPT models mark none.
+  is flagged. 14 items are marked `(derived)` and 3 more carry a remark (twice `(derived: …)`, once
+  `(derived aus D10)`), all from the Claude models; the GPT models mark none.
 - Against the two runs with the old prompt (pooled): hallucination 0.8376 against 0.8523 (the old runs
   differ by 0.0070; z about −2.2 with their spread, −1.75 with the observed one; 21 briefs lower, 12 higher,
   2 equal), recall 0.9866 against 0.9889 (z about −1.2), supersession 0.9946 against 0.9863, verbatim 1.0.
@@ -1002,19 +1008,20 @@ calls on 2bf881a, recomputed bit-exact by two agents):
   not listed is not seen. It also flags on the safe side: "no" or "kein" before a quoted noun phrase ("no
   single writer queue"), "without"/"ohne" with a noun before a quote ("ohne Downtime deployen wir"), the
   German noun "Not", a negation at the end of the line before (the source's line breaks count as spaces), a
-  negation the brief keeps on the line before the quote or farther than the window, a quote inside a noted
-  one, and the rest of a line after a fake or escaped note. The brief's own words before a quote are read by
-  the same rule, so a phrase there that reads as a negation ("Kein Problem: "…"") counts as keeping the
-  source's one.
-- The cost is linear in the source: twenty-three prepared 1 MB sources (progress bars with `\r`, escaped or
+  negation the brief keeps on the line before the quote, in other words or with other text before the
+  quote mark, a quote inside a noted one, and the rest of a line after a fake or escaped note. The brief's
+  words are compared, not their sense: `Why not "…"?` keeps the source's `not`.
+- The cost is linear in the source: twenty-six prepared 1 MB sources (progress bars with `\r`, escaped or
   half-width combining marks, U+2028 lines, notes and `(derived)` items on `\r` lines, markers with open or
-  long remarks, nested quotes, brackets, punctuation, negations, a one-line JSON string) took 22–363 ms
-  with a brief of 50 quotes, also with each quote behind a kept negation, on 4,000-character lines or
-  repeated 5,000 times (a repeated quote is searched once per kind of kept negation). On
+  long remarks, nested quotes, brackets, punctuation, negations, negated clauses, many different negations,
+  clause ends, a one-line JSON string) took 14–288 ms with a brief of 50 quotes, also with each quote
+  behind a kept negation, on 4,000-character lines, repeated 5,000 times or in 50 spellings. On
   the brief's side it grows with the number of quotes times the source and, for a quote that overlaps itself
   many times, with its length (both bounded by MAX_QUOTE_CHARS and a brief's size).
 - An item marked `(derived)` that wraps over lines is dropped from the source only on the line that ends in
-  the marker, and a wrapped prose line that happens to end in "(derived)," drops whole. An en dash without
+  the marker, and a wrapped prose line that happens to end in "(derived)," or "(derived: …)" drops whole. A
+  remark after a blank (`(derived aus D10)`) is not read as the marker, as "(derived class)" or "(derived
+  from the JWT)" are ordinary words; such an item stays a source. An en dash without
   blanks used as a separator ("Postgres–not Redis") joins words like a hyphen, so a quote ending before it
   is flagged. An item that mixes stated and inferred content loses its stated part as a source; the prompt
   asks for inferences as items of their own.

@@ -40,8 +40,9 @@ target, a deferred option as discarded).
   or the user is asked, before it stops or redirects the next step.
 - **Quote check** `[CODE-IMPACTING]` (sampling, bridge, API): every quote of three or more words must
   appear in the source in one piece, at word boundaries (also across `-`, `.`, `/`) and without a dropped
-  negation ("do not", "not yet", a German "nicht" at the end; one the brief keeps right outside the quote
-  marks counts, as in `kein "Write-Lock > 1 s"`), normalized for case, whitespace, quote
+  negation ("do not", "not yet", a German "nicht" at the end; one the brief repeats in the source's words
+  right outside the quote marks counts, as in `kein "Write-Lock > 1 s"`, a double negation whole),
+  normalized for case, whitespace, quote
   marks, escapes, Markdown and typography; fenced code is skipped. The cost is linear in the source, and a
   quote over 1,000 characters counts as unverified without a search.
   - A quote that a Cairn check note in the source already lists stays unverified, so a resumed brief cannot
@@ -58,9 +59,9 @@ target, a deferred option as discarded).
 - **Measured with the new prompt** (golden run 2026-10-14, 245 subscription calls): 250 quotes in 35 briefs,
   all in the source once a negation kept outside the quote marks counts (2 were flagged before). The
   reviewers, who see the ground truth but not the source, scored hallucination lower (0.8376 against 0.8523
-  for the old prompt), mostly the GPT reviewers and most on briefs with `(derived)` items; recall and
-  verbatim held, every must-survive item and verbatim span was kept. The profiles stay as measured
-  (ADR-0013).
+  for the old prompt), mostly the GPT reviewers and most on briefs with `(derived)` items; recall moved
+  within noise (0.9866 against 0.9889), verbatim held, and every must-survive item and verbatim span was
+  kept. The profiles stay as measured (ADR-0013).
 
 ### Summarizer pool on the current generation, effort `high` (2026-10-11 to 2026-10-13)
 
