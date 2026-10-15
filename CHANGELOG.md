@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## 🏷️ 2.0.0 — Explicit invocation, current model generation, safe handoffs (2026-10-13)
+## 🏷️ 2.0.0 — Explicit invocation, current model generation, safe handoffs (2026-10-15)
 
 Everything since 1.4.0. A major version, because Cairn no longer acts on its own (ADR-0010): the
 automatic triggers and the SessionStart/PreCompact hooks are gone. English is now the default language.
