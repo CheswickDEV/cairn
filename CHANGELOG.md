@@ -35,6 +35,10 @@ runs scored hallucination below 1.0 without naming anything.
   (210 reviews per run); the artifact records the run it re-reviewed.
 - **Artifacts** record `reviewerPromptSha256` (`heuristic` for a dry or offline run); `--pool` pools only
   runs of one reviewer prompt and refuses two inputs with the same briefs.
+- **Re-review** (2026-10-15, 630 subscription calls, checked by two agents): every penalty now names its
+  items. Hallucination is 0.93 for the old prompt's briefs and 0.97 for the new prompt's (0.85 and 0.84
+  without the source); recall, supersession and verbatim held. Much of the gain is next steps the source
+  does not name, which the old prompt invited, and masked content called a placeholder. The profiles stay.
 
 ### Grounded briefs: quotes for what was said, (derived) for inference (2026-10-13)
 
@@ -79,6 +83,8 @@ target, a deferred option as discarded).
   within noise (0.9866 against 0.9889), verbatim held, and every must-survive item and verbatim span was
   kept. The profiles stay as measured (ADR-0013). In the end-to-end rerun neither Opus 5.5 nor GPT-6.1 Sol
   wrote the three lines; both quoted the user, every quote in the source. The prompt stays (2026-10-14).
+  Re-scored with the source (2026-10-15): hallucination 0.9676 against 0.9282 for the old prompt, 20 briefs
+  higher and 4 lower.
 
 ### Summarizer pool on the current generation, effort `high` (2026-10-11 to 2026-10-13)
 

@@ -615,6 +615,32 @@ naming anything, while the deterministic trap check finds no trap text in any br
   a re-review is a new measurement and pools only with runs scored by the same reviewer prompt (other
   re-reviews, or golden runs of the same compaction prompt from now on).
 
+**Re-review of the real golden runs (2026-10-15).** The stored briefs of the three real golden runs were
+scored again with the source: 630 subscription calls on cc7c37c (360 claude, 270 codex, no compaction),
+`2026-10-15T21-22-12Z`, `…T21-37-24Z` and `…T21-52-22Z-real-rereview-golden.json`, checked by two agents.
+- Briefs, output tokens, reviewer sets and probes match the originals. Every review names its items:
+  hallucination is below 1.0 exactly when `invented` is not empty (630 of 630, 311 items). Reviews at 1.0:
+  136, 138 and 168 of 210, against 17, 9 and 8 before.
+- Hallucination 0.9295 and 0.9269 for the two runs of the old prompt, 0.9676 for the run of ADR-0013's
+  prompt (before: 0.8558, 0.8488, 0.8376). Recall rose by 0.003 to 0.010 per run, supersession by 0.003 to
+  0.007, verbatim is unchanged. The reviewers' means span 0.88–0.97 over the old runs and 0.94–0.99 over
+  the new one (before 0.74–0.93 and 0.68–0.94).
+- Sample check (28 fixed items, 10 more per agent, judged against the source): the agents rate 13 and 20 of
+  the 28 as faults of the brief and 4 each as false alarms; the rest are disputed, mostly next steps the
+  source does not name. Of their own 10, 6 and 9 are faults, 0 and 1 false alarms. A recurring false alarm:
+  gpt-6-astra and gpt-6.1-sol call "not yet measured" invented where the source makes that measurement the
+  next step (14 items, in all three runs).
+- Two kinds of items come from the setup rather than from made-up facts:
+  - The compactor sees verbatim blocks as `[[CAIRN-HOLD-n]]` markers, the reviewer sees the full source. A
+    brief that calls such content a placeholder, not given or not settled is wrong once the blocks are
+    restored, and is scored so (one agent counts 64 items in the old briefs, mostly Haiku's, and 9 in the
+    new). The handoff masks the same way, so the fault is real in a stored brief.
+  - The rule names no tasks: a next step the source does not name ("decide X" for an open question) is
+    flagged by some reviewers and not by others (56–64 items by the agents' counts, all in the old briefs).
+- The claude CLI updated from 2.1.299 to 2.1.301 after the first re-review; the two old runs still differ by
+  only 0.0026.
+- The re-reviews' floor proposals (0.984, 0.977, 0.994) are not applied; the profiles stay as they are.
+
 **Runs and artifacts.** Artifacts are named `<date>T<time>Z-<mode>[-rereview][-golden|-large].json` and never
 overwritten (a taken name gets `-2`, `-3`, …). They keep each scored brief and the ids of the
 must-survive items the deterministic check missed (`missingMustSurvive`, the same matching as
@@ -1030,6 +1056,19 @@ calls on 2bf881a, recomputed bit-exact by two agents):
   whether the prompt stops invented lines. The user kept the profiles as measured and left the prompt to
   the end-to-end rerun (2026-10-14). Since then the reviewers get the source (ADR-0012, "Reviewer with
   the source").
+- Re-scored with the source (2026-10-15, ADR-0012, "Re-review of the real golden runs"): hallucination
+  0.9676 against 0.9282 for the old prompt (the old runs differ by 0.0026; 20 briefs higher, 4 lower, 11
+  equal, sign test p ≈ 0.002), recall 0.9969 against 0.9943, supersession 0.9979 against 0.9924, verbatim
+  1.0. So the plan's bar is met. Two kinds of items carry much of the gain:
+  - next steps the source does not name, which the old prompt invited ("concrete next steps") and the new
+    one rules out: 56–64 items, none in the new briefs;
+  - masked content called a placeholder or not given: 64 items in the old briefs and 9 in the new, by one
+    agent's count.
+
+  Without the next steps the gain is +0.024 to +0.026 (p 0.05–0.08). Without the masked content as well it
+  is +0.010 (p ≈ 0.26, one agent's count). The other way, the new briefs' status labels drew 11 disputed
+  items against 3 in the old briefs ("superseded" for a corrected question, "deferred"); without those and
+  the next steps the gain is +0.029 (p ≈ 0.002, the other agent's count).
 - End-to-end rerun (2026-10-14, the scenario of the context above, one subscription call each through the
   built bridge on c4374b3, checked by two agents): neither Claude Opus 5.5 nor GPT-6.1 Sol wrote any of the
   three lines. No constraint on option (b), the 0 lost writes under EVIDENCE, option (b) deferred and open
@@ -1085,6 +1124,7 @@ calls on 2bf881a, recomputed bit-exact by two agents):
   counts as not found.
 - Until 2026-10-14 the reviewers saw the ground truth, not the source, so they could score a correct
   `(derived)` line or a true quote as invented. Since then they get the source (ADR-0012, "Reviewer with the
-  source"); the runs above were scored before.
+  source"); the runs above were scored before and re-scored with the source on 2026-10-15 (see above). The
+  reviewer rule names no tasks, so a next step the source does not name is judged unevenly.
 - The profiles (ADR-0012) were measured with the prompt before 2.0.0 and stay so (see the measurement
   above).
