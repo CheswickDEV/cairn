@@ -11,7 +11,7 @@
     {
       "name": "cairn",
       "source": "./",
-      "description": "Context-zone warnings, faithful 7-bucket handoffs, and a decision/evidence ledger across sessions and models. Bundles the MCP server, the skill, and the SessionStart/PreCompact hooks."
+      "description": "Context-zone warnings, faithful 7-bucket handoffs, and a decision/evidence ledger across sessions and models. Bundles the MCP server and the explicitly invoked skills, with no automatic hooks."
     }
   ]
 }

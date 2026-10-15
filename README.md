@@ -26,7 +26,7 @@ Cairn shows how full the context is, keeps a decision and evidence ledger, and h
 > [!NOTE]
 > **Cairn 2.0** runs only when you ask. It recommends its summarizer from the current model generation
 > (Claude Opus 5.5, GPT-6.1 Sol), and its briefs keep your words apart from the summarizer's inference.
-> Coming from 1.x? Read [Updating from 1.x](#updating-from-1x) and the
+> Coming from 1.x? Read [Updating an existing installation](#updating-an-existing-installation) and the
 > [release notes](https://github.com/CheswickDEV/cairn/releases/tag/v2.0.0).
 
 ---
@@ -54,7 +54,7 @@ Cairn keeps a local memory **alongside** the agents for exactly this: no backend
 flowchart LR
     ask(["You: Cairn Handoff"]) --> host["Session model<br/>in Claude Code or Codex"]
     host -->|"7-bucket brief"| handoff["handoff tool"]
-    handoff --> check["Verbatim check<br/>required values kept"]
+    handoff --> check["Verbatim check<br/>missing values reported"]
     check --> ledger[("Local SQLite ledger")]
     resume(["You: Cairn resume"]) --> log["decision_log<br/>view=current"]
     ledger --> log
@@ -69,7 +69,7 @@ switch the model (`/model`) and run Cairn Handoff again. Cairn never does that o
 the session would be a second model call over the whole context.
 
 In the optional modes (sampling, bridge, API) Cairn condenses the source itself: it masks code, IDs and
-values as `[[CAIRN-HOLD-n]]`, calls the model, restores the blocks byte-exact and checks each quote
+values as `[[CAIRN-HOLD-n]]`, calls the model, restores the blocks byte-exact and checks the brief's quotes
 against the source.
 
 ---
@@ -107,7 +107,7 @@ To undo: `node dist/server.js uninstall`
 | 🙋 | **Explicit invocation only.** No automatic triggers, no SessionStart/PreCompact hooks. Reinstalling removes the old Cairn hooks and keeps foreign ones. | ADR-0010 |
 | 🧭 | **Current model generation at effort `high`.** Seven pool models with full profiles, calibrated on real runs; Claude hosts get Claude Opus 5.5, Codex hosts GPT-6.1 Sol. | ADR-0011, ADR-0012 |
 | 📌 | **Grounded briefs.** The user's words in quotes, the summarizer's inference marked `(derived)`, quotes checked against the source in the optional modes. | ADR-0013 |
-| 🛡️ | **Safer handoffs.** A failed compaction stores nothing; resume treats the ledger as data, not instructions; transcript reads are limited to `~/.claude/projects/*.jsonl`. | ADR-0012, CHANGELOG |
+| 🛡️ | **Safer handoffs.** A failed compaction stores nothing and keeps the previous brief; resume treats the ledger as data, not instructions, and current code wins over a stale brief. | ADR-0012, CHANGELOG |
 | 🌐 | **English by default, German selectable** (`cairn install --lang de`, `CAIRN_LANG=de`). Ledgers from before the switch keep working. | CHANGELOG |
 
 The binding architecture is in [docs/adr/ADR-cairn.md](docs/adr/ADR-cairn.md), every change in the
@@ -131,8 +131,12 @@ DECISIONS
 - Rate-limit counters move to Redis: "Counters go to Redis, not in memory." (Mara)
 EVIDENCE
 - Load test: p95 at 140 ms with the Redis backend (msg#41).
+OPEN QUESTIONS
+- Shard Redis once traffic doubles? Deferred, not discarded.
 CONSTRAINTS
 - "No request may wait longer than 200 ms for the limiter."
+VERBATIM
+- `rate_limit: { backend: redis, burst: 200 }`
 NEXT STEPS
 - Measure counter consistency during a Redis failover.
 - Check the config draft against the Redis decision (derived)
@@ -145,8 +149,10 @@ DISCARDED
 - A measured value is evidence, not a target. A deferred option stays open instead of discarded.
 - The summarizer marks its own inference with `(derived)`.
 
-Mandatory values, IDs, paths, code fences and inline code are passed as `requiredVerbatim` / `exactSpans`
-and come back **byte-exact**. A new handoff **supersedes the previous one**, so the ledger stays lean and
+In the optional modes Cairn masks code fences, inline code and the values passed as `exactSpans` before the
+model call and restores them **byte-exact** afterwards (a marker the model drops stays dropped). Values passed
+as `requiredVerbatim` are checked in every mode: the result lists any that are missing from the brief. A new
+handoff **supersedes the previous one**, so the ledger stays lean and
 `decision_log view=current` carries only the most recent brief.
 
 In the optional modes Cairn checks each quote of three or more words against the source: in one piece, at
@@ -159,11 +165,11 @@ user is asked, before it stops or redirects the next step.
 ## 📊 Measured, Not Assumed
 
 Which model Cairn recommends, and how its prompt reads, comes from runs with the real models through the
-`claude` and `codex` CLIs. The results in the ADRs were recomputed by two independent reviews.
+`claude` and `codex` CLIs. ADR-0012 and ADR-0013 document each run with its numbers and limits.
 
 | **1,449** | **5 × 7** | **6** | **0.84** |
 |:--:|:--:|:--:|:--:|
-| real model calls | golden probes × pool models | foreign reviewers per brief | fidelity floor |
+| real model calls for 2.0 | golden probes × pool models | foreign reviewers per brief | fidelity floor |
 
 ### The calibration pipeline
 
@@ -187,11 +193,13 @@ flowchart LR
 </picture>
 
 Selection takes the models within 0.02 of the best one in the host's ecosystem and picks the cheapest of
-them: Claude Opus 5.5 ($4/$20 per MTok) over Fable 5.1 ($10/$50), GPT-6.1 Sol ($2/$10) over GPT-6 Astra
-($10/$50). Zones raise the floor (yellow +0.05, red +0.10); at 0.84 both picks clear even the red zone, so a
-full context is still compacted instead of handed over verbatim. Without Opus 5.5 a Claude host gets
-Haiku 5.5 in green and yellow and Fable 5.1 in red. Compare fidelity within one ecosystem: GPT reviewers
-rate GPT briefs about 0.02 higher than Claude briefs, and the correction does not remove that.
+them that clears the zone's floor: Claude Opus 5.5 ($4/$20 per MTok) over Fable 5.1 ($10/$50), GPT-6.1 Sol
+($2/$10) over GPT-6 Astra ($10/$50). If that model misses the floor, the next band model that clears it is
+selected, and verbatim remains only when no band model clears it. Zones raise the floor (yellow +0.05, red
++0.10); at 0.84 both picks clear even the red zone, so the selection names a model instead of falling back
+to verbatim. Without Opus 5.5 a Claude host gets Haiku 5.5 in green and yellow and Fable 5.1 in red. Compare
+fidelity within one ecosystem: GPT reviewers rate GPT briefs about 0.02 higher than Claude briefs, and the
+correction does not remove that.
 
 <details>
 <summary>Table view</summary>
@@ -205,7 +213,8 @@ rate GPT briefs about 0.02 higher than Claude briefs, and the correction does no
 
 Golden set of 2026-10-12, two runs at effort `high`, pooled, each reviewer's leniency taken out by a
 least-squares fit (ADR-0012). In every golden brief all seven models kept every verbatim marker and every
-key fact.
+key fact (five of them only inside the verbatim blocks), so the deterministic key-fact check does not tell
+the models apart; the reviewers' scores do.
 
 </details>
 
@@ -233,25 +242,28 @@ neither Opus 5.5 nor GPT-6.1 Sol wrote the invented lines the old prompt had pro
 | Reviewer sees only the ground truth (2026-10-12 / 2026-10-14) | 0.8523 | 0.8376 |
 | Reviewer also sees the source (re-review, 2026-10-15) | 0.9282 | **0.9676** |
 
-Old prompt: two golden runs pooled (they differ by 0.0026 when re-scored). Each value is the mean over 35
-briefs, each scored by 6 reviewers.
+Each brief is scored by 6 reviewers. 2.0 prompt: 35 briefs. Prompt before 2.0: two golden runs of 35
+briefs, pooled (they differ by 0.0026 when re-scored).
 
 </details>
 
-### Every real run
+### Every real run for 2.0
 
 | Date | Run | Model calls | Result |
 |---|---|--:|---|
-| 2026-10-11 | Single probe, 7 models | 49 | First live run at effort `high`, no skips |
-| 2026-10-11 | Codex window check | 3 | GPT-6 via Codex uses a 258,400-token window |
+| 2026-10-11 | Single probe, 7 models | 49 | First live run of the current pool, no skips |
+| 2026-10-11 | Codex window check | 3 | Three rollouts: GPT-6 via Codex uses a 258,400-token window |
 | 2026-10-12 | Golden set, run 1 | 245 | 35 briefs, 210 reviews |
 | 2026-10-12 | Golden set, run 2 | 245 | Pooled with run 1 into the profiles |
 | 2026-10-12 | High-fill control, 400K tokens | 28 | Every Claude brief kept facts from start, middle and end |
-| 2026-10-13 | End-to-end bridge handoff | 2 | Opus 5.5 wrote three lines of its own inference as given |
+| 2026-10-13 | End-to-end handoff | 2 | Opus 5.5 wrote three lines of its own inference as given |
 | 2026-10-14 | Golden set, 2.0 prompt | 245 | 250 quotes in 35 briefs, all in the source |
 | 2026-10-14 | End-to-end rerun, 2.0 prompt | 2 | The three invented lines are gone |
 | 2026-10-15 | Re-review with the source | 630 | 2.0 prompt 0.9676 against 0.9282 |
 | | **Total** | **1,449** | |
+
+A call is one CLI run (`claude -p` or `codex exec`). The Codex window check and the 2026-10-13 handoff are
+counted from the rollouts and briefs ADR-0012 and ADR-0013 describe; the calibration of 1.x is not included.
 
 ---
 
@@ -272,7 +284,7 @@ briefs, each scored by 6 reviewers.
 - **Recall key matching** (242 tests) holds the deterministic key-fact check to 133 paraphrases and
   look-alikes from three review rounds, in German and English.
 - **Grounded briefs**: the quote check is tested on negations, clause ends, nested quotes and escaped
-  text, with time limits on inputs of up to about 1 MB.
+  text, with time limits on inputs of up to about 2 MB.
 - **Calibration without a model call**: `npm run calibrate -- --dry-run --golden` runs the whole pipeline
   on a fixture compactor and a heuristic reviewer and prints how many calls a live run would make.
 
@@ -324,9 +336,9 @@ The zones are deliberately simple:
 
 | Zone | Threshold | Meaning |
 |:--:|:--:|---|
-| 🟢 **Green** | `< 40 %` | Keep working normally |
-| 🟡 **Yellow** | `40–70 %` | Context filling; you decide whether to request a handoff |
-| 🔴 **Red** | `≥ 70 %` | High context usage; no automatic handoff |
+| 🟢 **Green** | `≤ 40 %` | Keep working normally |
+| 🟡 **Yellow** | `≤ 70 %` | Context filling; you decide whether to request a handoff |
+| 🔴 **Red** | `> 70 %` | High context usage; no automatic handoff |
 
 ---
 
@@ -422,9 +434,7 @@ into `~/.agents/skills/` for Codex (including `agents/openai.yaml`), or `skills/
 
 </details>
 
-<a id="updating-from-1x"></a>
-
-## ⬆️ Updating from 1.x
+## Updating an existing installation
 
 After updating your checkout (`git pull`), run `npm install` and `node dist/server.js install`, then restart
 Claude Code / Codex. This refreshes the marked Cairn block in AGENTS.md and the skills, including

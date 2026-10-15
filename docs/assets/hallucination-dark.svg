@@ -2,7 +2,7 @@
 <title id="t">Hallucination score, old prompt vs 2.0 grounded prompt</title>
 <desc id="d">Dumbbell chart. Reviewer with only the ground truth: old 0.8523, new 0.8376. Reviewer that also sees the source: old 0.9282, new 0.9676.</desc>
 <text x="0.0" y="18.0" font-size="16" fill="#f0efec" text-anchor="start" font-weight="600">Grounded briefs: hallucination score (1.0 = nothing invented)</text>
-<text x="0.0" y="38.0" font-size="12.5" fill="#c3c2b7" text-anchor="start" font-weight="400">Same 35 stored briefs per prompt, 6 reviewers each. Old prompt: two runs pooled.</text>
+<text x="0.0" y="38.0" font-size="12.5" fill="#c3c2b7" text-anchor="start" font-weight="400">6 reviewers per brief: 35 briefs for 2.0; two runs of 35 briefs, pooled, for the old prompt.</text>
 <circle cx="306" cy="58" r="5" fill="#898781" stroke="#0d1117" stroke-width="2"/>
 <text x="316.0" y="62.0" font-size="11.5" fill="#c3c2b7" text-anchor="start" font-weight="400">prompt before 2.0</text>
 <circle cx="446" cy="58" r="6" fill="#3987e5" stroke="#0d1117" stroke-width="2"/>
