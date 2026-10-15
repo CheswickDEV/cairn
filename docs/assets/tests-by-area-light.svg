@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="360" viewBox="0 0 800 360" role="img" aria-labelledby="t d" font-family="system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+<title id="t">Tests by area</title>
+<desc id="d">Horizontal bar chart of test counts per area: Recall key matching 242, Calibration harness, reviewers, golden set 201, Model profiles &amp; summarizer selection 152, Providers, bridge &amp; sampling 64, Handoff: failures, modes, tools 62, Statusline, zones &amp; Codex rollout 62, Grounded briefs &amp; quote check 44, Installer &amp; shell shortcuts 41, Ledger, verbatim, i18n, platform 29.</desc>
+<text x="0.0" y="18.0" font-size="16" fill="#0b0b0b" text-anchor="start" font-weight="600">897 tests in 37 files, by area</text>
+<text x="0.0" y="38.0" font-size="12.5" fill="#52514e" text-anchor="start" font-weight="400">All green at v2.0.0 (typecheck strict, Vitest)</text>
+<line x1="300" y1="58" x2="300" y2="352" stroke="#c3c2b7" stroke-width="1"/>
+<text x="288.0" y="78.0" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">Recall key matching</text>
+<path d="M300.0,64.0 H740.0 Q744.0,64.0 744.0,68.0 V80.0 Q744.0,84.0 740.0,84.0 H300.0 Z" fill="#2a78d6"/>
+<text x="752.0" y="78.0" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="600">242</text>
+<text x="288.0" y="110.0" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">Calibration harness, reviewers, golden set</text>
+<path d="M300.0,96.0 H664.8 Q668.8,96.0 668.8,100.0 V112.0 Q668.8,116.0 664.8,116.0 H300.0 Z" fill="#2a78d6"/>
+<text x="676.8" y="110.0" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="600">201</text>
+<text x="288.0" y="142.0" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">Model profiles &amp; summarizer selection</text>
+<path d="M300.0,128.0 H574.9 Q578.9,128.0 578.9,132.0 V144.0 Q578.9,148.0 574.9,148.0 H300.0 Z" fill="#2a78d6"/>
+<text x="586.9" y="142.0" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="600">152</text>
+<text x="288.0" y="174.0" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">Providers, bridge &amp; sampling</text>
+<path d="M300.0,160.0 H413.4 Q417.4,160.0 417.4,164.0 V176.0 Q417.4,180.0 413.4,180.0 H300.0 Z" fill="#2a78d6"/>
+<text x="425.4" y="174.0" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="600">64</text>
+<text x="288.0" y="206.0" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">Handoff: failures, modes, tools</text>
+<path d="M300.0,192.0 H409.8 Q413.8,192.0 413.8,196.0 V208.0 Q413.8,212.0 409.8,212.0 H300.0 Z" fill="#2a78d6"/>
+<text x="421.8" y="206.0" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="600">62</text>
+<text x="288.0" y="238.0" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">Statusline, zones &amp; Codex rollout</text>
+<path d="M300.0,224.0 H409.8 Q413.8,224.0 413.8,228.0 V240.0 Q413.8,244.0 409.8,244.0 H300.0 Z" fill="#2a78d6"/>
+<text x="421.8" y="238.0" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="600">62</text>
+<text x="288.0" y="270.0" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">Grounded briefs &amp; quote check</text>
+<path d="M300.0,256.0 H376.7 Q380.7,256.0 380.7,260.0 V272.0 Q380.7,276.0 376.7,276.0 H300.0 Z" fill="#2a78d6"/>
+<text x="388.7" y="270.0" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="600">44</text>
+<text x="288.0" y="302.0" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">Installer &amp; shell shortcuts</text>
+<path d="M300.0,288.0 H371.2 Q375.2,288.0 375.2,292.0 V304.0 Q375.2,308.0 371.2,308.0 H300.0 Z" fill="#2a78d6"/>
+<text x="383.2" y="302.0" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="600">41</text>
+<text x="288.0" y="334.0" font-size="12.5" fill="#52514e" text-anchor="end" font-weight="400">Ledger, verbatim, i18n, platform</text>
+<path d="M300.0,320.0 H349.2 Q353.2,320.0 353.2,324.0 V336.0 Q353.2,340.0 349.2,340.0 H300.0 Z" fill="#2a78d6"/>
+<text x="361.2" y="334.0" font-size="12" fill="#0b0b0b" text-anchor="start" font-weight="600">29</text>
+</svg>

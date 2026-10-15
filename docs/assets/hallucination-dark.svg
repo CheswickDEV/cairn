@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="220" viewBox="0 0 800 220" role="img" aria-labelledby="t d" font-family="system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+<title id="t">Hallucination score, old prompt vs 2.0 grounded prompt</title>
+<desc id="d">Dumbbell chart. Reviewer with only the ground truth: old 0.8523, new 0.8376. Reviewer that also sees the source: old 0.9282, new 0.9676.</desc>
+<text x="0.0" y="18.0" font-size="16" fill="#f0efec" text-anchor="start" font-weight="600">Grounded briefs: hallucination score (1.0 = nothing invented)</text>
+<text x="0.0" y="38.0" font-size="12.5" fill="#c3c2b7" text-anchor="start" font-weight="400">Same 35 stored briefs per prompt, 6 reviewers each. Old prompt: two runs pooled.</text>
+<circle cx="306" cy="58" r="5" fill="#898781" stroke="#0d1117" stroke-width="2"/>
+<text x="316.0" y="62.0" font-size="11.5" fill="#c3c2b7" text-anchor="start" font-weight="400">prompt before 2.0</text>
+<circle cx="446" cy="58" r="6" fill="#3987e5" stroke="#0d1117" stroke-width="2"/>
+<text x="458.0" y="62.0" font-size="11.5" fill="#c3c2b7" text-anchor="start" font-weight="400">2.0 grounded prompt</text>
+<text x="286.0" y="109.0" font-size="12.5" fill="#f0efec" text-anchor="end" font-weight="600">Reviewer sees only the ground truth</text>
+<text x="286.0" y="125.0" font-size="11" fill="#a3a29b" text-anchor="end" font-weight="400">runs of 2026-10-12 and 2026-10-14</text>
+<line x1="300" y1="111.0" x2="760" y2="111.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="420.3" y1="111.0" x2="386.5" y2="111.0" stroke="#4a4a46" stroke-width="3" stroke-linecap="round"/>
+<circle cx="420.3" cy="111.0" r="5" fill="#898781" stroke="#0d1117" stroke-width="2"/>
+<circle cx="386.5" cy="111.0" r="6" fill="#3987e5" stroke="#0d1117" stroke-width="2"/>
+<text x="376.5" y="101.0" font-size="11.5" fill="#f0efec" text-anchor="end" font-weight="400" style="font-variant-numeric:tabular-nums">0.8376</text>
+<text x="430.3" y="101.0" font-size="11.5" fill="#c3c2b7" text-anchor="start" font-weight="400" style="font-variant-numeric:tabular-nums">0.8523</text>
+<text x="286.0" y="163.0" font-size="12.5" fill="#f0efec" text-anchor="end" font-weight="600">Reviewer also sees the source</text>
+<text x="286.0" y="179.0" font-size="11" fill="#a3a29b" text-anchor="end" font-weight="400">re-review of the same briefs, 2026-10-15</text>
+<line x1="300" y1="165.0" x2="760" y2="165.0" stroke="#2c2c2a" stroke-width="1"/>
+<line x1="594.9" y1="165.0" x2="685.5" y2="165.0" stroke="#4a4a46" stroke-width="3" stroke-linecap="round"/>
+<circle cx="594.9" cy="165.0" r="5" fill="#898781" stroke="#0d1117" stroke-width="2"/>
+<circle cx="685.5" cy="165.0" r="6" fill="#3987e5" stroke="#0d1117" stroke-width="2"/>
+<text x="584.9" y="155.0" font-size="11.5" fill="#c3c2b7" text-anchor="end" font-weight="400" style="font-variant-numeric:tabular-nums">0.9282</text>
+<text x="695.5" y="155.0" font-size="11.5" fill="#f0efec" text-anchor="start" font-weight="600" style="font-variant-numeric:tabular-nums">0.9676</text>
+<line x1="300" y1="194.0" x2="760" y2="194.0" stroke="#4a4a46" stroke-width="1"/>
+<line x1="300.0" y1="194.0" x2="300.0" y2="198.0" stroke="#4a4a46" stroke-width="1"/>
+<text x="300.0" y="212.0" font-size="11" fill="#a3a29b" text-anchor="middle" font-weight="400" style="font-variant-numeric:tabular-nums">0.80</text>
+<line x1="415.0" y1="194.0" x2="415.0" y2="198.0" stroke="#4a4a46" stroke-width="1"/>
+<text x="415.0" y="212.0" font-size="11" fill="#a3a29b" text-anchor="middle" font-weight="400" style="font-variant-numeric:tabular-nums">0.85</text>
+<line x1="530.0" y1="194.0" x2="530.0" y2="198.0" stroke="#4a4a46" stroke-width="1"/>
+<text x="530.0" y="212.0" font-size="11" fill="#a3a29b" text-anchor="middle" font-weight="400" style="font-variant-numeric:tabular-nums">0.90</text>
+<line x1="645.0" y1="194.0" x2="645.0" y2="198.0" stroke="#4a4a46" stroke-width="1"/>
+<text x="645.0" y="212.0" font-size="11" fill="#a3a29b" text-anchor="middle" font-weight="400" style="font-variant-numeric:tabular-nums">0.95</text>
+<line x1="760.0" y1="194.0" x2="760.0" y2="198.0" stroke="#4a4a46" stroke-width="1"/>
+<text x="760.0" y="212.0" font-size="11" fill="#a3a29b" text-anchor="middle" font-weight="400" style="font-variant-numeric:tabular-nums">1.00</text>
+</svg>
