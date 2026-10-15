@@ -402,8 +402,9 @@ Makes English the canonical/default language while keeping German a full, select
 - **`[CODE-IMPACTING]`** Handoff-brief heads are now stored under a STABLE language-independent key
   `HANDOFF_DECISION_KEY` ("cairn:handoff-brief") instead of the localized title; supersession/re-injection
   also match the legacy German title `LEGACY_HANDOFF_TITLE_DE` so pre-i18n ledgers keep working.
-- Repo docs translated to English; the German baseline is archived at git tag `v1.4.0-de` /
-  branch `archive/german-v1.4.0`. Calibration fixtures (`docs/calibration/probe-context.md`,
+- Repo docs translated to English. The German docs before the translation are not part of this
+  repository's history, which starts at 1.4.0 (a tag `v1.4.0-de` / branch `archive/german-v1.4.0`
+  named here earlier was never published). Calibration fixtures (`docs/calibration/probe-context.md`,
   `ground-truth.json`) intentionally remain German (test data).
 
 ---
