@@ -51,14 +51,40 @@ Cairn keeps a local memory **alongside** the agents for exactly this: no backend
 ## 🧭 How It Works
 
 ```mermaid
-flowchart LR
-    ask(["You: Cairn Handoff"]) --> host["Session model<br/>in Claude Code or Codex"]
-    host -->|"7-bucket brief"| handoff["handoff tool"]
-    handoff --> check["Verbatim check<br/>missing values reported"]
-    check --> ledger[("Local SQLite ledger")]
-    resume(["You: Cairn resume"]) --> log["decision_log<br/>view=current"]
-    ledger --> log
-    log --> next["Next session<br/>or another model"]
+flowchart TB
+    user(["You"])
+
+    subgraph host["Claude Code or Codex"]
+        skills["Skills cairn · cairn-handoff · cairn-resume · cairn-help<br/>+ Codex AGENTS.md block<br/>run only on an explicit request"]
+        session["Session model"]
+        skills --> session
+    end
+
+    subgraph server["cairn MCP server · stdio"]
+        handoff["handoff<br/>store a 7-bucket brief"]
+        decisionlog["decision_log<br/>read the ledger"]
+        ctx["context_status<br/>zone of the window"]
+        hoststatus["host_status<br/>CLIs, login, model"]
+    end
+
+    ledger[("SQLite ledger · ~/.cairn/cairn.sqlite<br/>append-only · no backend · no telemetry")]
+    optional["Optional summarizer<br/>sampling · bridge · API<br/>off by default"]
+
+    subgraph passive["Passive zone displays"]
+        statusline["Claude Code statusline<br/>no MCP call"]
+        codexzone["cairn status · window · tab<br/>Codex rollout reader"]
+    end
+
+    user -->|"Cairn Handoff · Cairn resume · Cairn Help · status request"| skills
+    session -->|"brief"| handoff
+    session -->|"resume"| decisionlog
+    session -->|"on request"| ctx
+    session -->|"on request"| hoststatus
+    handoff -.->|"only if enabled and configured"| optional
+    handoff -->|"brief · decisions · evidence"| ledger
+    ledger -->|"latest brief"| decisionlog
+    decisionlog -->|"read as data"| session
+    passive -.->|"zone at a glance"| user
 ```
 
 The default path is **account mode**: the host agent writes the handoff brief inside your running
@@ -71,6 +97,82 @@ the session would be a second model call over the whole context.
 In the optional modes (sampling, bridge, API) Cairn condenses the source itself: it masks code, IDs and
 values as `[[CAIRN-HOLD-n]]`, calls the model, restores the blocks byte-exact and checks the brief's quotes
 against the source.
+
+### Inside a handoff
+
+Every step of the `handoff` tool, in both the default account mode and the optional modes:
+
+```mermaid
+flowchart TB
+    request["handoff call from the session model<br/>brief or source · requiredVerbatim · exactSpans<br/>host model · zone · decisions · evidence"]
+    request --> select["selectSummarizer<br/>most faithful model for the zone<br/>(see Measured, Not Assumed)"]
+    select --> freeze["freezeVerbatim<br/>code fences · inline code · exactSpans<br/>→ [[CAIRN-HOLD-n]]"]
+    freeze --> mode{"Mode"}
+
+    mode -->|"account · default"| asis["Brief kept as the host wrote it<br/>no model call · no egress"]
+    mode -->|"sampling · bridge · api"| guard{"Egress guardrail<br/>mode enabled<br/>and configured?"}
+    guard -->|"no"| refused["Refused before any call<br/>nothing leaves the machine"]
+
+    subgraph modes["Optional modes"]
+        direction LR
+        sampling["sampling<br/>MCP sampling/createMessage<br/>the client picks the model,<br/>your session model as a hint"]
+        bridge["bridge · CAIRN_BRIDGE<br/>claude -p or codex exec<br/>effort high · no tools · neutral cwd<br/>no hooks, MCP servers or user config<br/>your session model if it runs there,<br/>else the CLI default"]
+        api["api · CAIRN_ENDPOINT_NAME<br/>Anthropic · OpenAI · Gemini<br/>key read from env at call time<br/>the endpoint's model,<br/>else your session model"]
+    end
+
+    guard -->|"yes"| sampling & bridge & api
+    sampling & bridge & api --> answer{"Text<br/>returned?"}
+    answer -->|"error · blocked · empty"| failed["Handoff fails<br/>nothing stored<br/>previous brief stays current"]
+    answer -->|"yes"| restore["restoreVerbatim<br/>blocks back byte-exact<br/>a dropped marker stays dropped"]
+
+    asis --> required["requiredVerbatim check<br/>→ missingRequired"]
+    restore --> required
+    required --> source{"Source<br/>available?"}
+    source -->|"optional modes"| quotes["Quote check<br/>quotes of 3+ words vs. the source<br/>unverified → listed + closing note"]
+    source -->|"account mode"| head
+    quotes --> head["New brief head cairn:handoff-brief<br/>supersedes the previous head"]
+    head --> rows["Held blocks → evidence rows, byte-exact<br/>host decisions + evidence → rows"]
+    rows --> ledger[("SQLite ledger<br/>decisions + evidence<br/>nothing is ever deleted")]
+    rows --> result["Result to the session model<br/>stored id · held blocks · missing values<br/>unverified quotes · recommended model"]
+```
+
+### Resume
+
+```mermaid
+flowchart TB
+    ask(["You: Cairn resume"]) --> current["decision_log view=current"]
+    current --> state["Accepted and open decisions, incl. the latest brief<br/>evidence not attached, so the re-injection stays lean"]
+    state --> read["Session model reads it as data<br/>quotes = exact words · (derived) and a check note = inference<br/>current code and your instructions win"]
+    read --> check{"Would an unquoted or<br/>derived constraint stop or<br/>redirect the next step?"}
+    check -->|"yes"| verify["Check it against the code<br/>or ask you first"]
+    check -->|"no"| next["Continue from NEXT STEPS<br/>read only the files needed"]
+    verify --> next
+    next -.->|"an exact value is missing"| all["decision_log view=all, withEvidence<br/>byte-exact blocks from the ledger"]
+```
+
+### Zones and status displays
+
+```mermaid
+flowchart LR
+    subgraph claude["Claude Code"]
+        json["Status JSON on stdin<br/>model.id · context_window.*"] --> slbin["cairn-statusline.js"]
+    end
+    subgraph codex["Codex"]
+        rollout[("rollout-*.jsonl<br/>token_count events<br/>read-only")] --> reader["Rollout reader<br/>cairn status · list<br/>window · tab · stop"]
+    end
+    request(["Explicit status request"]) --> ctx["context_status<br/>+ user override<br/>+ noise factor"]
+
+    slbin & reader & ctx --> window["Active window<br/>min(model max from the profile,<br/>window the host reports)"]
+    window --> used{"Used share<br/>of the window"}
+    used -->|"up to 40 %"| green["🟢 green<br/>keep working"]
+    used -->|"up to 70 %"| yellow["🟡 yellow<br/>context filling"]
+    used -->|"over 70 %"| red["🔴 red<br/>high usage"]
+    yellow -.-> you(["You decide<br/>no automatic handoff"])
+    red -.-> you
+```
+
+The thresholds come from the model profile: 40 % and 70 % for the pool models, 50 % and 70 % for the generic
+fallback. They are marked provisional.
 
 ---
 
@@ -160,6 +262,42 @@ word boundaries, without a dropped negation. A quote it cannot find is listed in
 end of the stored brief. On resume, an unquoted or derived constraint is checked against the code, or the
 user is asked, before it stops or redirects the next step.
 
+A handoff over time, in every mode:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as You
+    participant H as Host agent
+    participant C as Cairn handoff
+    participant M as Summarizer model
+    participant L as Ledger
+    U->>H: Cairn Handoff
+    H->>C: brief or source, exactSpans, requiredVerbatim, host model, zone
+    C->>C: select the most faithful summarizer for the zone
+    C->>C: mask code fences, inline code and exactSpans as [[CAIRN-HOLD-n]]
+    alt account mode (default)
+        Note over C: the host's brief is kept as written, no model call, no egress
+        C->>C: list required values missing from the brief
+        C->>L: store the brief, it supersedes the previous one, held blocks as evidence
+        C-->>H: stored id, missing values, recommendation
+    else optional mode not enabled or not configured
+        C-->>H: refused by the egress guardrail before any call
+    else optional mode, the model answers
+        C->>M: masked source + 7-bucket prompt (sampling, bridge or API)
+        M-->>C: brief with markers
+        C->>C: restore the blocks byte-exact, list missing required values
+        C->>C: check quotes against the source, note unverified ones at the end
+        C->>L: store the brief, it supersedes the previous one, held blocks as evidence
+        C-->>H: stored id, missing values, unverified quotes, recommendation
+    else optional mode, the call fails, is blocked or returns no text
+        C->>M: masked source + 7-bucket prompt
+        M-->>C: error or empty answer
+        C-->>H: handoff fails, nothing stored, the previous brief stays current
+    end
+    H-->>U: saved or not, and any recommended model
+```
+
 ---
 
 ## 📊 Measured, Not Assumed
@@ -191,6 +329,19 @@ flowchart LR
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/fidelity-dark.svg">
   <img alt="Dot plot of calibrated fidelity. Claude hosts: Opus 5.5 0.9596 (selected), Fable 5.1 0.9510, Haiku 5.5 0.9366, Sonnet 5.5 0.9363. GPT hosts: GPT-6 Astra 0.9639, GPT-6.1 Sol 0.9573 (selected), GPT-6 Luna 0.9397. Both selected models clear the red-zone floor of 0.94." src="docs/assets/fidelity-light.svg" width="800">
 </picture>
+
+```mermaid
+flowchart LR
+    eco["Active profiles of the ecosystem<br/>the brief is written in, + local"] --> reach["Reachable ones"]
+    eco -->|"none"| verb["Verbatim fallback<br/>reported in the result"]
+    reach -->|"none"| verb
+    reach --> band["Top band: within 0.02<br/>of the best fidelity,<br/>cheapest first for this input"]
+    band --> clears{"Clears floor 0.84<br/>+ zone bump?<br/>yellow +0.05 · red +0.10"}
+    clears -->|"yes"| pick["Selected: named<br/>in the handoff result"]
+    clears -->|"no"| nextm["Next band model"]
+    nextm --> clears
+    clears -->|"none left"| verb
+```
 
 Selection takes the models within 0.02 of the best one in the host's ecosystem and picks the cheapest of
 them that clears the zone's floor: Claude Opus 5.5 ($4/$20 per MTok) over Fable 5.1 ($10/$50), GPT-6.1 Sol
@@ -373,6 +524,31 @@ foreign project files are rewritten.
 npm install
 node dist/server.js install
 ```
+
+What `install` sets up:
+
+```mermaid
+flowchart LR
+    cmd["node dist/server.js install<br/>--lang en|de, else a prompt, else en"]
+    cmd --> lang[("~/.cairn/config.json<br/>language")]
+    cmd -->|"~/.claude exists or claude on PATH"| claudeSetup
+    cmd -->|"~/.codex exists or codex on PATH"| codexSetup
+    cmd --> sh["Shell profiles<br/>PowerShell · .zshrc · .bashrc<br/>cairn window · tab · stop · status · list"]
+
+    subgraph claudeSetup["Claude Code"]
+        c1["~/.claude/settings.json<br/>Cairn statusline set<br/>old Cairn hooks removed, foreign hooks kept"]
+        c2["~/.claude/skills<br/>cairn · cairn-handoff · cairn-resume · cairn-help<br/>disable-model-invocation: true"]
+        c3["claude mcp add cairn --scope user<br/>CAIRN_DB=~/.cairn/cairn.sqlite<br/>claude not on PATH: the command is printed"]
+    end
+
+    subgraph codexSetup["Codex"]
+        x1["~/.codex/config.toml<br/>[mcp_servers.cairn]"]
+        x2["~/.codex/AGENTS.md<br/>marked Cairn block"]
+        x3["~/.agents/skills<br/>the same four skills<br/>allow_implicit_invocation: false"]
+    end
+```
+
+`node dist/server.js uninstall` removes exactly what `install` added.
 
 </details>
 
