@@ -153,7 +153,8 @@ In the optional modes Cairn masks code fences, inline code and the values passed
 model call and restores them **byte-exact** afterwards (a marker the model drops stays dropped). Values passed
 as `requiredVerbatim` are checked in every mode: the result lists any that are missing from the brief. A new
 handoff **supersedes the previous one**, so the ledger stays lean and
-`decision_log view=current` carries only the most recent brief.
+`decision_log view=current` carries only the most recent brief, without evidence. The held blocks are
+stored as evidence; `decision_log view=all` with `withEvidence` returns them byte-exact.
 
 In the optional modes Cairn checks each quote of three or more words against the source: in one piece, at
 word boundaries, without a dropped negation. A quote it cannot find is listed in the result and noted at the
@@ -173,17 +174,13 @@ Which model Cairn recommends, and how its prompt reads, comes from runs with the
 
 ### The calibration pipeline
 
-```mermaid
-flowchart LR
-    probes["5 golden probes<br/>with ground truth"] --> mask["Mask code and IDs<br/>[[CAIRN-HOLD-n]]"]
-    mask --> compact["7 pool models compact<br/>at effort high"]
-    compact --> restore["Restore blocks<br/>byte-exact"]
-    restore --> review["6 foreign reviewers per brief<br/>no model reviews itself"]
-    review --> score["Score: recall, hallucination,<br/>supersession, verbatim"]
-    score --> pool["Pool two runs,<br/>remove reviewer leniency"]
-    pool --> profiles["Fidelity per model<br/>in the profiles"]
-    profiles --> select["Selection: top band,<br/>cheapest, zone floor"]
-```
+1. Five golden probes with ground truth; code and IDs are masked as `[[CAIRN-HOLD-n]]`.
+2. Each of the seven pool models compacts every probe at effort `high`; the blocks are restored byte-exact.
+3. Six foreign reviewers judge each brief, no model reviews itself. The score covers recall, hallucination,
+   supersession and verbatim.
+4. Two runs are pooled and each reviewer's leniency is taken out.
+5. That gives the fidelity per model in the profiles, and the selection works from it: top band, cheapest,
+   zone floor.
 
 ### Fidelity per model
 
@@ -341,6 +338,9 @@ The zones are deliberately simple:
 | 🟡 **Yellow** | `≤ 70 %` | Context filling; you decide whether to request a handoff |
 | 🔴 **Red** | `> 70 %` | High context usage; no automatic handoff |
 
+Claude Code shows the zone in its statusline, from the status JSON it passes on stdin; Codex through the
+shell commands below. Neither needs an MCP call; `context_status` returns the zone on request.
+
 ---
 
 ## 🖥️ Codex Ambient Zone & Shell Commands
@@ -374,6 +374,19 @@ foreign project files are rewritten.
 npm install
 node dist/server.js install
 ```
+
+What `install` sets up:
+
+- The language in `~/.cairn/config.json`: `--lang en|de`, else a prompt, else `en`.
+- **Claude Code** (`~/.claude` exists or `claude` is on PATH): the Cairn statusline in `settings.json` (old
+  Cairn hooks removed, foreign hooks kept), the four skills `cairn`, `cairn-handoff`, `cairn-resume`,
+  `cairn-help`, and `claude mcp add cairn --scope user` with `CAIRN_DB`. Without `claude` on PATH the
+  command is printed.
+- **Codex** (`~/.codex` exists or `codex` is on PATH): `[mcp_servers.cairn]` in `config.toml`, a marked
+  Cairn block in `AGENTS.md`, the same four skills in `~/.agents/skills`.
+- **Shell profiles** (PowerShell, `.zshrc`, `.bashrc`): `cairn window`, `tab`, `stop`, `status`, `list`.
+
+If neither host is found, nothing else is installed.
 
 `node dist/server.js uninstall` removes Cairn's statusline and old hooks, the four skills, the MCP
 registration, the `[mcp_servers.cairn]` and AGENTS.md blocks and the shell shortcuts. The language setting
@@ -482,6 +495,10 @@ In every mode the handoff result also names the most faithful summarizer (Claude
 in the ecosystem the brief is written in) unless it wrote the brief or already is the model Cairn asked
 for, and, after your session model or an endpoint's model, how to switch to it. A gemini endpoint gets no
 recommendation (details in ADR-0012).
+
+The bridge runs `claude -p` or `codex exec` in a neutral working directory and keeps no session: `claude`
+without tools, MCP tools, CLAUDE.md or user hooks, `codex` in a read-only sandbox with its `config.toml`
+ignored. In API mode the key is read from the environment at call time.
 
 Without explicit configuration, Cairn **refuses** all non-account paths.
 
