@@ -23,6 +23,8 @@ Cairn shows how full the context is, keeps a decision and evidence ledger, and h
 
 </div>
 
+https://github.com/user-attachments/assets/88430108-0aa4-4984-a00e-41951ba71b94
+
 > [!NOTE]
 > **Cairn 2.0** runs only when you ask. It recommends its summarizer from the current model generation
 > (Claude Opus 5.5, GPT-6.1 Sol), and its briefs keep your words apart from the summarizer's inference.
