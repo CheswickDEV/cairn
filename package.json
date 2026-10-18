@@ -49,7 +49,7 @@
     "calibrate": "tsx src/calibration/cli.ts"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.13.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "zod": "^3.25.0"
   },
   "devDependencies": {
